@@ -65,7 +65,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [awaitingApproval, setAwaitingApproval] = useState(false);
-  const [expandedEvents, setExpandedEvents] = useState<Set<string>>(new Set());
+  const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   // Store intermediate data between stages
   const stageData = useRef<Record<string, unknown>>({});
   const feedEndRef = useRef<HTMLDivElement>(null);
@@ -264,7 +264,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   }
 
   function toggleEvent(id: string) {
-    setExpandedEvents((prev) => {
+    setCollapsedEvents((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
@@ -531,13 +531,13 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
                 <span className="text-dark-600 text-xs">
                   {new Date(event.created_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
                 </span>
-                {expandedEvents.has(event.id) ? (
-                  <ChevronDown className="w-4 h-4 text-dark-500" />
-                ) : (
+                {collapsedEvents.has(event.id) ? (
                   <ChevronRight className="w-4 h-4 text-dark-500" />
+                ) : (
+                  <ChevronDown className="w-4 h-4 text-dark-500" />
                 )}
               </button>
-              {expandedEvents.has(event.id) && (
+              {!collapsedEvents.has(event.id) && (
                 <div className="mt-3 pt-3 border-t border-dark-800">
                   {renderEventContent(event)}
                 </div>
