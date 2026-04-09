@@ -60,6 +60,22 @@ export async function POST(request: Request) {
   const allEvents = [];
   let draftsCreated = 0;
 
+  // Gather evidence ONCE for all partners (not per-partner)
+  const { data: evidenceEvents } = await db
+    .from('session_events')
+    .select('event_data')
+    .eq('session_id', session_id)
+    .in('event_type', ['company_researched', 'partner_scored']);
+
+  const evidenceByCompany = new Map<string, string[]>();
+  for (const e of evidenceEvents || []) {
+    const d = e.event_data as Record<string, unknown>;
+    const name = d.company_name as string;
+    if (!name) continue;
+    if (!evidenceByCompany.has(name)) evidenceByCompany.set(name, []);
+    evidenceByCompany.get(name)!.push(JSON.stringify(d));
+  }
+
   for (const p of partners) {
     // Outreach hygiene checks
     if (['draft_ready', 'sent', 'replied', 'meeting_booked', 'active_partner_discussion'].includes(p.status)) {
@@ -83,32 +99,28 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // Gather evidence
-    const { data: events } = await db
-      .from('session_events')
-      .select('event_data')
-      .eq('session_id', session_id)
-      .in('event_type', ['company_researched', 'partner_scored']);
-
-    const evidence = (events || [])
-      .map((e) => {
-        const d = e.event_data as Record<string, unknown>;
-        if (d.company_name === p.company_name) return JSON.stringify(d);
-        return null;
-      })
-      .filter(Boolean) as string[];
+    const evidence = evidenceByCompany.get(p.company_name) || [];
 
     const result = await runDraftStage(product, p, evidence);
 
     if (result.success && result.data.draft) {
       const draft = result.data.draft as { subject: string; body: string };
-      await db.from('partners').update({
+      const { error: updateError } = await db.from('partners').update({
         draft_subject: draft.subject,
         draft_body: draft.body,
         draft_status: 'created',
         status: 'draft_ready',
         last_updated_at: new Date().toISOString(),
       }).eq('id', p.id);
+
+      if (updateError) {
+        allEvents.push({
+          partner_id: p.id,
+          event_type: 'stage_error',
+          event_data: { stage: 'draft', error: `DB update failed: ${updateError.message}` },
+        });
+        continue;
+      }
 
       drafts.push({ partner_id: p.id, company_name: p.company_name, ...draft });
       draftsCreated++;
@@ -117,14 +129,16 @@ export async function POST(request: Request) {
     allEvents.push(...result.events);
   }
 
-  // Log all events
-  for (const event of allEvents) {
-    await db.from('session_events').insert({
-      session_id,
-      partner_id: event.partner_id,
-      event_type: event.event_type,
-      event_data: event.event_data,
-    });
+  // Log all events in one batch
+  if (allEvents.length > 0) {
+    await db.from('session_events').insert(
+      allEvents.map((event) => ({
+        session_id,
+        partner_id: event.partner_id,
+        event_type: event.event_type,
+        event_data: event.event_data,
+      }))
+    );
   }
 
   // Update session
