@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { slugify } from '@/lib/utils';
 
@@ -12,8 +12,11 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error && data.user) {
-      // Check if profile exists, create org + profile if not
-      const { data: profile } = await supabase
+      // Use service client for org/profile creation (bypasses RLS)
+      const admin = createServiceClient();
+
+      // Check if profile exists
+      const { data: profile } = await admin
         .from('profiles')
         .select('id')
         .eq('id', data.user.id)
@@ -24,7 +27,7 @@ export async function GET(request: Request) {
         const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
 
         // Create organisation
-        const { data: org } = await supabase
+        const { data: org } = await admin
           .from('organisations')
           .insert({
             name: orgName,
@@ -36,7 +39,7 @@ export async function GET(request: Request) {
 
         if (org) {
           // Create profile
-          await supabase.from('profiles').insert({
+          await admin.from('profiles').insert({
             id: data.user.id,
             organisation_id: org.id,
             full_name: meta?.full_name || null,
