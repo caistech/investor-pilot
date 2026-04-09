@@ -1,15 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
+import { authenticateAndGetDb } from '@/lib/agent/db';
 import { runSelectMotionStage } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { user, db, error } = await authenticateAndGetDb();
+  if (error) return error;
 
   const { session_id, product_id, partners } = await request.json();
 
-  const { data: product } = await supabase
+  const { data: product } = await db
     .from('products')
     .select('*')
     .eq('id', product_id)
@@ -19,17 +18,16 @@ export async function POST(request: Request) {
 
   const result = await runSelectMotionStage(product, partners);
 
-  // Update partner records with motion and GTM angle
   if (result.success && result.data.motions) {
-    const { data: profile } = await supabase
+    const { data: profile } = await db
       .from('profiles')
       .select('organisation_id')
-      .eq('id', user.id)
+      .eq('id', user!.id)
       .single();
 
     const motions = result.data.motions as Array<Record<string, unknown>>;
     for (const motion of motions) {
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('partners')
         .select('id')
         .eq('organisation_id', profile?.organisation_id)
@@ -37,7 +35,7 @@ export async function POST(request: Request) {
         .single();
 
       if (existing) {
-        await supabase.from('partners').update({
+        await db.from('partners').update({
           partnership_motion: motion.partnership_motion as string,
           selected_gtm_angle: motion.selected_gtm_angle as string,
           status: 'angle_defined',
@@ -46,19 +44,19 @@ export async function POST(request: Request) {
       }
     }
 
-    await supabase
+    await db
       .from('agent_sessions')
       .update({ current_stage: 'select_motion' })
       .eq('id', session_id);
   } else {
-    await supabase
+    await db
       .from('agent_sessions')
       .update({ current_stage: result.success ? 'select_motion' : 'find_contact' })
       .eq('id', session_id);
   }
 
   for (const event of result.events) {
-    await supabase.from('session_events').insert({
+    await db.from('session_events').insert({
       session_id,
       partner_id: event.partner_id,
       event_type: event.event_type,

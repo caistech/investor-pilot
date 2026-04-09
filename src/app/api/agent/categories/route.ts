@@ -1,16 +1,15 @@
-import { createClient } from '@/lib/supabase/server';
+import { authenticateAndGetDb } from '@/lib/agent/db';
 import { runCategoriesStage } from '@/lib/agent/pipeline';
 import { getProductSourceContent } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { db, error } = await authenticateAndGetDb();
+  if (error) return error;
 
   const { session_id, product_id } = await request.json();
 
-  const { data: product } = await supabase
+  const { data: product } = await db
     .from('products')
     .select('*')
     .eq('id', product_id)
@@ -21,9 +20,8 @@ export async function POST(request: Request) {
   const sourceContent = await getProductSourceContent(product_id);
   const result = await runCategoriesStage(product, sourceContent);
 
-  // Log events
   for (const event of result.events) {
-    await supabase.from('session_events').insert({
+    await db.from('session_events').insert({
       session_id,
       partner_id: event.partner_id,
       event_type: event.event_type,
@@ -31,8 +29,7 @@ export async function POST(request: Request) {
     });
   }
 
-  // Update session stage
-  await supabase
+  await db
     .from('agent_sessions')
     .update({ current_stage: result.success ? 'categories' : 'initialise' })
     .eq('id', session_id);

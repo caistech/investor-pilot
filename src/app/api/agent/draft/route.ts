@@ -1,16 +1,15 @@
-import { createClient } from '@/lib/supabase/server';
+import { authenticateAndGetDb } from '@/lib/agent/db';
 import { runDraftStage } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 import type { Partner } from '@/lib/types';
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { db, error } = await authenticateAndGetDb();
+  if (error) return error;
 
   const { session_id, product_id, partner_id } = await request.json();
 
-  const { data: product } = await supabase
+  const { data: product } = await db
     .from('products')
     .select('*')
     .eq('id', product_id)
@@ -18,7 +17,7 @@ export async function POST(request: Request) {
 
   if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
 
-  const { data: partner } = await supabase
+  const { data: partner } = await db
     .from('partners')
     .select('*')
     .eq('id', partner_id)
@@ -28,7 +27,6 @@ export async function POST(request: Request) {
 
   const p = partner as Partner;
 
-  // Outreach hygiene checks
   if (['draft_ready', 'sent', 'replied', 'meeting_booked', 'active_partner_discussion'].includes(p.status)) {
     return NextResponse.json({
       error: `Partner is already at status "${p.status}". Cannot create fresh outreach.`,
@@ -44,8 +42,7 @@ export async function POST(request: Request) {
     }, { status: 422 });
   }
 
-  // Gather evidence from session events
-  const { data: events } = await supabase
+  const { data: events } = await db
     .from('session_events')
     .select('event_data')
     .eq('session_id', session_id)
@@ -63,10 +60,9 @@ export async function POST(request: Request) {
 
   const result = await runDraftStage(product, p, evidence);
 
-  // Update partner with draft
   if (result.success && result.data.draft) {
     const draft = result.data.draft as { subject: string; body: string };
-    await supabase.from('partners').update({
+    await db.from('partners').update({
       draft_subject: draft.subject,
       draft_body: draft.body,
       draft_status: 'created',
@@ -74,17 +70,14 @@ export async function POST(request: Request) {
       last_updated_at: new Date().toISOString(),
     }).eq('id', partner_id);
 
-    await supabase
+    await db
       .from('agent_sessions')
-      .update({
-        current_stage: 'draft',
-        drafts_filed: 1,
-      })
+      .update({ current_stage: 'draft', drafts_filed: 1 })
       .eq('id', session_id);
   }
 
   for (const event of result.events) {
-    await supabase.from('session_events').insert({
+    await db.from('session_events').insert({
       session_id,
       partner_id: event.partner_id,
       event_type: event.event_type,

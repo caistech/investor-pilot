@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createServiceClient } from '@/lib/supabase/server';
 
 /**
  * Fetch all completed source content for a product, concatenated.
@@ -6,9 +6,9 @@ import { createClient } from '@/lib/supabase/server';
  * Caps total at ~15000 chars to stay within token limits.
  */
 export async function getProductSourceContent(productId: string): Promise<string> {
-  const supabase = createClient();
+  const db = createServiceClient();
 
-  const { data: sources } = await supabase
+  const { data: sources } = await db
     .from('product_sources')
     .select('title, source_type, content')
     .eq('product_id', productId)

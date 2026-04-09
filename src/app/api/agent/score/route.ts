@@ -1,15 +1,14 @@
-import { createClient } from '@/lib/supabase/server';
+import { authenticateAndGetDb } from '@/lib/agent/db';
 import { runScoringStage } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+  const { user, db, error } = await authenticateAndGetDb();
+  if (error) return error;
 
   const { session_id, product_id, candidates } = await request.json();
 
-  const { data: product } = await supabase
+  const { data: product } = await db
     .from('products')
     .select('*')
     .eq('id', product_id)
@@ -19,23 +18,20 @@ export async function POST(request: Request) {
 
   const result = await runScoringStage(product, candidates);
 
-  // Upsert scored partners into the partners table
-  const { data: profile } = await supabase
+  const { data: profile } = await db
     .from('profiles')
     .select('organisation_id')
-    .eq('id', user.id)
+    .eq('id', user!.id)
     .single();
 
   if (result.success && result.data.scored_partners) {
     const scored = result.data.scored_partners as Array<Record<string, unknown>>;
     for (const partner of scored) {
-      // Find matching candidate for category
       const candidate = candidates.find(
         (c: { domain: string }) => c.domain === partner.domain
       );
 
-      // Upsert by domain
-      const { data: existing } = await supabase
+      const { data: existing } = await db
         .from('partners')
         .select('id')
         .eq('organisation_id', profile?.organisation_id)
@@ -65,29 +61,25 @@ export async function POST(request: Request) {
       };
 
       if (existing) {
-        await supabase.from('partners').update(partnerData).eq('id', existing.id);
+        await db.from('partners').update(partnerData).eq('id', existing.id);
       } else {
-        await supabase.from('partners').insert(partnerData);
+        await db.from('partners').insert(partnerData);
       }
     }
 
-    // Update session counters
-    await supabase
+    await db
       .from('agent_sessions')
-      .update({
-        current_stage: 'score',
-        partners_added: scored.length,
-      })
+      .update({ current_stage: 'score', partners_added: scored.length })
       .eq('id', session_id);
   } else {
-    await supabase
+    await db
       .from('agent_sessions')
       .update({ current_stage: result.success ? 'score' : 'screen' })
       .eq('id', session_id);
   }
 
   for (const event of result.events) {
-    await supabase.from('session_events').insert({
+    await db.from('session_events').insert({
       session_id,
       partner_id: event.partner_id,
       event_type: event.event_type,

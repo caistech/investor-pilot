@@ -1,4 +1,4 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 
 async function extractTextFromUrl(url: string): Promise<{ title: string; content: string }> {
@@ -10,12 +10,9 @@ async function extractTextFromUrl(url: string): Promise<{ title: string; content
   if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
 
   const html = await res.text();
-
-  // Extract title
   const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
   const title = titleMatch ? titleMatch[1].trim() : new URL(url).hostname;
 
-  // Strip HTML to text
   const text = html
     .replace(/<script[\s\S]*?<\/script>/gi, '')
     .replace(/<style[\s\S]*?<\/style>/gi, '')
@@ -34,12 +31,7 @@ async function extractTextFromUrl(url: string): Promise<{ title: string; content
   return { title, content: text.slice(0, 50000) };
 }
 
-async function extractTextFromFile(
-  buffer: Buffer,
-  fileName: string,
-  mimeType: string
-): Promise<string> {
-  // PDF
+async function extractTextFromFile(buffer: Buffer, fileName: string, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
     const pdfParse = require('pdf-parse');
@@ -47,41 +39,35 @@ async function extractTextFromFile(
     return data.text.slice(0, 50000);
   }
 
-  // DOCX
-  if (
-    mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
-    fileName.endsWith('.docx')
-  ) {
+  if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileName.endsWith('.docx')) {
     const mammoth = await import('mammoth');
     const result = await mammoth.extractRawText({ buffer });
     return result.value.slice(0, 50000);
   }
 
-  // Plain text, CSV, markdown
-  if (
-    mimeType.startsWith('text/') ||
-    fileName.endsWith('.txt') ||
-    fileName.endsWith('.csv') ||
-    fileName.endsWith('.md') ||
-    fileName.endsWith('.json')
-  ) {
+  if (mimeType.startsWith('text/') || fileName.endsWith('.txt') || fileName.endsWith('.csv') || fileName.endsWith('.md') || fileName.endsWith('.json')) {
     return buffer.toString('utf-8').slice(0, 50000);
   }
 
   throw new Error(`Unsupported file type: ${mimeType || fileName}`);
 }
 
-// GET — list sources for a product
+function getAuthAndDb() {
+  const auth = createClient();
+  const db = createServiceClient();
+  return { auth, db };
+}
+
 export async function GET(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { auth, db } = getAuthAndDb();
+  const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const productId = searchParams.get('product_id');
   if (!productId) return NextResponse.json({ error: 'product_id required' }, { status: 400 });
 
-  const { data, error } = await supabase
+  const { data, error } = await db
     .from('product_sources')
     .select('id, source_type, title, url, file_name, file_type, file_size, processing_status, error_message, created_at')
     .eq('product_id', productId)
@@ -91,137 +77,77 @@ export async function GET(request: Request) {
   return NextResponse.json(data);
 }
 
-// POST — add a source (URL, file, or text)
 export async function POST(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { auth, db } = getAuthAndDb();
+  const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('organisation_id')
-    .eq('id', user.id)
-    .single();
+  const { data: profile } = await db.from('profiles').select('organisation_id').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 404 });
 
   const contentType = request.headers.get('content-type') || '';
 
-  // Handle file upload (multipart)
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
     const productId = formData.get('product_id') as string;
 
-    if (!file || !productId) {
-      return NextResponse.json({ error: 'file and product_id required' }, { status: 400 });
-    }
+    if (!file || !productId) return NextResponse.json({ error: 'file and product_id required' }, { status: 400 });
 
-    // Create source record (pending)
-    const { data: source, error: insertError } = await supabase
-      .from('product_sources')
-      .insert({
-        product_id: productId,
-        organisation_id: profile.organisation_id,
-        source_type: 'file',
-        title: file.name,
-        file_name: file.name,
-        file_type: file.type,
-        file_size: file.size,
-        processing_status: 'processing',
-      })
-      .select()
-      .single();
+    const { data: source, error: insertError } = await db.from('product_sources').insert({
+      product_id: productId, organisation_id: profile.organisation_id,
+      source_type: 'file', title: file.name, file_name: file.name,
+      file_type: file.type, file_size: file.size, processing_status: 'processing',
+    }).select().single();
 
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
 
-    // Extract text
     try {
-      const arrayBuffer = await file.arrayBuffer();
-      const buffer = Buffer.from(arrayBuffer);
+      const buffer = Buffer.from(await file.arrayBuffer());
       const content = await extractTextFromFile(buffer, file.name, file.type);
-
-      await supabase
-        .from('product_sources')
-        .update({ content, processing_status: 'completed' })
-        .eq('id', source.id);
-
+      await db.from('product_sources').update({ content, processing_status: 'completed' }).eq('id', source.id);
       return NextResponse.json({ ...source, processing_status: 'completed', content_length: content.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Extraction failed';
-      await supabase
-        .from('product_sources')
-        .update({ processing_status: 'failed', error_message: msg })
-        .eq('id', source.id);
-
+      await db.from('product_sources').update({ processing_status: 'failed', error_message: msg }).eq('id', source.id);
       return NextResponse.json({ ...source, processing_status: 'failed', error_message: msg }, { status: 422 });
     }
   }
 
-  // Handle JSON (URL or text)
   const body = await request.json();
   const { product_id, source_type, title, url, content } = body;
-
   if (!product_id) return NextResponse.json({ error: 'product_id required' }, { status: 400 });
 
   if (source_type === 'url') {
     if (!url) return NextResponse.json({ error: 'url required' }, { status: 400 });
 
-    // Create pending record
-    const { data: source, error: insertError } = await supabase
-      .from('product_sources')
-      .insert({
-        product_id,
-        organisation_id: profile.organisation_id,
-        source_type: 'url',
-        title: title || url,
-        url,
-        processing_status: 'processing',
-      })
-      .select()
-      .single();
+    const { data: source, error: insertError } = await db.from('product_sources').insert({
+      product_id, organisation_id: profile.organisation_id,
+      source_type: 'url', title: title || url, url, processing_status: 'processing',
+    }).select().single();
 
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
 
-    // Scrape
     try {
       const extracted = await extractTextFromUrl(url);
-      await supabase
-        .from('product_sources')
-        .update({
-          title: title || extracted.title,
-          content: extracted.content,
-          processing_status: 'completed',
-        })
-        .eq('id', source.id);
-
+      await db.from('product_sources').update({
+        title: title || extracted.title, content: extracted.content, processing_status: 'completed',
+      }).eq('id', source.id);
       return NextResponse.json({ ...source, title: title || extracted.title, processing_status: 'completed', content_length: extracted.content.length });
     } catch (err) {
       const msg = err instanceof Error ? err.message : 'Scraping failed';
-      await supabase
-        .from('product_sources')
-        .update({ processing_status: 'failed', error_message: msg })
-        .eq('id', source.id);
-
+      await db.from('product_sources').update({ processing_status: 'failed', error_message: msg }).eq('id', source.id);
       return NextResponse.json({ ...source, processing_status: 'failed', error_message: msg }, { status: 422 });
     }
   }
 
   if (source_type === 'text') {
     if (!content) return NextResponse.json({ error: 'content required' }, { status: 400 });
-
-    const { data: source, error: insertError } = await supabase
-      .from('product_sources')
-      .insert({
-        product_id,
-        organisation_id: profile.organisation_id,
-        source_type: 'text',
-        title: title || 'Pasted text',
-        content: content.slice(0, 50000),
-        processing_status: 'completed',
-      })
-      .select()
-      .single();
-
+    const { data: source, error: insertError } = await db.from('product_sources').insert({
+      product_id, organisation_id: profile.organisation_id,
+      source_type: 'text', title: title || 'Pasted text',
+      content: content.slice(0, 50000), processing_status: 'completed',
+    }).select().single();
     if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
     return NextResponse.json(source, { status: 201 });
   }
@@ -229,18 +155,16 @@ export async function POST(request: Request) {
   return NextResponse.json({ error: 'Invalid source_type' }, { status: 400 });
 }
 
-// DELETE — remove a source
 export async function DELETE(request: Request) {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
+  const { auth, db } = getAuthAndDb();
+  const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
   const { searchParams } = new URL(request.url);
   const id = searchParams.get('id');
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 });
 
-  const { error } = await supabase.from('product_sources').delete().eq('id', id);
+  const { error } = await db.from('product_sources').delete().eq('id', id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-
   return NextResponse.json({ success: true });
 }
