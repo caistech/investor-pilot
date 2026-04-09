@@ -1,0 +1,157 @@
+export type PartnerStatus =
+  | 'scored' | 'contact_found' | 'contact_partial' | 'angle_defined'
+  | 'draft_ready' | 'sent' | 'replied' | 'follow_up_due'
+  | 'meeting_booked' | 'qualified' | 'active_partner_discussion'
+  | 'disqualified' | 'closed_won' | 'closed_lost';
+
+export type PartnerType = 'referral' | 'integration' | 'reseller' | 'combination';
+export type EmailStatus = 'verified' | 'probable' | 'company_level' | 'unresolved';
+export type ConfidenceScore = 'normal' | 'low-confidence';
+export type DraftStatus = 'none' | 'created' | 'approved' | 'filed';
+export type SessionMode = 'guided' | 'batch';
+export type SessionStatus = 'active' | 'completed' | 'paused';
+export type UserRole = 'owner' | 'admin' | 'member';
+
+export type PipelineStage =
+  | 'initialise' | 'categories' | 'search' | 'screen'
+  | 'score' | 'browse' | 'find_contact' | 'enrich_email'
+  | 'select_motion' | 'draft' | 'file_gmail' | 'hunter_push';
+
+export interface Organisation {
+  id: string;
+  name: string;
+  slug: string;
+  owner_id: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Profile {
+  id: string;
+  organisation_id: string;
+  full_name: string | null;
+  email: string | null;
+  role: UserRole;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Product {
+  id: string;
+  organisation_id: string;
+  name: string;
+  one_sentence_description: string | null;
+  core_mechanism: string | null;
+  customer_outcomes: string | null;
+  icp_company_size: string | null;
+  icp_stage: string | null;
+  icp_verticals: string | null;
+  icp_buyer_title: string | null;
+  icp_user_title: string | null;
+  icp_stack_tools: string | null;
+  traction_arr: string | null;
+  traction_customers: string | null;
+  traction_logos: string | null;
+  partner_types: string;
+  exclusions: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Partner {
+  id: string;
+  organisation_id: string;
+  product_id: string | null;
+  company_name: string;
+  domain: string | null;
+  logo_url: string | null;
+  partner_type: PartnerType | null;
+  category: string | null;
+  status: PartnerStatus;
+  weighted_score: number | null;
+  confidence_score: ConfidenceScore | null;
+  audience_overlap_score: number | null;
+  complementarity_score: number | null;
+  partner_readiness_score: number | null;
+  reachability_score: number | null;
+  strategic_leverage_score: number | null;
+  audience_overlap_notes: string | null;
+  complementarity_notes: string | null;
+  partner_readiness_notes: string | null;
+  reachability_notes: string | null;
+  strategic_leverage_notes: string | null;
+  contact_name: string | null;
+  contact_title: string | null;
+  contact_email: string | null;
+  contact_linkedin: string | null;
+  email_confidence: number | null;
+  email_status: EmailStatus | null;
+  contact_source: string | null;
+  selected_gtm_angle: string | null;
+  partnership_motion: string | null;
+  draft_status: DraftStatus;
+  draft_subject: string | null;
+  draft_body: string | null;
+  gmail_draft_id: string | null;
+  hunter_lead_id: number | null;
+  hunter_sequence_id: number | null;
+  hunter_sending_status: string | null;
+  screened_out: boolean;
+  screened_out_reason: string | null;
+  last_session_notes: string | null;
+  last_updated_at: string;
+  created_at: string;
+}
+
+export interface AgentSession {
+  id: string;
+  organisation_id: string;
+  product_id: string | null;
+  mode: SessionMode | null;
+  status: SessionStatus;
+  current_stage: PipelineStage | null;
+  partners_added: number;
+  partners_updated: number;
+  contacts_found: number;
+  drafts_filed: number;
+  hunter_leads_pushed: number;
+  session_log: SessionEvent[];
+  started_at: string;
+  completed_at: string | null;
+  created_by: string;
+}
+
+export interface SessionEvent {
+  id: string;
+  session_id: string;
+  partner_id: string | null;
+  event_type: string;
+  event_data: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface StageResult {
+  success: boolean;
+  stage: PipelineStage;
+  data: Record<string, unknown>;
+  error?: string;
+  events: Omit<SessionEvent, 'id' | 'session_id' | 'created_at'>[];
+}
+
+export const STATUS_COLORS: Record<PartnerStatus, string> = {
+  scored: 'badge-grey',
+  contact_found: 'badge-blue',
+  contact_partial: 'badge-blue',
+  angle_defined: 'badge-purple',
+  draft_ready: 'badge-amber',
+  sent: 'badge-orange',
+  replied: 'badge-green',
+  follow_up_due: 'badge-orange',
+  meeting_booked: 'badge-green',
+  qualified: 'badge-green',
+  active_partner_discussion: 'badge-green',
+  disqualified: 'badge-red',
+  closed_won: 'badge-green',
+  closed_lost: 'badge-red',
+};
