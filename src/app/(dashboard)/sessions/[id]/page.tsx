@@ -138,6 +138,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(base),
+      signal: AbortSignal.timeout(15000),
     });
     const listResult = await listRes.json();
 
@@ -156,21 +157,34 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     // Step 2: draft one partner at a time, refreshing UI after each
     const drafts = [];
     for (const partner of eligible) {
-      const res = await fetch('/api/agent/draft', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...base, partner_id: partner.id }),
-      });
-      const result = await res.json();
+      try {
+        const res = await fetch('/api/agent/draft', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, partner_id: partner.id }),
+          signal: AbortSignal.timeout(28000),
+        });
 
-      if (!res.ok || !result.success) {
-        // Log error but continue with remaining partners
-        console.error(`Draft failed for ${partner.company_name}:`, result.error);
+        // Handle non-JSON responses (e.g. Vercel 504 HTML page)
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Draft failed for ${partner.company_name}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Draft failed for ${partner.company_name}:`, result.error);
+          continue;
+        }
+
+        if (result.data.draft) {
+          drafts.push(result.data);
+        }
+      } catch (err) {
+        console.error(`Draft failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
         continue;
-      }
-
-      if (result.data.draft) {
-        drafts.push(result.data);
       }
 
       // Refresh events after each partner so the UI updates in real time

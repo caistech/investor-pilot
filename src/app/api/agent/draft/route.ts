@@ -3,6 +3,8 @@ import { runDraftStage } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 import type { Partner } from '@/lib/types';
 
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
