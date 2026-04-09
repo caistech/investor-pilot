@@ -4,12 +4,14 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Play, Pause, CheckCircle, Clock, ChevronRight, Loader2 } from 'lucide-react';
-import type { SessionMode, AgentSession } from '@/lib/types';
+import { Plus, Play, Pause, CheckCircle, Clock, ChevronRight, Loader2, Package } from 'lucide-react';
+import type { SessionMode, AgentSession, Product } from '@/lib/types';
 
 export default function SessionsPage() {
   const [showNew, setShowNew] = useState(false);
   const [mode, setMode] = useState<SessionMode>('guided');
+  const [selectedProductId, setSelectedProductId] = useState<string | null>(null);
+  const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(false);
   const [sessions, setSessions] = useState<AgentSession[]>([]);
   const [loadingSessions, setLoadingSessions] = useState(true);
@@ -28,45 +30,49 @@ export default function SessionsPage() {
   }
 
   useEffect(() => {
-    async function loadSessions() {
+    async function loadData() {
       const orgId = await getOrgId();
       if (!orgId) {
         setLoadingSessions(false);
         return;
       }
 
-      const { data } = await supabase
-        .from('agent_sessions')
-        .select('*')
-        .eq('organisation_id', orgId)
-        .order('started_at', { ascending: false });
+      const [sessResult, prodResult] = await Promise.all([
+        supabase
+          .from('agent_sessions')
+          .select('*')
+          .eq('organisation_id', orgId)
+          .order('started_at', { ascending: false }),
+        supabase
+          .from('products')
+          .select('*')
+          .eq('organisation_id', orgId)
+          .eq('is_active', true)
+          .order('name'),
+      ]);
 
-      if (data) setSessions(data as AgentSession[]);
+      if (sessResult.data) setSessions(sessResult.data as AgentSession[]);
+      if (prodResult.data) {
+        setProducts(prodResult.data as Product[]);
+        if (prodResult.data.length > 0) setSelectedProductId(prodResult.data[0].id);
+      }
       setLoadingSessions(false);
     }
-    loadSessions();
+    loadData();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function startSession() {
+    if (!selectedProductId) return;
     setLoading(true);
     const orgId = await getOrgId();
     if (!orgId) return;
-
-    // Get first active product
-    const { data: product } = await supabase
-      .from('products')
-      .select('id')
-      .eq('organisation_id', orgId)
-      .eq('is_active', true)
-      .limit(1)
-      .single();
 
     const { data: session } = await supabase
       .from('agent_sessions')
       .insert({
         organisation_id: orgId,
-        product_id: product?.id || null,
+        product_id: selectedProductId,
         mode,
         status: 'active',
         current_stage: 'initialise',
@@ -107,6 +113,52 @@ export default function SessionsPage() {
       {showNew && (
         <div className="card mb-8">
           <h3 className="mb-4">Start New Session</h3>
+
+          {/* Product selection */}
+          {products.length === 0 ? (
+            <div className="bg-dark-800 border border-dark-600 rounded-lg p-4 mb-6">
+              <div className="flex items-center gap-3">
+                <Package className="w-5 h-5 text-dark-500" />
+                <div>
+                  <p className="text-dark-300 font-medium">No products yet</p>
+                  <p className="text-dark-500 text-sm">Add a product first so the pipeline knows what to search for.</p>
+                </div>
+                <Link href="/products" className="btn-primary text-sm py-1.5 px-4 ml-auto">Add Product</Link>
+              </div>
+            </div>
+          ) : products.length === 1 ? (
+            <div className="flex items-center gap-3 bg-dark-800 border border-dark-600 rounded-lg px-4 py-3 mb-6">
+              <Package className="w-4 h-4 text-corp-green-400" />
+              <span className="font-medium">{products[0].name}</span>
+              <span className="text-dark-500 text-sm truncate">{products[0].one_sentence_description}</span>
+            </div>
+          ) : (
+            <div className="mb-6">
+              <label className="block text-sm text-dark-300 mb-2">Select Product</label>
+              <div className="space-y-2">
+                {products.map((p) => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedProductId(p.id)}
+                    className={`w-full flex items-center gap-3 px-4 py-3 rounded-lg border text-left transition-colors ${
+                      selectedProductId === p.id
+                        ? 'border-corp-green-500 bg-corp-green-500/10'
+                        : 'border-dark-600 bg-dark-800 hover:border-dark-500'
+                    }`}
+                  >
+                    <Package className={`w-4 h-4 shrink-0 ${selectedProductId === p.id ? 'text-corp-green-400' : 'text-dark-500'}`} />
+                    <div className="min-w-0">
+                      <div className="font-medium">{p.name}</div>
+                      <div className="text-dark-500 text-sm truncate">{p.one_sentence_description}</div>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Mode selection */}
+          <label className="block text-sm text-dark-300 mb-2">Pipeline Mode</label>
           <div className="grid grid-cols-2 gap-4 mb-6">
             <button
               onClick={() => setMode('guided')}
@@ -142,7 +194,7 @@ export default function SessionsPage() {
             </button>
           </div>
           <div className="flex gap-3">
-            <button onClick={startSession} disabled={loading} className="btn-primary disabled:opacity-50">
+            <button onClick={startSession} disabled={loading || !selectedProductId} className="btn-primary disabled:opacity-50">
               {loading ? 'Starting...' : 'Start Session'}
             </button>
             <button onClick={() => setShowNew(false)} className="btn-secondary">Cancel</button>
