@@ -128,6 +128,60 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     return ACTIVE_STAGES[idx + 1];
   }
 
+  async function runDraftPerPartner() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+
+    // Step 1: fetch eligible partners list
+    const listRes = await fetch('/api/agent/draft', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(base),
+    });
+    const listResult = await listRes.json();
+
+    if (!listRes.ok || !listResult.success) {
+      throw new Error(listResult.error || 'Failed to fetch eligible partners');
+    }
+
+    const eligible = listResult.data.eligible_partners || [];
+    if (eligible.length === 0) {
+      stageData.current.draft = { drafts: [], count: 0, message: 'No partners ready for drafting' };
+      lastCompletedStage.current = 'draft';
+      await refreshSession();
+      return;
+    }
+
+    // Step 2: draft one partner at a time, refreshing UI after each
+    const drafts = [];
+    for (const partner of eligible) {
+      const res = await fetch('/api/agent/draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...base, partner_id: partner.id }),
+      });
+      const result = await res.json();
+
+      if (!res.ok || !result.success) {
+        // Log error but continue with remaining partners
+        console.error(`Draft failed for ${partner.company_name}:`, result.error);
+        continue;
+      }
+
+      if (result.data.draft) {
+        drafts.push(result.data);
+      }
+
+      // Refresh events after each partner so the UI updates in real time
+      await refreshSession();
+    }
+
+    stageData.current.draft = { drafts, count: drafts.length };
+    lastCompletedStage.current = 'draft';
+    await refreshSession();
+  }
+
   async function runStage(stage: PipelineStage) {
     if (!session) return;
 
@@ -136,6 +190,14 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     setAwaitingApproval(false);
 
     try {
+      // Draft stage uses per-partner iteration to avoid serverless timeout
+      if (stage === 'draft') {
+        await runDraftPerPartner();
+        setAwaitingApproval(session.mode === 'guided');
+        setRunning(false);
+        return;
+      }
+
       const config = STAGE_CONFIG[stage];
       if (!config?.apiRoute) {
         setError(`No API route configured for stage: ${stage}`);
@@ -173,9 +235,9 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         return;
       }
 
-      // Auto-advance non-gate stages to the NEXT stage (not re-running same)
+      // Auto-advance non-gate stages to the NEXT stage
       const nextAfterThis = getNextStageAfter(stage);
-      if (nextAfterThis && stage !== 'draft') {
+      if (nextAfterThis) {
         setRunning(false);
         setTimeout(() => runStage(nextAfterThis), 500);
         return;
