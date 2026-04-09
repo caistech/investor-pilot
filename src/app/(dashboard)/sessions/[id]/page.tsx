@@ -274,8 +274,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function deleteSession() {
     if (!session) return;
-    await supabase.from('session_events').delete().eq('session_id', session.id);
-    await supabase.from('agent_sessions').delete().eq('id', session.id);
+    await fetch(`/api/sessions?id=${session.id}`, { method: 'DELETE' });
     window.location.href = '/sessions';
   }
 

@@ -86,10 +86,10 @@ export default function SessionsPage() {
     setLoading(false);
   }
 
-  async function deleteSession(id: string) {
-    // Delete events first (cascade might handle this, but be explicit)
-    await supabase.from('session_events').delete().eq('session_id', id);
-    await supabase.from('agent_sessions').delete().eq('id', id);
+  async function deleteSession(e: React.MouseEvent, id: string) {
+    e.preventDefault();
+    e.stopPropagation();
+    await fetch(`/api/sessions?id=${id}`, { method: 'DELETE' });
     setSessions((prev) => prev.filter((s) => s.id !== id));
   }
 
@@ -263,8 +263,8 @@ export default function SessionsPage() {
                 <ChevronRight className="w-5 h-5 text-dark-600 group-hover:text-white transition-colors shrink-0" />
               </Link>
               <button
-                onClick={() => deleteSession(sess.id)}
-                className="opacity-0 group-hover:opacity-100 p-2 text-dark-600 hover:text-red-400 transition-all shrink-0"
+                onClick={(e) => deleteSession(e, sess.id)}
+                className="p-2 text-dark-600 hover:text-red-400 transition-colors shrink-0"
                 title="Delete session"
               >
                 <Trash2 className="w-4 h-4" />
