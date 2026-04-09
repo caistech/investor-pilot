@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type } from 'lucide-react';
 import type { Product } from '@/lib/types';
 
 const DETAIL_FIELDS = [
@@ -38,6 +38,9 @@ export default function ProductsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [sourceMode, setSourceMode] = useState<'name' | 'url' | 'text'>('name');
+  const [sourceUrl, setSourceUrl] = useState('');
+  const [sourceText, setSourceText] = useState('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -56,8 +59,14 @@ export default function ProductsPage() {
     if (data) setProducts(data as Product[]);
   }
 
+  function canAutoFill(): boolean {
+    if (sourceMode === 'url') return !!sourceUrl.trim();
+    if (sourceMode === 'text') return !!sourceText.trim();
+    return !!form.name.trim();
+  }
+
   async function handleAutoFill() {
-    if (!form.name.trim()) return;
+    if (!canAutoFill()) return;
     setFilling(true);
 
     try {
@@ -65,8 +74,10 @@ export default function ProductsPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          name: form.name,
-          description: form.one_sentence_description,
+          name: form.name || undefined,
+          description: form.one_sentence_description || undefined,
+          source_url: sourceMode === 'url' ? sourceUrl : undefined,
+          source_text: sourceMode === 'text' ? sourceText : undefined,
         }),
       });
 
@@ -74,6 +85,7 @@ export default function ProductsPage() {
         const data = await res.json();
         setForm((prev) => ({
           ...prev,
+          name: data.name || prev.name,
           one_sentence_description: data.one_sentence_description || prev.one_sentence_description,
           core_mechanism: data.core_mechanism || '',
           customer_outcomes: data.customer_outcomes || '',
@@ -155,6 +167,9 @@ export default function ProductsPage() {
     setForm(EMPTY_FORM);
     setFilled(false);
     setShowDetails(false);
+    setSourceMode('name');
+    setSourceUrl('');
+    setSourceText('');
   }
 
   return (
@@ -173,27 +188,82 @@ export default function ProductsPage() {
         <form onSubmit={handleSave} className="card mb-8">
           <h3 className="mb-4">{editingId ? 'Edit Product' : 'New Product Profile'}</h3>
 
-          {/* Step 1: Name + Description */}
+          {/* Source mode tabs */}
+          {!filled && !editingId && (
+            <div className="flex gap-1 p-1 bg-dark-800 rounded-lg mb-6 w-fit">
+              {[
+                { mode: 'name' as const, icon: Type, label: 'Product Name' },
+                { mode: 'url' as const, icon: Globe, label: 'Website URL' },
+                { mode: 'text' as const, icon: FileText, label: 'Paste Text' },
+              ].map(({ mode, icon: Icon, label }) => (
+                <button
+                  key={mode}
+                  type="button"
+                  onClick={() => setSourceMode(mode)}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-colors ${
+                    sourceMode === mode
+                      ? 'bg-dark-600 text-white'
+                      : 'text-dark-400 hover:text-dark-200'
+                  }`}
+                >
+                  <Icon className="w-3.5 h-3.5" /> {label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Source inputs */}
           <div className="space-y-4 mb-6">
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Product Name</label>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="e.g., R&D Tax Tracker"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">One-sentence Description <span className="text-dark-600">(optional — AI can generate this)</span></label>
-              <input
-                value={form.one_sentence_description}
-                onChange={(e) => setForm({ ...form, one_sentence_description: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="What does this product do in one sentence?"
-              />
-            </div>
+            {sourceMode === 'url' && !filled && !editingId ? (
+              <div>
+                <label className="block text-sm text-dark-300 mb-1">
+                  Product website or landing page URL
+                </label>
+                <input
+                  value={sourceUrl}
+                  onChange={(e) => setSourceUrl(e.target.value)}
+                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="https://yourproduct.com"
+                  type="url"
+                />
+                <p className="text-dark-600 text-xs mt-1">We'll extract product details, ICP, and pricing from the page</p>
+              </div>
+            ) : sourceMode === 'text' && !filled && !editingId ? (
+              <div>
+                <label className="block text-sm text-dark-300 mb-1">
+                  Paste product description, pitch deck text, or collateral
+                </label>
+                <textarea
+                  value={sourceText}
+                  onChange={(e) => setSourceText(e.target.value)}
+                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-3 text-white focus:border-corp-green-500 focus:outline-none min-h-[120px] resize-y"
+                  placeholder="Paste your product one-pager, about page copy, pitch deck text, or any product description..."
+                />
+                <p className="text-dark-600 text-xs mt-1">The more detail you provide, the better the auto-fill</p>
+              </div>
+            ) : (
+              <>
+                <div>
+                  <label className="block text-sm text-dark-300 mb-1">Product Name</label>
+                  <input
+                    value={form.name}
+                    onChange={(e) => setForm({ ...form, name: e.target.value })}
+                    className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                    placeholder="e.g., R&D Tax Tracker"
+                    required
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm text-dark-300 mb-1">One-sentence Description <span className="text-dark-600">(optional — AI can generate this)</span></label>
+                  <input
+                    value={form.one_sentence_description}
+                    onChange={(e) => setForm({ ...form, one_sentence_description: e.target.value })}
+                    className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                    placeholder="What does this product do in one sentence?"
+                  />
+                </div>
+              </>
+            )}
           </div>
 
           {/* AI Auto-Fill Button */}
@@ -201,18 +271,18 @@ export default function ProductsPage() {
             <button
               type="button"
               onClick={handleAutoFill}
-              disabled={filling || !form.name.trim()}
+              disabled={filling || !canAutoFill()}
               className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all duration-200 disabled:opacity-40 bg-gradient-to-r from-corp-green-500 to-corp-green-600 hover:from-corp-green-600 hover:to-corp-green-700 text-white shadow-lg shadow-corp-green-500/25 mb-6"
             >
               {filling ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  Generating ICP profile...
+                  {sourceMode === 'url' ? 'Extracting from website...' : sourceMode === 'text' ? 'Extracting from content...' : 'Generating ICP profile...'}
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  Auto-fill with AI
+                  {sourceMode === 'url' ? 'Extract from website' : sourceMode === 'text' ? 'Extract from text' : 'Auto-fill with AI'}
                 </>
               )}
             </button>
