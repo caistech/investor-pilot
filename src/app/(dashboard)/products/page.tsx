@@ -2,24 +2,47 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Package } from 'lucide-react';
+import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2 } from 'lucide-react';
 import type { Product } from '@/lib/types';
+
+const DETAIL_FIELDS = [
+  { key: 'core_mechanism', label: 'Core Mechanism' },
+  { key: 'customer_outcomes', label: 'Customer Outcomes (after 90 days)' },
+  { key: 'icp_company_size', label: 'ICP Company Size' },
+  { key: 'icp_stage', label: 'ICP Stage' },
+  { key: 'icp_verticals', label: 'ICP Verticals' },
+  { key: 'icp_buyer_title', label: 'Primary Buyer Title' },
+  { key: 'icp_user_title', label: 'Primary User Title' },
+  { key: 'icp_stack_tools', label: 'Relevant Stack Tools' },
+  { key: 'traction_arr', label: 'Traction / Pricing' },
+  { key: 'traction_customers', label: 'Customer Count / Logos' },
+  { key: 'partner_types', label: 'Partner Types' },
+  { key: 'exclusions', label: 'Exclusions' },
+];
+
+const EMPTY_FORM = {
+  name: '', one_sentence_description: '', core_mechanism: '',
+  customer_outcomes: '', icp_company_size: '', icp_stage: '',
+  icp_verticals: '', icp_buyer_title: '', icp_user_title: '',
+  icp_stack_tools: '', traction_arr: '', traction_customers: '',
+  partner_types: 'referral', exclusions: '',
+};
 
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [form, setForm] = useState({
-    name: '', one_sentence_description: '', core_mechanism: '',
-    customer_outcomes: '', icp_company_size: '', icp_stage: '',
-    icp_verticals: '', icp_buyer_title: '', icp_user_title: '',
-    icp_stack_tools: '', traction_arr: '', traction_customers: '',
-    partner_types: 'referral', exclusions: '',
-  });
+  const [filling, setFilling] = useState(false);
+  const [filled, setFilled] = useState(false);
+  const [showDetails, setShowDetails] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
     loadProducts();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadProducts() {
@@ -33,38 +56,106 @@ export default function ProductsPage() {
     if (data) setProducts(data as Product[]);
   }
 
-  async function handleCreate(e: React.FormEvent) {
+  async function handleAutoFill() {
+    if (!form.name.trim()) return;
+    setFilling(true);
+
+    try {
+      const res = await fetch('/api/agent/autofill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name,
+          description: form.one_sentence_description,
+        }),
+      });
+
+      if (res.ok) {
+        const data = await res.json();
+        setForm((prev) => ({
+          ...prev,
+          one_sentence_description: data.one_sentence_description || prev.one_sentence_description,
+          core_mechanism: data.core_mechanism || '',
+          customer_outcomes: data.customer_outcomes || '',
+          icp_company_size: data.icp_company_size || '',
+          icp_stage: data.icp_stage || '',
+          icp_verticals: data.icp_verticals || '',
+          icp_buyer_title: data.icp_buyer_title || '',
+          icp_user_title: data.icp_user_title || '',
+          icp_stack_tools: data.icp_stack_tools || '',
+          traction_arr: data.traction_arr || '',
+          traction_customers: data.traction_customers || '',
+          partner_types: data.partner_types || 'referral',
+          exclusions: data.exclusions || '',
+        }));
+        setFilled(true);
+        setShowDetails(true);
+      }
+    } catch {
+      // Silently fail — user can still fill manually
+    }
+    setFilling(false);
+  }
+
+  async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
     const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
     if (!profile) return;
 
-    await supabase.from('products').insert({
-      ...form,
-      organisation_id: profile.organisation_id,
-    });
+    if (editingId) {
+      await supabase.from('products').update(form).eq('id', editingId);
+    } else {
+      await supabase.from('products').insert({
+        ...form,
+        organisation_id: profile.organisation_id,
+      });
+    }
+
     setShowForm(false);
-    setForm({ name: '', one_sentence_description: '', core_mechanism: '', customer_outcomes: '', icp_company_size: '', icp_stage: '', icp_verticals: '', icp_buyer_title: '', icp_user_title: '', icp_stack_tools: '', traction_arr: '', traction_customers: '', partner_types: 'referral', exclusions: '' });
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFilled(false);
+    setShowDetails(false);
     loadProducts();
     setLoading(false);
   }
 
-  const fields = [
-    { key: 'name', label: 'Product Name', required: true },
-    { key: 'one_sentence_description', label: 'One-sentence Description' },
-    { key: 'core_mechanism', label: 'Core Mechanism' },
-    { key: 'customer_outcomes', label: 'Customer Outcomes (after 90 days)' },
-    { key: 'icp_company_size', label: 'ICP Company Size (e.g., 5-200 employees)' },
-    { key: 'icp_stage', label: 'ICP Stage (e.g., revenue-generating)' },
-    { key: 'icp_verticals', label: 'ICP Verticals' },
-    { key: 'icp_buyer_title', label: 'Primary Buyer Title' },
-    { key: 'icp_user_title', label: 'Primary User Title' },
-    { key: 'icp_stack_tools', label: 'Relevant Stack Tools' },
-    { key: 'traction_arr', label: 'Traction / Pricing' },
-    { key: 'traction_customers', label: 'Customer Count / Logos' },
-    { key: 'partner_types', label: 'Partner Types (referral, integration, reseller)' },
-    { key: 'exclusions', label: 'Exclusions' },
-  ];
+  function startEdit(product: Product) {
+    setForm({
+      name: product.name,
+      one_sentence_description: product.one_sentence_description || '',
+      core_mechanism: product.core_mechanism || '',
+      customer_outcomes: product.customer_outcomes || '',
+      icp_company_size: product.icp_company_size || '',
+      icp_stage: product.icp_stage || '',
+      icp_verticals: product.icp_verticals || '',
+      icp_buyer_title: product.icp_buyer_title || '',
+      icp_user_title: product.icp_user_title || '',
+      icp_stack_tools: product.icp_stack_tools || '',
+      traction_arr: product.traction_arr || '',
+      traction_customers: product.traction_customers || '',
+      partner_types: product.partner_types || 'referral',
+      exclusions: product.exclusions || '',
+    });
+    setEditingId(product.id);
+    setFilled(true);
+    setShowDetails(true);
+    setShowForm(true);
+  }
+
+  async function handleDelete(id: string) {
+    await supabase.from('products').delete().eq('id', id);
+    loadProducts();
+  }
+
+  function cancelForm() {
+    setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setFilled(false);
+    setShowDetails(false);
+  }
 
   return (
     <div>
@@ -79,44 +170,165 @@ export default function ProductsPage() {
       </div>
 
       {showForm && (
-        <form onSubmit={handleCreate} className="card mb-8">
-          <h3 className="mb-4">New Product Profile</h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {fields.map((f) => (
-              <div key={f.key} className={f.key === 'exclusions' ? 'md:col-span-2' : ''}>
-                <label className="block text-sm text-dark-300 mb-1">{f.label}</label>
-                <input
-                  value={(form as Record<string, string>)[f.key]}
-                  onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
-                  required={f.required}
-                />
-              </div>
-            ))}
+        <form onSubmit={handleSave} className="card mb-8">
+          <h3 className="mb-4">{editingId ? 'Edit Product' : 'New Product Profile'}</h3>
+
+          {/* Step 1: Name + Description */}
+          <div className="space-y-4 mb-6">
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">Product Name</label>
+              <input
+                value={form.name}
+                onChange={(e) => setForm({ ...form, name: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="e.g., R&D Tax Tracker"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">One-sentence Description <span className="text-dark-600">(optional — AI can generate this)</span></label>
+              <input
+                value={form.one_sentence_description}
+                onChange={(e) => setForm({ ...form, one_sentence_description: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="What does this product do in one sentence?"
+              />
+            </div>
           </div>
-          <div className="flex gap-3 mt-6">
-            <button type="submit" disabled={loading} className="btn-primary disabled:opacity-50">
-              {loading ? 'Creating...' : 'Create Product'}
+
+          {/* AI Auto-Fill Button */}
+          {!filled && (
+            <button
+              type="button"
+              onClick={handleAutoFill}
+              disabled={filling || !form.name.trim()}
+              className="flex items-center gap-2 px-5 py-2.5 rounded-lg font-medium transition-all duration-200 disabled:opacity-40 bg-gradient-to-r from-corp-green-500 to-corp-green-600 hover:from-corp-green-600 hover:to-corp-green-700 text-white shadow-lg shadow-corp-green-500/25 mb-6"
+            >
+              {filling ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Generating ICP profile...
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-4 h-4" />
+                  Auto-fill with AI
+                </>
+              )}
             </button>
-            <button type="button" onClick={() => setShowForm(false)} className="btn-secondary">Cancel</button>
+          )}
+
+          {/* Step 2: Auto-filled details (collapsible) */}
+          {filled && (
+            <>
+              <button
+                type="button"
+                onClick={() => setShowDetails(!showDetails)}
+                className="flex items-center gap-2 text-sm text-dark-400 hover:text-white mb-4 transition-colors"
+              >
+                {showDetails ? <ChevronDown className="w-4 h-4" /> : <ChevronRight className="w-4 h-4" />}
+                {showDetails ? 'Hide' : 'Show'} ICP details ({DETAIL_FIELDS.filter((f) => (form as Record<string, string>)[f.key]).length} fields populated)
+              </button>
+
+              {showDetails && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6 p-4 bg-dark-800/50 rounded-lg border border-dark-700">
+                  {DETAIL_FIELDS.map((f) => (
+                    <div key={f.key} className={f.key === 'exclusions' ? 'md:col-span-2' : ''}>
+                      <label className="block text-xs text-dark-500 mb-1">{f.label}</label>
+                      <input
+                        value={(form as Record<string, string>)[f.key]}
+                        onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                        className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-1.5 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                      />
+                    </div>
+                  ))}
+                  <div className="md:col-span-2">
+                    <button
+                      type="button"
+                      onClick={() => { setFilled(false); handleAutoFill(); }}
+                      className="flex items-center gap-1.5 text-xs text-dark-500 hover:text-corp-green-400 transition-colors"
+                    >
+                      <Sparkles className="w-3 h-3" /> Re-generate with AI
+                    </button>
+                  </div>
+                </div>
+              )}
+            </>
+          )}
+
+          <div className="flex gap-3">
+            <button type="submit" disabled={loading || !form.name.trim()} className="btn-primary disabled:opacity-50">
+              {loading ? 'Saving...' : editingId ? 'Save Changes' : 'Create Product'}
+            </button>
+            <button type="button" onClick={cancelForm} className="btn-secondary">Cancel</button>
           </div>
         </form>
       )}
 
       {products.length > 0 ? (
-        <div className="grid gap-4">
+        <div className="space-y-3">
           {products.map((p) => (
             <div key={p.id} className="card-hover">
-              <div className="flex items-center gap-3 mb-2">
-                <Package className="w-5 h-5 text-corp-green-400" />
-                <h4>{p.name}</h4>
-                {p.is_active && <span className="badge-green">Active</span>}
-              </div>
-              <p className="text-dark-400">{p.one_sentence_description || 'No description'}</p>
-              <div className="flex gap-4 mt-3 text-sm text-dark-500">
-                <span>ICP: {p.icp_verticals || 'Not set'}</span>
-                <span>Types: {p.partner_types}</span>
-              </div>
+              <button
+                onClick={() => setExpandedProduct(expandedProduct === p.id ? null : p.id)}
+                className="flex items-center gap-3 w-full text-left"
+              >
+                <Package className="w-5 h-5 text-corp-green-400 shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <h4 className="truncate">{p.name}</h4>
+                    {p.is_active && <span className="badge-green">Active</span>}
+                  </div>
+                  <p className="text-dark-400 text-sm truncate">{p.one_sentence_description || 'No description'}</p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="text-dark-600 text-xs">{p.partner_types}</span>
+                  {expandedProduct === p.id ? (
+                    <ChevronDown className="w-4 h-4 text-dark-500" />
+                  ) : (
+                    <ChevronRight className="w-4 h-4 text-dark-500" />
+                  )}
+                </div>
+              </button>
+
+              {expandedProduct === p.id && (
+                <div className="mt-4 pt-4 border-t border-dark-800">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                    {[
+                      { label: 'Core Mechanism', value: p.core_mechanism },
+                      { label: 'Customer Outcomes', value: p.customer_outcomes },
+                      { label: 'Company Size', value: p.icp_company_size },
+                      { label: 'Stage', value: p.icp_stage },
+                      { label: 'Verticals', value: p.icp_verticals },
+                      { label: 'Buyer Title', value: p.icp_buyer_title },
+                      { label: 'User Title', value: p.icp_user_title },
+                      { label: 'Stack Tools', value: p.icp_stack_tools },
+                      { label: 'Traction', value: p.traction_arr },
+                      { label: 'Customers', value: p.traction_customers },
+                      { label: 'Exclusions', value: p.exclusions },
+                    ].filter((f) => f.value).map((f) => (
+                      <div key={f.label}>
+                        <span className="text-dark-600 text-xs">{f.label}</span>
+                        <p className="text-dark-300">{f.value}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="flex gap-2 mt-4">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); startEdit(p); }}
+                      className="flex items-center gap-1.5 text-sm text-dark-400 hover:text-white transition-colors"
+                    >
+                      <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
+                      className="flex items-center gap-1.5 text-sm text-dark-400 hover:text-red-400 transition-colors"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
