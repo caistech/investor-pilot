@@ -161,17 +161,17 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Refresh session and events
       await refreshSession();
 
-      // Check if we need approval (guided mode)
+      // Check if we need approval (guided mode gate)
       if (session.mode === 'guided' && GUIDED_GATES.includes(nextStage)) {
         setAwaitingApproval(true);
         setRunning(false);
         return;
       }
 
-      // In batch mode, auto-advance (except before draft)
-      if (session.mode === 'batch' && nextStage !== 'draft') {
+      // Auto-advance non-gate stages (both guided and batch mode)
+      // Stop before draft in batch mode
+      if (nextStage !== 'draft') {
         setRunning(false);
-        // Small delay then auto-advance
         setTimeout(() => runNextStage(), 500);
         return;
       }
