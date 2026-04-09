@@ -16,10 +16,21 @@ export default function SessionsPage() {
   const supabase = createClient();
   const router = useRouter();
 
+  async function getOrgId(): Promise<string | null> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organisation_id')
+      .eq('id', user.id)
+      .single();
+    return profile?.organisation_id || null;
+  }
+
   useEffect(() => {
     async function loadSessions() {
-      const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
-      if (!profile?.organisation_id) {
+      const orgId = await getOrgId();
+      if (!orgId) {
         setLoadingSessions(false);
         return;
       }
@@ -27,25 +38,26 @@ export default function SessionsPage() {
       const { data } = await supabase
         .from('agent_sessions')
         .select('*')
-        .eq('organisation_id', profile.organisation_id)
+        .eq('organisation_id', orgId)
         .order('started_at', { ascending: false });
 
       if (data) setSessions(data as AgentSession[]);
       setLoadingSessions(false);
     }
     loadSessions();
-  }, [supabase]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function startSession() {
     setLoading(true);
-    const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
-    if (!profile?.organisation_id) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
 
     // Get first active product
     const { data: product } = await supabase
       .from('products')
       .select('id')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', orgId)
       .eq('is_active', true)
       .limit(1)
       .single();
@@ -53,7 +65,7 @@ export default function SessionsPage() {
     const { data: session } = await supabase
       .from('agent_sessions')
       .insert({
-        organisation_id: profile.organisation_id,
+        organisation_id: orgId,
         product_id: product?.id || null,
         mode,
         status: 'active',

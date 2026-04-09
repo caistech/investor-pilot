@@ -48,13 +48,24 @@ export default function ProductsPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  async function getOrgId(): Promise<string | null> {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return null;
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('organisation_id')
+      .eq('id', user.id)
+      .single();
+    return profile?.organisation_id || null;
+  }
+
   async function loadProducts() {
-    const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
-    if (!profile) return;
+    const orgId = await getOrgId();
+    if (!orgId) return;
     const { data } = await supabase
       .from('products')
       .select('*')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', orgId)
       .order('created_at', { ascending: false });
     if (data) setProducts(data as Product[]);
   }
@@ -112,15 +123,15 @@ export default function ProductsPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
-    const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
-    if (!profile) return;
+    const orgId = await getOrgId();
+    if (!orgId) { setLoading(false); return; }
 
     if (editingId) {
       await supabase.from('products').update(form).eq('id', editingId);
     } else {
       await supabase.from('products').insert({
         ...form,
-        organisation_id: profile.organisation_id,
+        organisation_id: orgId,
       });
     }
 
