@@ -37,7 +37,9 @@ export async function POST(request: Request) {
       .eq('organisation_id', profile?.organisation_id)
       .eq('product_id', product_id)
       .in('status', ['angle_defined', 'contact_found', 'contact_partial', 'scored'])
-      .order('weighted_score', { ascending: false });
+      .not('contact_email', 'is', null)
+      .order('weighted_score', { ascending: false })
+      .limit(5); // Limit to top 5 to avoid serverless timeout
     partners = (data || []) as Partner[];
   }
 

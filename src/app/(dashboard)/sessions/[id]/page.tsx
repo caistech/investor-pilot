@@ -68,6 +68,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   // Store intermediate data between stages
   const stageData = useRef<Record<string, unknown>>({});
+  const lastCompletedStage = useRef<PipelineStage | null>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
   const supabase = createClient();
 
@@ -121,25 +122,28 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     return 'pending';
   }
 
-  async function runNextStage() {
+  function getNextStageAfter(completedStage: PipelineStage): PipelineStage | null {
+    const idx = ACTIVE_STAGES.indexOf(completedStage);
+    if (idx < 0 || idx >= ACTIVE_STAGES.length - 1) return null;
+    return ACTIVE_STAGES[idx + 1];
+  }
+
+  async function runStage(stage: PipelineStage) {
     if (!session) return;
-    const nextStage = getNextStage();
-    if (!nextStage) return;
 
     setRunning(true);
     setError(null);
     setAwaitingApproval(false);
 
     try {
-      const config = STAGE_CONFIG[nextStage];
+      const config = STAGE_CONFIG[stage];
       if (!config?.apiRoute) {
-        setError(`No API route configured for stage: ${nextStage}`);
+        setError(`No API route configured for stage: ${stage}`);
         setRunning(false);
         return;
       }
 
-      // Build the request body based on the stage
-      const body = buildStageRequest(nextStage);
+      const body = buildStageRequest(stage);
 
       const res = await fetch(config.apiRoute, {
         method: 'POST',
@@ -150,29 +154,30 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       const result = await res.json();
 
       if (!res.ok || !result.success) {
-        setError(result.error || `Stage ${nextStage} failed`);
+        setError(result.error || `Stage ${stage} failed`);
         setRunning(false);
         return;
       }
 
       // Store stage data for subsequent stages
-      stageData.current[nextStage] = result.data;
+      stageData.current[stage] = result.data;
+      lastCompletedStage.current = stage;
 
       // Refresh session and events
       await refreshSession();
 
       // Check if we need approval (guided mode gate)
-      if (session.mode === 'guided' && GUIDED_GATES.includes(nextStage)) {
+      if (session.mode === 'guided' && GUIDED_GATES.includes(stage)) {
         setAwaitingApproval(true);
         setRunning(false);
         return;
       }
 
-      // Auto-advance non-gate stages (both guided and batch mode)
-      // Stop before draft in batch mode
-      if (nextStage !== 'draft') {
+      // Auto-advance non-gate stages to the NEXT stage (not re-running same)
+      const nextAfterThis = getNextStageAfter(stage);
+      if (nextAfterThis && stage !== 'draft') {
         setRunning(false);
-        setTimeout(() => runNextStage(), 500);
+        setTimeout(() => runStage(nextAfterThis), 500);
         return;
       }
 
@@ -181,6 +186,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       setError(err instanceof Error ? err.message : 'Unknown error');
       setRunning(false);
     }
+  }
+
+  function runNextStage() {
+    const nextStage = getNextStage();
+    if (nextStage) runStage(nextStage);
   }
 
   function buildStageRequest(stage: PipelineStage): Record<string, unknown> {
