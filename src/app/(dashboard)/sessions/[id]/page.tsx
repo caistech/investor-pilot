@@ -7,7 +7,7 @@ import {
   ArrowLeft, CheckCircle, Circle, Loader2, AlertTriangle,
   Search, Filter, BarChart3, Globe, UserSearch, Mail,
   Target, FileText, Play, Pause, ChevronDown, ChevronRight,
-  ExternalLink, XCircle,
+  ExternalLink, XCircle, Trash2,
 } from 'lucide-react';
 import type { PipelineStage, SessionMode } from '@/lib/types';
 
@@ -272,6 +272,13 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     });
   }
 
+  async function deleteSession() {
+    if (!session) return;
+    await supabase.from('session_events').delete().eq('session_id', session.id);
+    await supabase.from('agent_sessions').delete().eq('id', session.id);
+    window.location.href = '/sessions';
+  }
+
   function formatEventType(type: string): string {
     return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
@@ -454,20 +461,30 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
           </div>
         </div>
 
-        {/* Stats */}
-        <div className="flex gap-6 text-sm">
-          <div className="text-center">
-            <div className="text-2xl font-bold">{session.partners_added}</div>
-            <div className="text-dark-500">Partners</div>
+        <div className="flex items-center gap-6">
+          {/* Stats */}
+          <div className="flex gap-6 text-sm">
+            <div className="text-center">
+              <div className="text-2xl font-bold">{session.partners_added}</div>
+              <div className="text-dark-500">Partners</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold">{session.contacts_found}</div>
+              <div className="text-dark-500">Contacts</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold">{session.drafts_filed}</div>
+              <div className="text-dark-500">Drafts</div>
+            </div>
           </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold">{session.contacts_found}</div>
-            <div className="text-dark-500">Contacts</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold">{session.drafts_filed}</div>
-            <div className="text-dark-500">Drafts</div>
-          </div>
+          {/* Delete */}
+          <button
+            onClick={deleteSession}
+            className="p-2 text-dark-600 hover:text-red-400 transition-colors"
+            title="Delete session"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
         </div>
       </div>
 

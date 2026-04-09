@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { Plus, Play, Pause, CheckCircle, Clock, ChevronRight, Loader2, Package } from 'lucide-react';
+import { Plus, Play, Pause, CheckCircle, Clock, ChevronRight, Loader2, Package, Trash2 } from 'lucide-react';
 import type { SessionMode, AgentSession, Product } from '@/lib/types';
 
 export default function SessionsPage() {
@@ -84,6 +84,13 @@ export default function SessionsPage() {
       router.push(`/sessions/${session.id}`);
     }
     setLoading(false);
+  }
+
+  async function deleteSession(id: string) {
+    // Delete events first (cascade might handle this, but be explicit)
+    await supabase.from('session_events').delete().eq('session_id', id);
+    await supabase.from('agent_sessions').delete().eq('id', id);
+    setSessions((prev) => prev.filter((s) => s.id !== id));
   }
 
   function formatStage(stage: string): string {
@@ -215,49 +222,54 @@ export default function SessionsPage() {
       ) : (
         <div className="space-y-3">
           {sessions.map((sess) => (
-            <Link
-              key={sess.id}
-              href={`/sessions/${sess.id}`}
-              className="card-hover flex items-center gap-4 group"
-            >
-              <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${
-                sess.status === 'active' ? 'bg-corp-green-500/10' :
-                sess.status === 'completed' ? 'bg-dark-700' : 'bg-amber-500/10'
-              }`}>
-                {sess.status === 'active' ? (
-                  <Play className="w-5 h-5 text-corp-green-400" />
-                ) : sess.status === 'completed' ? (
-                  <CheckCircle className="w-5 h-5 text-dark-400" />
-                ) : (
-                  <Pause className="w-5 h-5 text-amber-400" />
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium">
-                    {sess.mode === 'guided' ? 'Guided' : 'Batch'} Session
-                  </span>
-                  <span className={
-                    sess.status === 'active' ? 'badge-green' :
-                    sess.status === 'completed' ? 'badge-grey' : 'badge-amber'
-                  }>
-                    {sess.status}
-                  </span>
-                  {sess.current_stage && sess.current_stage !== 'initialise' && (
-                    <span className="badge-blue">{formatStage(sess.current_stage)}</span>
+            <div key={sess.id} className="card-hover flex items-center gap-4 group">
+              <Link href={`/sessions/${sess.id}`} className="flex items-center gap-4 flex-1 min-w-0">
+                <div className={`w-10 h-10 rounded-lg flex items-center justify-center shrink-0 ${
+                  sess.status === 'active' ? 'bg-corp-green-500/10' :
+                  sess.status === 'completed' ? 'bg-dark-700' : 'bg-amber-500/10'
+                }`}>
+                  {sess.status === 'active' ? (
+                    <Play className="w-5 h-5 text-corp-green-400" />
+                  ) : sess.status === 'completed' ? (
+                    <CheckCircle className="w-5 h-5 text-dark-400" />
+                  ) : (
+                    <Pause className="w-5 h-5 text-amber-400" />
                   )}
                 </div>
-                <div className="flex items-center gap-4 mt-1 text-sm text-dark-500">
-                  <span className="flex items-center gap-1">
-                    <Clock className="w-3 h-3" /> {formatTime(sess.started_at)}
-                  </span>
-                  <span>{sess.partners_added} partners</span>
-                  <span>{sess.contacts_found} contacts</span>
-                  <span>{sess.drafts_filed} drafts</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="font-medium">
+                      {sess.mode === 'guided' ? 'Guided' : 'Batch'} Session
+                    </span>
+                    <span className={
+                      sess.status === 'active' ? 'badge-green' :
+                      sess.status === 'completed' ? 'badge-grey' : 'badge-amber'
+                    }>
+                      {sess.status}
+                    </span>
+                    {sess.current_stage && sess.current_stage !== 'initialise' && (
+                      <span className="badge-blue">{formatStage(sess.current_stage)}</span>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-4 mt-1 text-sm text-dark-500">
+                    <span className="flex items-center gap-1">
+                      <Clock className="w-3 h-3" /> {formatTime(sess.started_at)}
+                    </span>
+                    <span>{sess.partners_added} partners</span>
+                    <span>{sess.contacts_found} contacts</span>
+                    <span>{sess.drafts_filed} drafts</span>
+                  </div>
                 </div>
-              </div>
-              <ChevronRight className="w-5 h-5 text-dark-600 group-hover:text-white transition-colors" />
-            </Link>
+                <ChevronRight className="w-5 h-5 text-dark-600 group-hover:text-white transition-colors shrink-0" />
+              </Link>
+              <button
+                onClick={() => deleteSession(sess.id)}
+                className="opacity-0 group-hover:opacity-100 p-2 text-dark-600 hover:text-red-400 transition-all shrink-0"
+                title="Delete session"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           ))}
         </div>
       )}
