@@ -104,6 +104,26 @@ export interface Partner {
   created_at: string;
 }
 
+export type SourceType = 'url' | 'file' | 'text';
+export type ProcessingStatus = 'pending' | 'processing' | 'completed' | 'failed';
+
+export interface ProductSource {
+  id: string;
+  product_id: string;
+  organisation_id: string;
+  source_type: SourceType;
+  title: string;
+  url: string | null;
+  content: string | null;
+  file_name: string | null;
+  file_type: string | null;
+  file_size: number | null;
+  processing_status: ProcessingStatus;
+  error_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface AgentSession {
   id: string;
   organisation_id: string;

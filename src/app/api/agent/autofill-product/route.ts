@@ -32,7 +32,7 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, description, source_url, source_text } = await request.json();
+  const { name, description, source_url, source_text, product_id } = await request.json();
 
   if (!name && !source_url && !source_text) {
     return NextResponse.json({ error: 'Provide a product name, URL, or text' }, { status: 400 });
@@ -40,6 +40,24 @@ export async function POST(request: Request) {
 
   // Build context from available sources
   let sourceContent = '';
+
+  // Include existing knowledge base if product_id provided
+  if (product_id) {
+    const { data: existingSources } = await supabase
+      .from('product_sources')
+      .select('title, content')
+      .eq('product_id', product_id)
+      .eq('processing_status', 'completed');
+
+    if (existingSources && existingSources.length > 0) {
+      const kbContent = existingSources
+        .filter((s: { content: string | null }) => s.content)
+        .map((s: { title: string; content: string }) => `--- ${s.title} ---\n${s.content}`)
+        .join('\n\n')
+        .slice(0, 10000);
+      sourceContent += `\n\nEXISTING KNOWLEDGE BASE:\n${kbContent}`;
+    }
+  }
 
   if (source_url) {
     const pageText = await fetchPageContent(source_url);

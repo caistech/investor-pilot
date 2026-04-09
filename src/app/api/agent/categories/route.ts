@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import { runCategoriesStage } from '@/lib/agent/pipeline';
+import { getProductSourceContent } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 
 export async function POST(request: Request) {
@@ -17,7 +18,8 @@ export async function POST(request: Request) {
 
   if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
 
-  const result = await runCategoriesStage(product);
+  const sourceContent = await getProductSourceContent(product_id);
+  const result = await runCategoriesStage(product, sourceContent);
 
   // Log events
   for (const event of result.events) {

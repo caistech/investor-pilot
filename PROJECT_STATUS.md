@@ -1,7 +1,7 @@
 # PartnerPilot — Project Status
 
 Last updated: 2026-04-09
-Session: Initial build
+Session: Build session 2
 
 ## What Was Done
 
@@ -13,7 +13,7 @@ Session: Initial build
 
 ### Infrastructure (Steps 2-8)
 - GitHub: dennissolver/partner-pilot (private)
-- Vercel: partner-pilot-three.vercel.app (auto-deploy on push)
+- Vercel: partner-pilot-theta.vercel.app (auto-deploy on push)
 - Supabase: rlwexqzoiqtbcvwqtqqf (ap-southeast-2)
 - Schema: 6 tables (organisations, profiles, products, partners, agent_sessions, session_events) with RLS, indexes, triggers
 - All env vars on Vercel: Supabase, Anthropic, Hunter, Brave, Resend
@@ -34,36 +34,40 @@ Session: Initial build
 - Agent pipeline: categories + scoring stages via Anthropic API
 - Partners API: upsert by domain
 
+### Session 2 — Agent Pipeline + Chat UI (Steps 14-16)
+- MCP Tool Execution Layer:
+  - src/lib/agent/brave-tools.ts — Brave Search API (web search, AU locale)
+  - src/lib/agent/hunter-tools.ts — Hunter Email Finder, Domain Search, Email Verifier
+- 5 new pipeline stage functions in pipeline.ts:
+  - runSearchStage (Brave Search per category, Claude extracts candidates, deduplication)
+  - runScreenStage (negative screening: competitors, size mismatch, closed ecosystem)
+  - runBrowseStage (research each company via Brave Search for evidence)
+  - runFindContactStage (Claude identifies target role, Hunter finds email)
+  - runSelectMotionStage (Claude selects partnership motion + GTM angle)
+- 7 new API routes: /api/agent/{search,screen,score,browse,find-contact,select-motion,draft}
+  - Each: auth check, run pipeline stage, log events, update session, upsert partners
+- Session Detail Page (sessions/[id]/page.tsx):
+  - Card-based agent chat UI with expandable event cards
+  - Stage progress sidebar (pipeline tracker with icons + completion states)
+  - Rich rendering per event type (categories, candidates, scores, contacts, motions, drafts, errors)
+  - Approval gates in guided mode, auto-advance in batch mode
+  - Error handling with retry, pipeline completion state
+- Sessions List Page: updated with real session history from Supabase
+- Deployed to Vercel: partner-pilot-theta.vercel.app (build passes, 36s deploy)
+
 ## What's Next
 
-### Priority 1 — Session Detail Page (Agent Chat UI)
-- src/app/(dashboard)/sessions/[id]/page.tsx
-- Streaming card-based UI showing pipeline stages
-- Approval gates as inline action cards
-- Stage progress indicator
-
-### Priority 2 — Remaining Pipeline API Routes
-- /api/agent/search — Brave Search MCP for candidate discovery
-- /api/agent/browse — Brave Search for company website research
-- /api/agent/find-contact — Hunter MCP for email enrichment
-- /api/agent/draft — Anthropic API for outreach drafting
-- Each route: validate auth, run stage, log events, update session
-
-### Priority 3 — MCP Tool Execution Layer
-- src/lib/agent/brave-tools.ts — Execute brave_web_search tool calls
-- src/lib/agent/hunter-tools.ts — Execute email_finder, domain_search, email_verifier
-- Pattern: Anthropic tool_use → API route executes tool → feeds result back
-
-### Priority 4 — Accepted Scope Expansions
+### Priority 1 — Accepted Scope Expansions
 - Demo mode at /demo/[product-slug] (public session replay)
 - Pipeline stats counter on dashboard + landing page
-- These are built into the plan but not yet implemented
 
-### Priority 5 — Steps 14-20
+### Priority 2 — Polish & QA
 - /design-review on live site
 - /qa with browser testing
 - /review pre-landing code review
 - /health code quality check
+
+### Priority 3 — Ship & Monitor
 - /ship PR creation
 - /land-and-deploy
 - /canary monitoring

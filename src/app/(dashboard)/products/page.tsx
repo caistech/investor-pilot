@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type } from 'lucide-react';
 import type { Product } from '@/lib/types';
+import SourceManager from '@/components/products/source-manager';
 
 const DETAIL_FIELDS = [
   { key: 'core_mechanism', label: 'Core Mechanism' },
@@ -394,7 +395,7 @@ export default function ProductsPage() {
                       </div>
                     ))}
                   </div>
-                  <div className="flex gap-2 mt-4">
+                  <div className="flex gap-2 mt-4 mb-4">
                     <button
                       onClick={(e) => { e.stopPropagation(); startEdit(p); }}
                       className="flex items-center gap-1.5 text-sm text-dark-400 hover:text-white transition-colors"
@@ -407,6 +408,11 @@ export default function ProductsPage() {
                     >
                       <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
+                  </div>
+
+                  {/* Knowledge Base */}
+                  <div onClick={(e) => e.stopPropagation()}>
+                    <SourceManager productId={p.id} />
                   </div>
                 </div>
               )}

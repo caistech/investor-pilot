@@ -16,8 +16,8 @@ export function getNextStage(current: PipelineStage): PipelineStage | null {
   return idx < PIPELINE_STAGES.length - 1 ? PIPELINE_STAGES[idx + 1] : null;
 }
 
-export function buildProductContext(product: Product): string {
-  return `
+export function buildProductContext(product: Product, sourceContent?: string): string {
+  let context = `
 PRODUCT: ${product.name}
 ${product.one_sentence_description || ''}
 
@@ -39,9 +39,15 @@ TRACTION:
 PARTNER TYPES: ${product.partner_types || 'referral'}
 EXCLUSIONS: ${product.exclusions || 'None specified'}
 `.trim();
+
+  if (sourceContent) {
+    context += `\n\nADDITIONAL PRODUCT KNOWLEDGE (from uploaded collateral):\n${sourceContent}`;
+  }
+
+  return context;
 }
 
-export async function runCategoriesStage(product: Product): Promise<StageResult> {
+export async function runCategoriesStage(product: Product, sourceContent?: string): Promise<StageResult> {
   try {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
@@ -50,7 +56,7 @@ export async function runCategoriesStage(product: Product): Promise<StageResult>
         role: 'user',
         content: `Based on this product profile, identify 5-8 categories of companies whose customers match the ICP. For each category, state in one sentence why the audience overlap exists.
 
-${buildProductContext(product)}
+${buildProductContext(product, sourceContent)}
 
 Return as JSON array: [{"category": "...", "rationale": "..."}]`,
       }],
