@@ -64,7 +64,7 @@ ${sourceContent ? `## Additional Product Knowledge\n${sourceContent}\n` : ''}
 ### Phase 1: Generate Categories
 Identify 5-8 categories of companies whose customers match the ICP. For each category, state in one sentence why the audience overlap exists.
 
-Use emit_event with event_type "categories_generated" to show all categories to the user.
+Use emit_event with event_type "categories_generated" and event_data: {"count": N, "categories": [{"category": "Category Name", "rationale": "Why this category's clients match the ICP"}]}.
 
 ### Phase 2: Search for Candidates
 For each category, use brave_search to find 3-5 specific companies. Useful query patterns:
@@ -72,7 +72,7 @@ For each category, use brave_search to find 3-5 specific companies. Useful query
 - "[category] startup clients Australia"
 - "best [category] [industry] partners"
 
-After searching each category, use emit_event with event_type "category_searched" to show candidates found.
+After searching each category, use emit_event with event_type "category_searched" and event_data: {"category": "Category Name", "count": N, "candidates": [{"company_name": "Name", "domain": "domain.com"}]}.
 
 Deduplicate by domain before proceeding.
 
@@ -84,7 +84,7 @@ Screen out candidates matching any of:
 - Stage mismatch (too large for early-stage partnership)
 - Geography mismatch (if product is geo-specific)
 
-For each screened-out candidate, call save_partner with screened_out=true and the reason. Use emit_event with event_type "candidate_screened_out".
+For each screened-out candidate, call save_partner with screened_out=true and the reason. Use emit_event with event_type "candidate_screened_out" and event_data: {"company_name": "Name", "reason": "Why screened out"}.
 
 ### Phase 4: Score Each Candidate
 Score on five dimensions (each 1-10):
@@ -106,7 +106,7 @@ Rules:
 
 Compute weighted_score = (dim1*0.3 + dim2*0.25 + dim3*0.2 + dim4*0.15 + dim5*0.1)
 
-After scoring each partner, call save_partner to persist, and emit_event with event_type "partner_scored".
+After scoring each partner, call save_partner to persist, and emit_event with event_type "partner_scored" and event_data: {"company_name": "Name", "weighted_score": N}.
 
 ### Phase 5: Research (Browse)
 For each partner that passed screening, use brave_search to research:
@@ -114,7 +114,7 @@ For each partner that passed screening, use brave_search to research:
 - Partnership signals ("[company] partnerships referral program")
 - Team/leadership ("[company] team leadership")
 
-Use emit_event with event_type "company_researched" per company.
+Use emit_event with event_type "company_researched" and event_data: {"company_name": "Name", "domain": "domain.com", "results_found": N} per company.
 
 ### Phase 6: Find Contact
 Based on the partnership motion:
@@ -127,7 +127,7 @@ Based on the partnership motion:
 3. If no result, call hunter_domain_search as fallback
 4. Assign email_status: verified (confidence >= 70), probable (< 70), company_level (generic email), unresolved (nothing found)
 
-Call save_contact to persist, and emit_event with event_type "contact_found".
+Call save_contact to persist, and emit_event with event_type "contact_found" and event_data: {"company_name": "Name", "contact_name": "Person Name" or null, "email_status": "verified|probable|company_level|unresolved", "email_confidence": N or null}.
 
 ### Phase 7: Select Partnership Motion
 For each partner, select the best first motion:
@@ -139,7 +139,7 @@ For each partner, select the best first motion:
 
 Tier 1 readiness → specific motion. Low readiness → lighter opener.
 
-Use emit_event with event_type "motion_selected" and call save_contact with the motion and GTM angle.
+Use emit_event with event_type "motion_selected" and event_data: {"company_name": "Name", "partnership_motion": "Selected motion"}. Also call save_contact with the motion and GTM angle.
 
 ### Phase 8: Draft Outreach
 BEFORE DRAFTING, check:
@@ -157,7 +157,7 @@ EMAIL RULES:
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
 - NEVER fabricate: client segments, service claims, recent hires, or strategic priorities
 
-Call save_draft to persist, and emit_event with event_type "draft_created".
+Call save_draft to persist, and emit_event with event_type "draft_created" and event_data: {"company_name": "Name", "subject": "Email subject line"}.
 
 ## Memory
 When you discover an important insight (e.g., a company's client base exactly matches the ICP, or a contact person was identified from a specific source), call save_memory so it's available if the conversation continues in the next chunk.

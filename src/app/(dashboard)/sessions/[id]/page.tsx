@@ -231,23 +231,30 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     const d = event.event_data;
 
     switch (event.event_type) {
-      case 'categories_generated':
+      case 'categories_generated': {
+        const cats = d.categories as Array<unknown> | undefined;
         return (
           <div>
-            <p className="text-dark-300 mb-2">{d.count as number} categories identified</p>
+            <p className="text-dark-300 mb-2">{d.count as number || cats?.length || 0} categories identified</p>
             <div className="space-y-1">
-              {(d.categories as Array<{ category: string; rationale: string }>)?.map((cat, i) => (
-                <div key={i} className="flex gap-2 text-sm">
-                  <span className="text-dark-500 font-mono w-5">{i + 1}.</span>
-                  <div>
-                    <span className="text-white font-medium">{cat.category}</span>
-                    <span className="text-dark-400 ml-2">{cat.rationale}</span>
+              {cats?.map((cat, i) => {
+                // Handle both {category, rationale} objects and plain strings
+                const name = typeof cat === 'string' ? cat : (cat as Record<string, string>).category || (cat as Record<string, string>).name || '';
+                const rationale = typeof cat === 'string' ? '' : (cat as Record<string, string>).rationale || (cat as Record<string, string>).reason || '';
+                return (
+                  <div key={i} className="flex gap-2 text-sm">
+                    <span className="text-dark-500 font-mono w-5">{i + 1}.</span>
+                    <div>
+                      <span className="text-white font-medium">{name}</span>
+                      {rationale && <span className="text-dark-400 ml-2">{rationale}</span>}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         );
+      }
 
       case 'category_searched':
         return (
