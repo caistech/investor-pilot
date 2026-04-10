@@ -19,37 +19,40 @@ create table if not exists public.product_sources (
 );
 
 -- Indexes
-create index idx_product_sources_product on public.product_sources(product_id);
-create index idx_product_sources_org on public.product_sources(organisation_id);
+create index if not exists idx_product_sources_product on public.product_sources(product_id);
+create index if not exists idx_product_sources_org on public.product_sources(organisation_id);
 
 -- RLS
 alter table public.product_sources enable row level security;
 
-create policy "Users can view own org sources"
-  on public.product_sources for select
-  using (organisation_id in (
-    select organisation_id from public.profiles where id = auth.uid()
-  ));
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can view own org sources' AND tablename = 'product_sources') THEN
+    CREATE POLICY "Users can view own org sources"
+      on public.product_sources for select
+      using (organisation_id in (select organisation_id from public.profiles where id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can insert own org sources' AND tablename = 'product_sources') THEN
+    CREATE POLICY "Users can insert own org sources"
+      on public.product_sources for insert
+      with check (organisation_id in (select organisation_id from public.profiles where id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can update own org sources' AND tablename = 'product_sources') THEN
+    CREATE POLICY "Users can update own org sources"
+      on public.product_sources for update
+      using (organisation_id in (select organisation_id from public.profiles where id = auth.uid()));
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE policyname = 'Users can delete own org sources' AND tablename = 'product_sources') THEN
+    CREATE POLICY "Users can delete own org sources"
+      on public.product_sources for delete
+      using (organisation_id in (select organisation_id from public.profiles where id = auth.uid()));
+  END IF;
+END $$;
 
-create policy "Users can insert own org sources"
-  on public.product_sources for insert
-  with check (organisation_id in (
-    select organisation_id from public.profiles where id = auth.uid()
-  ));
-
-create policy "Users can update own org sources"
-  on public.product_sources for update
-  using (organisation_id in (
-    select organisation_id from public.profiles where id = auth.uid()
-  ));
-
-create policy "Users can delete own org sources"
-  on public.product_sources for delete
-  using (organisation_id in (
-    select organisation_id from public.profiles where id = auth.uid()
-  ));
-
--- Updated_at trigger
-create trigger set_product_sources_updated_at
-  before update on public.product_sources
-  for each row execute function public.handle_updated_at();
+-- Updated_at trigger (skip if exists)
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_product_sources_updated_at') THEN
+    CREATE TRIGGER set_product_sources_updated_at
+      BEFORE UPDATE ON public.product_sources
+      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+  END IF;
+END $$;
