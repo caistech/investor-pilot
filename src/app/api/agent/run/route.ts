@@ -174,13 +174,20 @@ export async function POST(request: Request) {
           // Execute tool calls
           const toolResults: Anthropic.ToolResultBlockParam[] = [];
 
-          for (const block of toolUseBlocks) {
+          for (let toolIdx = 0; toolIdx < toolUseBlocks.length; toolIdx++) {
+            const block = toolUseBlocks[toolIdx];
+
             // Check timeout before each tool
             if (Date.now() - startTime > TIMEOUT_MS) {
-              // Save partial tool results and break
-              if (toolResults.length > 0) {
-                await saveMessage(db, session_id, 'tool_result', toolResults);
+              // Add placeholder results for ALL remaining unexecuted tools
+              for (let j = toolIdx; j < toolUseBlocks.length; j++) {
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: toolUseBlocks[j].id,
+                  content: JSON.stringify({ error: 'Timed out — will retry on next chunk' }),
+                });
               }
+              await saveMessage(db, session_id, 'tool_result', toolResults);
               emit({ type: 'continue', message: 'Continuing in next chunk...' });
               controller.close();
               return;
@@ -198,18 +205,23 @@ export async function POST(request: Request) {
                 event_data: { message: input.message, approval_type: input.approval_type },
               });
 
-              // Save assistant message + partial tool results
-              if (toolResults.length > 0) {
-                await saveMessage(db, session_id, 'tool_result', toolResults);
-              }
-
-              // Send the approval tool result so conversation is valid on resume
+              // Build complete tool results including approval + any remaining tools
               const approvalResult: Anthropic.ToolResultBlockParam = {
                 type: 'tool_result',
                 tool_use_id: block.id,
                 content: 'Approval requested. Waiting for user response.',
               };
-              await saveMessage(db, session_id, 'tool_result', [...toolResults, approvalResult]);
+              toolResults.push(approvalResult);
+
+              // Add placeholder results for any remaining unexecuted tools after this one
+              for (let j = toolIdx + 1; j < toolUseBlocks.length; j++) {
+                toolResults.push({
+                  type: 'tool_result',
+                  tool_use_id: toolUseBlocks[j].id,
+                  content: JSON.stringify({ status: 'deferred_for_approval' }),
+                });
+              }
+              await saveMessage(db, session_id, 'tool_result', toolResults);
 
               // Update session stage
               await db
