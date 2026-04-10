@@ -809,6 +809,15 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   function approveAndContinue() {
     setAwaitingApproval(false);
+    // Use lastCompletedStage to determine next stage, since DB may not be updated yet
+    const completed = lastCompletedStage.current || session?.current_stage;
+    if (completed) {
+      const nextAfter = getNextStageAfter(completed);
+      if (nextAfter) {
+        runStage(nextAfter);
+        return;
+      }
+    }
     runNextStage();
   }
 
