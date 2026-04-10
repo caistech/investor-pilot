@@ -3,6 +3,8 @@ import { runCategoriesStage } from '@/lib/agent/pipeline';
 import { getProductSourceContent } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   const { db, error } = await authenticateAndGetDb();
   if (error) return error;

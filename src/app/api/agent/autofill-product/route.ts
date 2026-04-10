@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 30;
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 async function fetchPageContent(url: string): Promise<string> {

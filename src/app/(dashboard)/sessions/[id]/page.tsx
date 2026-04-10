@@ -133,12 +133,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
     const base = { session_id: session.id, product_id: session.product_id };
 
-    // Step 1: fetch eligible partners list
-    const listRes = await fetch('/api/agent/draft', {
+    // Step 1: fetch eligible partners list (lightweight, no Anthropic call)
+    const listRes = await fetch('/api/agent/draft-list', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(base),
-      signal: AbortSignal.timeout(15000),
+      body: JSON.stringify({ product_id: session.product_id }),
+      signal: AbortSignal.timeout(10000),
     });
     const listResult = await listRes.json();
 

@@ -144,3 +144,4 @@ vite.config.ts.timestamp-*
 .idea/
 partners.xlsx
 .vercel
+.gstack/

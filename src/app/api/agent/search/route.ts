@@ -2,6 +2,8 @@ import { authenticateAndGetDb } from '@/lib/agent/db';
 import { runSearchStage } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 30;
+
 export async function POST(request: Request) {
   const { db, error } = await authenticateAndGetDb();
   if (error) return error;
