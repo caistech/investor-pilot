@@ -8,7 +8,17 @@ import type { AgentAction } from '@/lib/agent/context';
 
 export const maxDuration = 30;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+// Use OpenRouter as primary provider for resilience (falls back across models)
+// Falls back to direct Anthropic if OPENROUTER_API_KEY is not set
+const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
+const anthropic = new Anthropic(useOpenRouter ? {
+  apiKey: process.env.OPENROUTER_API_KEY!,
+  baseURL: 'https://openrouter.ai/api/v1',
+} : {
+  apiKey: process.env.ANTHROPIC_API_KEY!,
+});
+
+const MODEL = process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514';
 const TIMEOUT_MS = 24000; // 6s safety margin before Vercel's 30s hard kill
 
 export async function POST(request: Request) {
@@ -113,7 +123,7 @@ export async function POST(request: Request) {
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
               response = await anthropic.messages.create({
-                model: 'claude-sonnet-4-20250514',
+                model: MODEL,
                 max_tokens: 4096,
                 system: systemPrompt,
                 tools: TOOL_DEFINITIONS,
