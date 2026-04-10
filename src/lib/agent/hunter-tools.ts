@@ -41,7 +41,8 @@ export async function hunterEmailFinder(
   const res = await fetch(`https://api.hunter.io/v2/email-finder?${params}`);
   if (!res.ok) {
     if (res.status === 404) return null;
-    throw new Error(`Hunter Email Finder failed: ${res.status}`);
+    const body = await res.text().catch(() => '');
+    throw new Error(`Hunter Email Finder failed: ${res.status} ${body}`);
   }
 
   const json = await res.json();
@@ -73,7 +74,8 @@ export async function hunterDomainSearch(domain: string): Promise<HunterDomainRe
   const res = await fetch(`https://api.hunter.io/v2/domain-search?${params}`);
   if (!res.ok) {
     if (res.status === 404) return null;
-    throw new Error(`Hunter Domain Search failed: ${res.status}`);
+    const body = await res.text().catch(() => '');
+    throw new Error(`Hunter Domain Search failed: ${res.status} ${body}`);
   }
 
   const json = await res.json();
