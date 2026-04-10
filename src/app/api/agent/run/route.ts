@@ -13,7 +13,7 @@ export const maxDuration = 30;
 const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-const OPENROUTER_MODEL = process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514';
+const OPENROUTER_MODEL = process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.6';
 const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
 
 // OpenRouter-compatible messages.create via fetch
