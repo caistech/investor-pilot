@@ -10,6 +10,8 @@ export async function POST(request: Request) {
 
   const { session_id, product_id, candidate } = await request.json();
 
+  if (!candidate) return NextResponse.json({ error: 'No candidate provided — try a hard refresh (Ctrl+Shift+R)' }, { status: 400 });
+
   const { data: product } = await db
     .from('products')
     .select('*')
