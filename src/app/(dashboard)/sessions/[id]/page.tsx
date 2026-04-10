@@ -192,6 +192,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     stageData.current.screen = { passed: allPassed, screened_out: allScreenedOut };
     lastCompletedStage.current = 'screen';
 
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'screen' }),
+    });
     await refreshSession();
   }
 
@@ -257,6 +262,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     stageData.current.search = { candidates: deduped };
     lastCompletedStage.current = 'search';
 
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'search' }),
+    });
     await refreshSession();
   }
 
@@ -521,6 +531,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
     stageData.current.draft = { drafts, count: drafts.length };
     lastCompletedStage.current = 'draft';
+
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'draft' }),
+    });
     await refreshSession();
   }
 
@@ -720,6 +736,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
       // Check if we need approval (guided mode gate)
       if (session.mode === 'guided' && GUIDED_GATES.includes(stage)) {
+        setApprovalStage(stage);
         setAwaitingApproval(true);
         setRunning(false);
         return;
@@ -810,7 +827,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   function approveAndContinue() {
     setAwaitingApproval(false);
-    // Use approvalStage to determine next — DB state may be stale
     const completed = approvalStage || lastCompletedStage.current || session?.current_stage;
     setApprovalStage(null);
     if (completed) {
@@ -819,8 +835,9 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         runStage(nextAfter);
         return;
       }
+      // No next stage = pipeline complete — do NOT fall back to runNextStage()
+      return;
     }
-    runNextStage();
   }
 
   function toggleEvent(id: string) {
