@@ -215,6 +215,68 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     await refreshSession();
   }
 
+  async function runScorePerPartner() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+    const screenData = stageData.current.screen as { passed?: Array<Record<string, unknown>> } | undefined;
+    const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
+    const candidates = screenData?.passed || searchData?.candidates || [];
+
+    if (candidates.length === 0) {
+      stageData.current.score = { scored_partners: [] };
+      lastCompletedStage.current = 'score';
+      await refreshSession();
+      return;
+    }
+
+    const allScored: Array<Record<string, unknown>> = [];
+
+    for (const candidate of candidates) {
+      try {
+        const res = await fetch('/api/agent/score', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, candidate }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Score failed for ${candidate.company_name}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Score failed for ${candidate.company_name}:`, result.error);
+          continue;
+        }
+
+        if (result.data.scored_partner) {
+          allScored.push(result.data.scored_partner);
+        }
+      } catch (err) {
+        console.error(`Score failed for ${candidate.company_name}:`, err instanceof Error ? err.message : err);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    stageData.current.score = { scored_partners: allScored };
+    lastCompletedStage.current = 'score';
+
+    // Update session stage and partners count
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'score', partners_added: allScored.length })
+      .eq('id', session.id);
+
+    await refreshSession();
+  }
+
   async function runBrowsePerPartner() {
     if (!session) return;
 
@@ -503,6 +565,14 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Search stage uses per-category iteration to avoid serverless timeout
       if (stage === 'search') {
         await runSearchPerCategory();
+        setAwaitingApproval(session.mode === 'guided');
+        setRunning(false);
+        return;
+      }
+
+      // Score stage uses per-partner iteration to avoid serverless timeout
+      if (stage === 'score') {
+        await runScorePerPartner();
         setAwaitingApproval(session.mode === 'guided');
         setRunning(false);
         return;

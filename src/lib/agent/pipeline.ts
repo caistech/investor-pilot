@@ -91,22 +91,23 @@ Return as JSON array: [{"category": "...", "rationale": "..."}]`,
   }
 }
 
-export async function runScoringStage(
+// --- SCORE STAGE (per-partner) ---
+// Scores a single candidate on 5 dimensions
+export async function runScoreForPartner(
   product: Product,
-  candidates: Array<{ company_name: string; domain: string; category: string; description: string }>
+  candidate: { company_name: string; domain: string; category: string; description: string }
 ): Promise<StageResult> {
   try {
     const response = await anthropic.messages.create({
       model: 'claude-sonnet-4-20250514',
-      max_tokens: 4000,
+      max_tokens: 1500,
       messages: [{
         role: 'user',
-        content: `Score each candidate partner on 5 dimensions for this product:
+        content: `Score this candidate partner on 5 dimensions for this product:
 
 ${buildProductContext(product)}
 
-CANDIDATES:
-${candidates.map((c, i) => `${i + 1}. ${c.company_name} (${c.domain}) - ${c.category}: ${c.description}`).join('\n')}
+CANDIDATE: ${candidate.company_name} (${candidate.domain}) - ${candidate.category}: ${candidate.description}
 
 SCORING DIMENSIONS (each 1-10):
 1. Audience Overlap (30%): How precisely do their clients match our ICP?
@@ -118,7 +119,7 @@ SCORING DIMENSIONS (each 1-10):
 For each dimension, state the evidence found and whether it's observed or inferred.
 If a dimension relies more on inference than observation, cap at 4/10.
 
-Return JSON array: [{
+Return JSON object: {
   "company_name": "...",
   "domain": "...",
   "audience_overlap_score": N, "audience_overlap_notes": "...",
@@ -128,23 +129,33 @@ Return JSON array: [{
   "strategic_leverage_score": N, "strategic_leverage_notes": "...",
   "weighted_score": N,
   "confidence_score": "normal" | "low-confidence"
-}]`,
+}`,
       }],
     });
 
     const text = response.content[0].type === 'text' ? response.content[0].text : '';
-    const jsonMatch = text.match(/\[[\s\S]*\]/);
-    const scored = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const scored = jsonMatch ? JSON.parse(jsonMatch[0]) : null;
+
+    if (!scored) {
+      return {
+        success: false,
+        stage: 'score',
+        data: {},
+        error: `Failed to parse scoring response for ${candidate.company_name}`,
+        events: [{ partner_id: null, event_type: 'stage_error', event_data: { stage: 'score', error: 'JSON parse failed' } }],
+      };
+    }
 
     return {
       success: true,
       stage: 'score',
-      data: { scored_partners: scored },
-      events: scored.map((s: Record<string, unknown>) => ({
+      data: { scored_partner: scored },
+      events: [{
         partner_id: null,
         event_type: 'partner_scored',
-        event_data: { company_name: s.company_name, weighted_score: s.weighted_score },
-      })),
+        event_data: { company_name: scored.company_name, weighted_score: scored.weighted_score },
+      }],
     };
   } catch (error) {
     return {
