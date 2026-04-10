@@ -1,5 +1,5 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { runScreenStage } from '@/lib/agent/pipeline';
+import { runScreenBatch } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 30;
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
   if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
 
-  const result = await runScreenStage(product, candidates);
+  const result = await runScreenBatch(product, candidates);
 
   for (const event of result.events) {
     await db.from('session_events').insert({
@@ -28,11 +28,6 @@ export async function POST(request: Request) {
       event_data: event.event_data,
     });
   }
-
-  await db
-    .from('agent_sessions')
-    .update({ current_stage: result.success ? 'screen' : 'search' })
-    .eq('id', session_id);
 
   return NextResponse.json(result);
 }

@@ -128,6 +128,86 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     return ACTIVE_STAGES[idx + 1];
   }
 
+  async function runScreenInBatches() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+    const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
+    const allCandidates = searchData?.candidates || [];
+
+    if (allCandidates.length === 0) {
+      stageData.current.screen = { passed: [], screened_out: [] };
+      lastCompletedStage.current = 'screen';
+      await refreshSession();
+      return;
+    }
+
+    // Split into batches of 10
+    const BATCH_SIZE = 10;
+    const batches: Array<Array<Record<string, unknown>>> = [];
+    for (let i = 0; i < allCandidates.length; i += BATCH_SIZE) {
+      batches.push(allCandidates.slice(i, i + BATCH_SIZE));
+    }
+
+    const allPassed: Array<Record<string, unknown>> = [];
+    const allScreenedOut: Array<Record<string, unknown>> = [];
+
+    for (const batch of batches) {
+      try {
+        const res = await fetch('/api/agent/screen', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, candidates: batch }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Screen batch failed: server returned ${res.status}`);
+          // On failure, pass the batch through unscreened
+          allPassed.push(...batch);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error('Screen batch failed:', result.error);
+          allPassed.push(...batch);
+          continue;
+        }
+
+        if (result.data.passed) allPassed.push(...result.data.passed);
+        if (result.data.screened_out) allScreenedOut.push(...result.data.screened_out);
+      } catch (err) {
+        console.error('Screen batch failed:', err instanceof Error ? err.message : err);
+        allPassed.push(...batch);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    stageData.current.screen = { passed: allPassed, screened_out: allScreenedOut };
+    lastCompletedStage.current = 'screen';
+
+    // Insert summary event
+    await supabase.from('session_events').insert({
+      session_id: session.id,
+      partner_id: null,
+      event_type: 'candidates_screened',
+      event_data: { passed: allPassed.length, screened_out: allScreenedOut.length },
+    });
+
+    // Update session stage
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'screen' })
+      .eq('id', session.id);
+
+    await refreshSession();
+  }
+
   async function runSearchPerCategory() {
     if (!session) return;
 
@@ -562,6 +642,20 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     setAwaitingApproval(false);
 
     try {
+      // Screen stage uses batched requests to avoid serverless timeout
+      if (stage === 'screen') {
+        await runScreenInBatches();
+        // Screen is not a guided gate — auto-advance to score
+        const nextAfterScreen = getNextStageAfter('screen');
+        if (nextAfterScreen) {
+          setRunning(false);
+          setTimeout(() => runStage(nextAfterScreen), 500);
+        } else {
+          setRunning(false);
+        }
+        return;
+      }
+
       // Search stage uses per-category iteration to avoid serverless timeout
       if (stage === 'search') {
         await runSearchPerCategory();

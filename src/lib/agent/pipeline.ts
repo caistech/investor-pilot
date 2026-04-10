@@ -307,9 +307,9 @@ Return JSON array: [{"company_name": "...", "domain": "...", "description": "one
   }
 }
 
-// --- SCREEN STAGE ---
-// Negative screening: filters out competitors, wrong size, closed ecosystem, etc.
-export async function runScreenStage(
+// --- SCREEN STAGE (per-batch) ---
+// Screens a batch of candidates for partnership fit
+export async function runScreenBatch(
   product: Product,
   candidates: Array<{ company_name: string; domain: string; category: string; description: string }>
 ): Promise<StageResult> {
@@ -347,11 +347,6 @@ Return JSON: {
       stage: 'screen',
       data: result,
       events: [
-        {
-          partner_id: null,
-          event_type: 'candidates_screened',
-          event_data: { passed: result.passed.length, screened_out: result.screened_out.length },
-        },
         ...result.screened_out.map((s: { company_name: string; reason: string }) => ({
           partner_id: null,
           event_type: 'candidate_screened_out',
