@@ -191,20 +191,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     stageData.current.screen = { passed: allPassed, screened_out: allScreenedOut };
     lastCompletedStage.current = 'screen';
 
-    // Insert summary event
-    await supabase.from('session_events').insert({
-      session_id: session.id,
-      partner_id: null,
-      event_type: 'candidates_screened',
-      event_data: { passed: allPassed.length, screened_out: allScreenedOut.length },
-    });
-
-    // Update session stage
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'screen' })
-      .eq('id', session.id);
-
     await refreshSession();
   }
 
@@ -270,28 +256,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     stageData.current.search = { candidates: deduped };
     lastCompletedStage.current = 'search';
 
-    // Update session stage to 'search'
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'search' })
-      .eq('id', session.id);
-
-    // Insert summary event
-    await supabase.from('session_events').insert({
-      session_id: session.id,
-      partner_id: null,
-      event_type: 'candidates_discovered',
-      event_data: {
-        count: deduped.length,
-        categories_searched: categories.length,
-        candidates: deduped.map((c) => ({
-          company_name: c.company_name,
-          domain: c.domain,
-          category: c.category,
-        })),
-      },
-    });
-
     await refreshSession();
   }
 
@@ -349,10 +313,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     lastCompletedStage.current = 'score';
 
     // Update session stage and partners count
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'score', partners_added: allScored.length })
-      .eq('id', session.id);
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'score', partners_added: allScored.length }),
+    });
 
     await refreshSession();
   }
@@ -410,10 +375,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     lastCompletedStage.current = 'browse';
 
     // Update session stage to 'browse'
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'browse' })
-      .eq('id', session.id);
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'browse' }),
+    });
 
     await refreshSession();
   }
@@ -480,10 +446,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     lastCompletedStage.current = 'find_contact';
 
     // Update session stage and contacts_found count
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'find_contact', contacts_found: contactsFound })
-      .eq('id', session.id);
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'find_contact', contacts_found: contactsFound }),
+    });
 
     await refreshSession();
   }
@@ -626,10 +593,11 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     lastCompletedStage.current = 'select_motion';
 
     // Update session stage to 'select_motion'
-    await supabase
-      .from('agent_sessions')
-      .update({ current_stage: 'select_motion' })
-      .eq('id', session.id);
+    await fetch('/api/agent/update-stage', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_id: session.id, current_stage: 'select_motion' }),
+    });
 
     await refreshSession();
   }
