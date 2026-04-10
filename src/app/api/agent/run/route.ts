@@ -8,17 +8,120 @@ import type { AgentAction } from '@/lib/agent/context';
 
 export const maxDuration = 30;
 
-// Use OpenRouter as primary provider for resilience (falls back across models)
+// Use OpenRouter as primary provider for resilience
 // Falls back to direct Anthropic if OPENROUTER_API_KEY is not set
 const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
-const anthropic = new Anthropic(useOpenRouter ? {
-  apiKey: process.env.OPENROUTER_API_KEY!,
-  baseURL: 'https://openrouter.ai/api/v1',
-} : {
-  apiKey: process.env.ANTHROPIC_API_KEY!,
-});
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
-const MODEL = process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514';
+const OPENROUTER_MODEL = process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514';
+const ANTHROPIC_MODEL = 'claude-sonnet-4-20250514';
+
+// OpenRouter-compatible messages.create via fetch
+async function callLLM(params: {
+  system: string;
+  tools: Anthropic.Tool[];
+  messages: Anthropic.MessageParam[];
+  max_tokens: number;
+}): Promise<Anthropic.Message> {
+  if (!useOpenRouter) {
+    return anthropic.messages.create({
+      model: ANTHROPIC_MODEL,
+      ...params,
+    });
+  }
+
+  // OpenRouter uses the Anthropic messages format at /api/v1/chat/completions
+  // but we need to use their Anthropic-compatible endpoint
+  const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${process.env.OPENROUTER_API_KEY}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
+      'X-Title': 'PartnerPilot',
+    },
+    body: JSON.stringify({
+      model: OPENROUTER_MODEL,
+      max_tokens: params.max_tokens,
+      messages: [
+        { role: 'system', content: params.system },
+        ...params.messages.map((m) => {
+          if (m.role === 'assistant' && Array.isArray(m.content)) {
+            // Convert Anthropic tool_use blocks to OpenAI format
+            const textParts = (m.content as Anthropic.ContentBlock[]).filter((b) => b.type === 'text');
+            const toolParts = (m.content as Anthropic.ContentBlock[]).filter((b) => b.type === 'tool_use') as Anthropic.ToolUseBlock[];
+            return {
+              role: 'assistant',
+              content: textParts.length > 0 ? (textParts[0] as Anthropic.TextBlock).text : null,
+              tool_calls: toolParts.length > 0 ? toolParts.map((t) => ({
+                id: t.id,
+                type: 'function',
+                function: { name: t.name, arguments: JSON.stringify(t.input) },
+              })) : undefined,
+            };
+          }
+          if (m.role === 'user' && Array.isArray(m.content)) {
+            // Convert Anthropic tool_result blocks to OpenAI format
+            const toolResults = (m.content as Anthropic.ToolResultBlockParam[]).filter((b) => b.type === 'tool_result');
+            if (toolResults.length > 0) {
+              return toolResults.map((r) => ({
+                role: 'tool' as const,
+                tool_call_id: r.tool_use_id,
+                content: typeof r.content === 'string' ? r.content : JSON.stringify(r.content),
+              }));
+            }
+            return m;
+          }
+          return m;
+        }).flat(),
+      ],
+      tools: params.tools.map((t) => ({
+        type: 'function',
+        function: {
+          name: t.name,
+          description: t.description,
+          parameters: t.input_schema,
+        },
+      })),
+    }),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw Object.assign(new Error(`OpenRouter error: ${res.status} ${body}`), { status: res.status });
+  }
+
+  const data = await res.json();
+  const choice = data.choices?.[0];
+  if (!choice) throw new Error('No response from OpenRouter');
+
+  // Convert OpenAI format back to Anthropic format
+  const content: Anthropic.ContentBlock[] = [];
+  if (choice.message?.content) {
+    content.push({ type: 'text', text: choice.message.content } as Anthropic.TextBlock);
+  }
+  if (choice.message?.tool_calls) {
+    for (const tc of choice.message.tool_calls) {
+      content.push({
+        type: 'tool_use',
+        id: tc.id,
+        name: tc.function.name,
+        input: JSON.parse(tc.function.arguments || '{}'),
+      } as Anthropic.ToolUseBlock);
+    }
+  }
+
+  return {
+    id: data.id || 'msg_openrouter',
+    type: 'message',
+    role: 'assistant',
+    content,
+    model: data.model || OPENROUTER_MODEL,
+    stop_reason: choice.finish_reason === 'tool_calls' ? 'tool_use' : 'end_turn',
+    stop_sequence: null,
+    usage: { input_tokens: data.usage?.prompt_tokens || 0, output_tokens: data.usage?.completion_tokens || 0 },
+  } as Anthropic.Message;
+}
 const TIMEOUT_MS = 24000; // 6s safety margin before Vercel's 30s hard kill
 
 export async function POST(request: Request) {
@@ -118,22 +221,20 @@ export async function POST(request: Request) {
             break;
           }
 
-          // Call Claude with tools (retry on 529 overloaded)
+          // Call LLM with tools (retry on 529/overloaded)
           let response: Anthropic.Message | null = null;
           for (let attempt = 0; attempt < 3; attempt++) {
             try {
-              response = await anthropic.messages.create({
-                model: MODEL,
-                max_tokens: 4096,
+              response = await callLLM({
                 system: systemPrompt,
                 tools: TOOL_DEFINITIONS,
                 messages: currentMessages,
+                max_tokens: 4096,
               });
               break;
             } catch (apiErr) {
               const status = (apiErr as { status?: number }).status;
-              if (status === 529 && attempt < 2 && Date.now() - startTime < TIMEOUT_MS - 5000) {
-                // Wait with exponential backoff: 2s, 4s
+              if ((status === 529 || status === 503) && attempt < 2 && Date.now() - startTime < TIMEOUT_MS - 5000) {
                 const delay = (attempt + 1) * 2000;
                 emit({ type: 'event', event_type: 'stage_progress', event_data: { message: `API busy, retrying in ${delay / 1000}s...` } });
                 await new Promise((r) => setTimeout(r, delay));
@@ -142,7 +243,7 @@ export async function POST(request: Request) {
               throw apiErr;
             }
           }
-          if (!response) throw new Error('Failed to get response from Claude after retries');
+          if (!response) throw new Error('Failed to get response after retries');
 
           // Save assistant response to DB
           await saveMessage(db, session_id, 'assistant', response.content);
