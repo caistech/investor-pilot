@@ -359,55 +359,51 @@ Return JSON: {
   }
 }
 
-// --- BROWSE STAGE ---
-// Research each company via Brave Search to gather evidence for scoring
-export async function runBrowseStage(
-  candidates: Array<{ company_name: string; domain: string; category: string; description: string }>
+// --- BROWSE STAGE (per-partner) ---
+// Research a single company via Brave Search to gather evidence for scoring
+export async function runBrowseForPartner(
+  candidate: { company_name: string; domain: string; category: string; description: string }
 ): Promise<StageResult> {
   try {
-    const enriched = [];
+    const searchQueries = [
+      `site:${candidate.domain}`,
+      `${candidate.company_name} partnerships referral program`,
+      `${candidate.company_name} team leadership`,
+    ];
 
-    for (const candidate of candidates) {
-      const searchQueries = [
-        `site:${candidate.domain}`,
-        `${candidate.company_name} partnerships referral program`,
-        `${candidate.company_name} team leadership`,
-      ];
-
-      const allResults = [];
-      for (const q of searchQueries) {
-        try {
-          const results = await braveWebSearch(q, 5);
-          allResults.push(...results);
-        } catch {
-          // Continue on individual search failures
-        }
+    const allResults = [];
+    for (const q of searchQueries) {
+      try {
+        const results = await braveWebSearch(q, 5);
+        allResults.push(...results);
+      } catch {
+        // Continue on individual search failures
       }
-
-      enriched.push({
-        ...candidate,
-        research: allResults.map((r) => ({
-          title: r.title,
-          url: r.url,
-          snippet: r.description,
-        })),
-        pages_checked: searchQueries.length,
-      });
     }
+
+    const enriched = {
+      ...candidate,
+      research: allResults.map((r) => ({
+        title: r.title,
+        url: r.url,
+        snippet: r.description,
+      })),
+      pages_checked: searchQueries.length,
+    };
 
     return {
       success: true,
       stage: 'browse',
-      data: { browsed_candidates: enriched },
-      events: enriched.map((c) => ({
+      data: { browsed_candidate: enriched },
+      events: [{
         partner_id: null,
         event_type: 'company_researched',
         event_data: {
-          company_name: c.company_name,
-          domain: c.domain,
-          results_found: c.research.length,
+          company_name: enriched.company_name,
+          domain: enriched.domain,
+          results_found: enriched.research.length,
         },
-      })),
+      }],
     };
   } catch (error) {
     return {
@@ -420,7 +416,143 @@ export async function runBrowseStage(
   }
 }
 
-// --- FIND CONTACT STAGE ---
+// --- FIND CONTACT (single partner) ---
+// Uses Claude + Hunter.io to find the right contact for a single partner
+export async function runFindContactForPartner(
+  product: Product,
+  partner: {
+    company_name: string;
+    domain: string;
+    partnership_motion?: string;
+    research?: Array<{ title: string; url: string; snippet: string }>;
+  }
+): Promise<StageResult> {
+  try {
+    // Ask Claude to identify the target role from research
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 500,
+      messages: [{
+        role: 'user',
+        content: `For a ${partner.partnership_motion || 'referral partnership'} with ${partner.company_name}, who should we contact?
+
+Research found:
+${(partner.research || []).map((r) => `- ${r.title}: ${r.snippet}`).join('\n') || 'No research available.'}
+
+Rules:
+- Referral → head of partnerships, BD lead, practice manager, director
+- Integration → product partnerships, integrations lead
+- Company <20 employees → founder or managing director
+- Fallback → most senior BD or partnerships title
+
+Return JSON: {"target_role": "...", "identified_name": "..." or null, "identified_title": "..." or null}`,
+      }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const target = jsonMatch ? JSON.parse(jsonMatch[0]) : { target_role: 'Director', identified_name: null };
+
+    let contactRecord: {
+      company_name: string;
+      domain: string;
+      contact_name: string | null;
+      contact_title: string | null;
+      contact_email: string | null;
+      contact_linkedin: string | null;
+      email_confidence: number | null;
+      email_status: string;
+      contact_source: string;
+    } = {
+      company_name: partner.company_name,
+      domain: partner.domain,
+      contact_name: target.identified_name || null,
+      contact_title: target.identified_title || target.target_role,
+      contact_email: null,
+      contact_linkedin: null,
+      email_confidence: null,
+      email_status: 'unresolved',
+      contact_source: 'none',
+    };
+
+    // Try Hunter Email Finder if we have a name
+    if (target.identified_name) {
+      const nameParts = target.identified_name.split(' ');
+      const firstName = nameParts[0];
+      const lastName = nameParts.slice(1).join(' ');
+
+      if (firstName && lastName) {
+        const emailResult = await hunterEmailFinder(partner.domain, firstName, lastName);
+        if (emailResult) {
+          contactRecord = {
+            ...contactRecord,
+            contact_name: `${emailResult.first_name} ${emailResult.last_name}`,
+            contact_title: emailResult.position || contactRecord.contact_title,
+            contact_email: emailResult.email,
+            contact_linkedin: emailResult.linkedin,
+            email_confidence: emailResult.confidence,
+            email_status: emailResult.confidence >= 70 ? 'verified' : 'probable',
+            contact_source: 'hunter_email_finder',
+          };
+        }
+      }
+    }
+
+    // Fallback to Hunter Domain Search
+    if (!contactRecord.contact_email) {
+      const domainResult = await hunterDomainSearch(partner.domain);
+      if (domainResult && domainResult.emails.length > 0) {
+        const bestMatch = domainResult.emails
+          .filter((e) => e.confidence >= 30)
+          .sort((a, b) => b.confidence - a.confidence)[0];
+
+        if (bestMatch) {
+          const name = [bestMatch.first_name, bestMatch.last_name].filter(Boolean).join(' ') || null;
+          contactRecord = {
+            ...contactRecord,
+            contact_name: name || contactRecord.contact_name,
+            contact_title: bestMatch.position || contactRecord.contact_title,
+            contact_email: bestMatch.value,
+            contact_linkedin: bestMatch.linkedin,
+            email_confidence: bestMatch.confidence,
+            email_status: name ? 'probable' : 'company_level',
+            contact_source: 'hunter_domain_search',
+          };
+        }
+      }
+    }
+
+    return {
+      success: true,
+      stage: 'find_contact',
+      data: { contact: contactRecord },
+      events: [{
+        partner_id: null,
+        event_type: 'contact_found',
+        event_data: {
+          company_name: contactRecord.company_name,
+          contact_name: contactRecord.contact_name,
+          email_status: contactRecord.email_status,
+          email_confidence: contactRecord.email_confidence,
+        },
+      }],
+    };
+  } catch (error) {
+    return {
+      success: false,
+      stage: 'find_contact',
+      data: {},
+      error: error instanceof Error ? error.message : 'Unknown error',
+      events: [{
+        partner_id: null,
+        event_type: 'stage_error',
+        event_data: { stage: 'find_contact', company_name: partner.company_name, error: String(error) },
+      }],
+    };
+  }
+}
+
+// --- FIND CONTACT STAGE (batch — kept for backward compat) ---
 // Uses Hunter.io to find the right contact for each partner
 export async function runFindContactStage(
   product: Product,
@@ -559,7 +691,90 @@ Return JSON: {"target_role": "...", "identified_name": "..." or null, "identifie
   }
 }
 
-// --- SELECT MOTION STAGE ---
+// --- SELECT MOTION STAGE (per-partner) ---
+// Determines the best partnership motion for a single partner
+export async function runSelectMotionForPartner(
+  product: Product,
+  partner: {
+    company_name: string;
+    domain: string;
+    weighted_score: number;
+    partner_readiness_score: number;
+    confidence_score: string;
+    contact_name?: string | null;
+    contact_title?: string | null;
+  }
+): Promise<StageResult> {
+  try {
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 1000,
+      messages: [{
+        role: 'user',
+        content: `Select the most credible first partnership motion and propose a GTM angle for this partner.
+
+${buildProductContext(product)}
+
+PARTNER: ${partner.company_name} (${partner.domain}) — score: ${partner.weighted_score}, readiness: ${partner.partner_readiness_score}/10, confidence: ${partner.confidence_score}, contact: ${partner.contact_name || 'unknown'} (${partner.contact_title || 'unknown'})
+
+MOTION OPTIONS:
+- Referral arrangement discussion
+- Integration discovery conversation
+- Co-marketing test
+- Marketplace or ecosystem listing
+- Exploratory partnerships call
+
+RULES:
+- Tier 1 readiness (8-10) → specific motion, not generic exploratory
+- Low readiness → lighter, conversational opener
+- Select a GTM angle grounded in evidence
+
+Return a single JSON object (not an array): {"partnership_motion": "...", "selected_gtm_angle": "...", "motion_rationale": "one sentence why"}`,
+      }],
+    });
+
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    const motion = jsonMatch ? JSON.parse(jsonMatch[0]) : {};
+
+    return {
+      success: true,
+      stage: 'select_motion',
+      data: {
+        motion: {
+          company_name: partner.company_name,
+          domain: partner.domain,
+          partnership_motion: motion.partnership_motion || 'Exploratory partnerships call',
+          selected_gtm_angle: motion.selected_gtm_angle || '',
+          motion_rationale: motion.motion_rationale || '',
+        },
+      },
+      events: [{
+        partner_id: null,
+        event_type: 'motion_selected',
+        event_data: {
+          company_name: partner.company_name,
+          partnership_motion: motion.partnership_motion,
+          gtm_angle: motion.selected_gtm_angle,
+        },
+      }],
+    };
+  } catch (error) {
+    return {
+      success: false,
+      stage: 'select_motion',
+      data: {},
+      error: error instanceof Error ? error.message : 'Unknown error',
+      events: [{
+        partner_id: null,
+        event_type: 'stage_error',
+        event_data: { stage: 'select_motion', company_name: partner.company_name, error: String(error) },
+      }],
+    };
+  }
+}
+
+// --- SELECT MOTION STAGE (batch - legacy) ---
 // Determines the best partnership motion for each partner
 export async function runSelectMotionStage(
   product: Product,

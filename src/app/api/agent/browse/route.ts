@@ -1,5 +1,5 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { runBrowseStage } from '@/lib/agent/pipeline';
+import { runBrowseForPartner } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 30;
@@ -8,9 +8,9 @@ export async function POST(request: Request) {
   const { db, error } = await authenticateAndGetDb();
   if (error) return error;
 
-  const { session_id, candidates } = await request.json();
+  const { session_id, candidate } = await request.json();
 
-  const result = await runBrowseStage(candidates);
+  const result = await runBrowseForPartner(candidate);
 
   for (const event of result.events) {
     await db.from('session_events').insert({
@@ -21,10 +21,7 @@ export async function POST(request: Request) {
     });
   }
 
-  await db
-    .from('agent_sessions')
-    .update({ current_stage: result.success ? 'browse' : 'score' })
-    .eq('id', session_id);
+  // Session stage update is handled by the client after all partners are browsed
 
   return NextResponse.json(result);
 }

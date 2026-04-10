@@ -215,6 +215,137 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     await refreshSession();
   }
 
+  async function runBrowsePerPartner() {
+    if (!session) return;
+
+    const base = { session_id: session.id };
+    const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
+    const candidates = scoreData?.scored_partners || [];
+
+    if (candidates.length === 0) {
+      stageData.current.browse = { browsed_candidates: [] };
+      lastCompletedStage.current = 'browse';
+      await refreshSession();
+      return;
+    }
+
+    const allBrowsed: Array<Record<string, unknown>> = [];
+
+    for (const candidate of candidates) {
+      try {
+        const res = await fetch('/api/agent/browse', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, candidate }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Browse failed for ${candidate.company_name}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Browse failed for ${candidate.company_name}:`, result.error);
+          continue;
+        }
+
+        if (result.data.browsed_candidate) {
+          allBrowsed.push(result.data.browsed_candidate);
+        }
+      } catch (err) {
+        console.error(`Browse failed for ${candidate.company_name}:`, err instanceof Error ? err.message : err);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    stageData.current.browse = { browsed_candidates: allBrowsed };
+    lastCompletedStage.current = 'browse';
+
+    // Update session stage to 'browse'
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'browse' })
+      .eq('id', session.id);
+
+    await refreshSession();
+  }
+
+  async function runFindContactPerPartner() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+    const browseData = stageData.current.browse as { browsed_candidates?: Array<Record<string, unknown>> } | undefined;
+    const candidates = browseData?.browsed_candidates || [];
+
+    if (candidates.length === 0) {
+      stageData.current.find_contact = { contacts: [] };
+      lastCompletedStage.current = 'find_contact';
+      await refreshSession();
+      return;
+    }
+
+    const allContacts: Array<Record<string, unknown>> = [];
+    let contactsFound = 0;
+
+    for (const candidate of candidates) {
+      const partner = {
+        company_name: candidate.company_name as string,
+        domain: candidate.domain as string,
+        partnership_motion: candidate.partnership_motion as string | undefined,
+        research: candidate.research as Array<{ title: string; url: string; snippet: string }> | undefined,
+      };
+
+      try {
+        const res = await fetch('/api/agent/find-contact', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, partner }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Find contact failed for ${partner.company_name}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Find contact failed for ${partner.company_name}:`, result.error);
+          continue;
+        }
+
+        if (result.data.contact) {
+          allContacts.push(result.data.contact);
+          if (result.data.contact.contact_email) contactsFound++;
+        }
+      } catch (err) {
+        console.error(`Find contact failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    stageData.current.find_contact = { contacts: allContacts };
+    lastCompletedStage.current = 'find_contact';
+
+    // Update session stage and contacts_found count
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'find_contact', contacts_found: contactsFound })
+      .eq('id', session.id);
+
+    await refreshSession();
+  }
+
   async function runDraftPerPartner() {
     if (!session) return;
 
@@ -283,6 +414,84 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     await refreshSession();
   }
 
+  async function runSelectMotionPerPartner() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+
+    // Get scored partners and contact data
+    const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
+    const contactData = stageData.current.find_contact as { contacts?: Array<Record<string, unknown>> } | undefined;
+
+    const scoredPartners = scoreData?.scored_partners || [];
+    const contacts = contactData?.contacts || [];
+
+    if (scoredPartners.length === 0) {
+      stageData.current.select_motion = { motions: [] };
+      lastCompletedStage.current = 'select_motion';
+      await refreshSession();
+      return;
+    }
+
+    const allMotions: Array<Record<string, unknown>> = [];
+
+    for (const scored of scoredPartners) {
+      // Merge with contact data by domain
+      const contact = contacts.find((c) => c.domain === scored.domain);
+      const partner = {
+        company_name: scored.company_name as string,
+        domain: scored.domain as string,
+        weighted_score: scored.weighted_score as number,
+        partner_readiness_score: scored.partner_readiness_score as number,
+        confidence_score: scored.confidence_score as string,
+        contact_name: (contact?.contact_name as string) || null,
+        contact_title: (contact?.contact_title as string) || null,
+      };
+
+      try {
+        const res = await fetch('/api/agent/select-motion', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, partner }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Motion selection failed for ${partner.company_name}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Motion selection failed for ${partner.company_name}:`, result.error);
+          continue;
+        }
+
+        if (result.data.motion) {
+          allMotions.push(result.data.motion);
+        }
+      } catch (err) {
+        console.error(`Motion selection failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    stageData.current.select_motion = { motions: allMotions };
+    lastCompletedStage.current = 'select_motion';
+
+    // Update session stage to 'select_motion'
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'select_motion' })
+      .eq('id', session.id);
+
+    await refreshSession();
+  }
+
   async function runStage(stage: PipelineStage) {
     if (!session) return;
 
@@ -294,6 +503,36 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Search stage uses per-category iteration to avoid serverless timeout
       if (stage === 'search') {
         await runSearchPerCategory();
+        setAwaitingApproval(session.mode === 'guided');
+        setRunning(false);
+        return;
+      }
+
+      // Browse stage uses per-partner iteration to avoid serverless timeout
+      if (stage === 'browse') {
+        await runBrowsePerPartner();
+        // Browse is not a guided gate — auto-advance to next stage
+        const nextAfterBrowse = getNextStageAfter('browse');
+        if (nextAfterBrowse) {
+          setRunning(false);
+          setTimeout(() => runStage(nextAfterBrowse), 500);
+        } else {
+          setRunning(false);
+        }
+        return;
+      }
+
+      // Find contact stage uses per-partner iteration to avoid serverless timeout
+      if (stage === 'find_contact') {
+        await runFindContactPerPartner();
+        setAwaitingApproval(session.mode === 'guided');
+        setRunning(false);
+        return;
+      }
+
+      // Select motion stage uses per-partner iteration to avoid serverless timeout
+      if (stage === 'select_motion') {
+        await runSelectMotionPerPartner();
         setAwaitingApproval(session.mode === 'guided');
         setRunning(false);
         return;
@@ -396,30 +635,18 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         return { ...base, candidates: screenData?.passed || searchData?.candidates || [] };
       }
 
-      case 'browse': {
-        const scoreData = stageData.current.score as { scored_partners?: unknown[] } | undefined;
-        return { ...base, candidates: scoreData?.scored_partners || [] };
-      }
+      case 'browse':
+        // Browse is per-partner, handled by runBrowsePerPartner
+        return base;
 
       case 'find_contact': {
         const browseData = stageData.current.browse as { browsed_candidates?: unknown[] } | undefined;
         return { ...base, partners: browseData?.browsed_candidates || [] };
       }
 
-      case 'select_motion': {
-        const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
-        const contactData = stageData.current.find_contact as { contacts?: Array<Record<string, unknown>> } | undefined;
-        // Merge scored data with contact data
-        const partners = (scoreData?.scored_partners || []).map((p) => {
-          const contact = (contactData?.contacts || []).find((c) => c.domain === p.domain);
-          return {
-            ...p,
-            contact_name: contact?.contact_name || null,
-            contact_title: contact?.contact_title || null,
-          };
-        });
-        return { ...base, partners };
-      }
+      case 'select_motion':
+        // Handled by runSelectMotionPerPartner — should not reach here
+        return base;
 
       case 'draft':
         // Draft is per-partner, handled differently
