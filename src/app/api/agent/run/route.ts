@@ -78,7 +78,7 @@ export async function POST(request: Request) {
     .eq('product_id', product.id);
 
   // Load agent context from DB (Kira memory pattern)
-  const agentContext = await getAgentContext(db, session_id);
+  const agentContext = await getAgentContext(db, session_id, 50);
 
   // Build system prompt with memories and existing partners
   const systemPrompt = buildFullSystemPrompt(

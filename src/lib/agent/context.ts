@@ -100,6 +100,36 @@ export function buildMessages(
     break;
   }
 
+  // Trim orphaned tool_use from the END — the last assistant message may have
+  // tool_use blocks whose tool_results are outside the 20-message window
+  while (messages.length > 0) {
+    const last = messages[messages.length - 1];
+    if (last.role === 'assistant' && Array.isArray(last.content)) {
+      const hasToolUse = (last.content as Array<{ type: string }>).some(
+        (b) => b.type === 'tool_use'
+      );
+      if (hasToolUse) {
+        messages.pop();
+        continue;
+      }
+    }
+    // Also trim trailing tool_results with no preceding tool_use
+    if (last.role === 'user' && Array.isArray(last.content)) {
+      const hasToolResult = (last.content as Array<{ type: string }>).some(
+        (b) => b.type === 'tool_result'
+      );
+      if (hasToolResult && messages.length > 1) {
+        const prev = messages[messages.length - 2];
+        if (prev.role !== 'assistant' || !Array.isArray(prev.content) ||
+            !(prev.content as Array<{ type: string }>).some((b) => b.type === 'tool_use')) {
+          messages.pop();
+          continue;
+        }
+      }
+    }
+    break;
+  }
+
   // Ensure conversation starts with a user message (API requirement)
   if (messages.length === 0 || messages[0].role !== 'user') {
     messages.unshift({
