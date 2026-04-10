@@ -131,10 +131,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runScreenInBatches() {
     if (!session) return;
+    console.log('[SCREEN] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id, product_id: session.product_id };
     const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
     const allCandidates = searchData?.candidates || [];
+    console.log('[SCREEN] candidates:', allCandidates.length);
 
     if (allCandidates.length === 0) {
       stageData.current.screen = { passed: [], screened_out: [] };
@@ -272,11 +274,13 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runScorePerPartner() {
     if (!session) return;
+    console.log('[SCORE] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id, product_id: session.product_id };
     const screenData = stageData.current.screen as { passed?: Array<Record<string, unknown>> } | undefined;
     const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
     const candidates = screenData?.passed || searchData?.candidates || [];
+    console.log('[SCORE] candidates:', candidates.length, 'from screen.passed:', screenData?.passed?.length, 'search.candidates:', searchData?.candidates?.length);
 
     if (candidates.length === 0) {
       stageData.current.score = { scored_partners: [] };
@@ -335,10 +339,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runBrowsePerPartner() {
     if (!session) return;
+    console.log('[BROWSE] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id };
     const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
     const candidates = scoreData?.scored_partners || [];
+    console.log('[BROWSE] candidates:', candidates.length);
 
     if (candidates.length === 0) {
       stageData.current.browse = { browsed_candidates: [] };
@@ -397,10 +403,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runFindContactPerPartner() {
     if (!session) return;
+    console.log('[FIND_CONTACT] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id, product_id: session.product_id };
     const browseData = stageData.current.browse as { browsed_candidates?: Array<Record<string, unknown>> } | undefined;
     const candidates = browseData?.browsed_candidates || [];
+    console.log('[FIND_CONTACT] candidates:', candidates.length);
 
     if (candidates.length === 0) {
       stageData.current.find_contact = { contacts: [] };
@@ -455,19 +463,22 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
     stageData.current.find_contact = { contacts: allContacts };
     lastCompletedStage.current = 'find_contact';
+    console.log('[FIND_CONTACT] complete, contacts:', allContacts.length, 'with email:', contactsFound);
 
     // Update session stage and contacts_found count
-    await fetch('/api/agent/update-stage', {
+    const updateRes = await fetch('/api/agent/update-stage', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ session_id: session.id, current_stage: 'find_contact', contacts_found: contactsFound }),
     });
+    console.log('[FIND_CONTACT] update-stage response:', updateRes.status);
 
     await refreshSession();
   }
 
   async function runDraftPerPartner() {
     if (!session) return;
+    console.log('[DRAFT] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id, product_id: session.product_id };
 
@@ -485,7 +496,9 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     }
 
     const eligible = listResult.data.eligible_partners || [];
+    console.log('[DRAFT] eligible partners:', eligible.length, eligible.map((p: Record<string, unknown>) => p.company_name));
     if (eligible.length === 0) {
+      console.log('[DRAFT] no eligible partners, completing with 0 drafts');
       stageData.current.draft = { drafts: [], count: 0, message: 'No partners ready for drafting' };
       lastCompletedStage.current = 'draft';
       await refreshSession();
@@ -542,6 +555,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runSelectMotionPerPartner() {
     if (!session) return;
+    console.log('[SELECT_MOTION] starting, stageData keys:', Object.keys(stageData.current));
 
     const base = { session_id: session.id, product_id: session.product_id };
 
@@ -551,6 +565,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
     const scoredPartners = scoreData?.scored_partners || [];
     const contacts = contactData?.contacts || [];
+    console.log('[SELECT_MOTION] scoredPartners:', scoredPartners.length, 'contacts:', contacts.length);
 
     if (scoredPartners.length === 0) {
       stageData.current.select_motion = { motions: [] };
@@ -621,6 +636,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   async function runStage(stage: PipelineStage) {
     if (!session) return;
+    console.log('[STAGE]', stage, 'starting');
 
     setRunning(true);
     setError(null);
@@ -826,18 +842,17 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   }
 
   function approveAndContinue() {
-    setAwaitingApproval(false);
     const completed = approvalStage || lastCompletedStage.current || session?.current_stage;
+    const nextAfter = completed ? getNextStageAfter(completed) : null;
+    console.log('[APPROVE]', { approvalStage, lastCompleted: lastCompletedStage.current, dbStage: session?.current_stage, completed, nextAfter });
+    setAwaitingApproval(false);
     setApprovalStage(null);
-    if (completed) {
-      const nextAfter = getNextStageAfter(completed);
-      if (nextAfter) {
-        runStage(nextAfter);
-        return;
-      }
-      // No next stage = pipeline complete — do NOT fall back to runNextStage()
+    if (nextAfter) {
+      runStage(nextAfter);
       return;
     }
+    // No next stage = pipeline complete
+    console.log('[APPROVE] Pipeline complete or no next stage found');
   }
 
   function toggleEvent(id: string) {
