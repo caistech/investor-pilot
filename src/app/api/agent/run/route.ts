@@ -108,14 +108,31 @@ export async function POST(request: Request) {
             break;
           }
 
-          // Call Claude with tools
-          const response = await anthropic.messages.create({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 4096,
-            system: systemPrompt,
-            tools: TOOL_DEFINITIONS,
-            messages: currentMessages,
-          });
+          // Call Claude with tools (retry on 529 overloaded)
+          let response: Anthropic.Message | null = null;
+          for (let attempt = 0; attempt < 3; attempt++) {
+            try {
+              response = await anthropic.messages.create({
+                model: 'claude-sonnet-4-20250514',
+                max_tokens: 4096,
+                system: systemPrompt,
+                tools: TOOL_DEFINITIONS,
+                messages: currentMessages,
+              });
+              break;
+            } catch (apiErr) {
+              const status = (apiErr as { status?: number }).status;
+              if (status === 529 && attempt < 2 && Date.now() - startTime < TIMEOUT_MS - 5000) {
+                // Wait with exponential backoff: 2s, 4s
+                const delay = (attempt + 1) * 2000;
+                emit({ type: 'event', event_type: 'stage_progress', event_data: { message: `API busy, retrying in ${delay / 1000}s...` } });
+                await new Promise((r) => setTimeout(r, delay));
+                continue;
+              }
+              throw apiErr;
+            }
+          }
+          if (!response) throw new Error('Failed to get response from Claude after retries');
 
           // Save assistant response to DB
           await saveMessage(db, session_id, 'assistant', response.content);
