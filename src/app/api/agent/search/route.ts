@@ -1,5 +1,5 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { runSearchStage } from '@/lib/agent/pipeline';
+import { runSearchForCategory } from '@/lib/agent/pipeline';
 import { NextResponse } from 'next/server';
 
 export const maxDuration = 30;
@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   const { db, error } = await authenticateAndGetDb();
   if (error) return error;
 
-  const { session_id, product_id, categories } = await request.json();
+  const { session_id, product_id, category } = await request.json();
 
   const { data: product } = await db
     .from('products')
@@ -18,7 +18,7 @@ export async function POST(request: Request) {
 
   if (!product) return NextResponse.json({ error: 'Product not found' }, { status: 404 });
 
-  const result = await runSearchStage(product, categories);
+  const result = await runSearchForCategory(product, category);
 
   for (const event of result.events) {
     await db.from('session_events').insert({
@@ -29,10 +29,8 @@ export async function POST(request: Request) {
     });
   }
 
-  await db
-    .from('agent_sessions')
-    .update({ current_stage: result.success ? 'search' : 'categories' })
-    .eq('id', session_id);
+  // Only update session stage on success of the last category (handled by client)
+  // Individual category results don't advance the stage
 
   return NextResponse.json(result);
 }

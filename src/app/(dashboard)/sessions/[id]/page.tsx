@@ -128,6 +128,93 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     return ACTIVE_STAGES[idx + 1];
   }
 
+  async function runSearchPerCategory() {
+    if (!session) return;
+
+    const base = { session_id: session.id, product_id: session.product_id };
+    const catData = stageData.current.categories as { categories?: Array<{ category: string; rationale: string }> } | undefined;
+    const categories = catData?.categories || [];
+
+    if (categories.length === 0) {
+      stageData.current.search = { candidates: [] };
+      lastCompletedStage.current = 'search';
+      await refreshSession();
+      return;
+    }
+
+    const allCandidates: Array<Record<string, unknown>> = [];
+
+    for (const category of categories) {
+      try {
+        const res = await fetch('/api/agent/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...base, category }),
+          signal: AbortSignal.timeout(28000),
+        });
+
+        const contentType = res.headers.get('content-type') || '';
+        if (!contentType.includes('application/json')) {
+          console.error(`Search failed for ${category.category}: server returned ${res.status}`);
+          continue;
+        }
+
+        const result = await res.json();
+
+        if (!res.ok || !result.success) {
+          console.error(`Search failed for ${category.category}:`, result.error);
+          continue;
+        }
+
+        if (result.data.candidates) {
+          allCandidates.push(...result.data.candidates);
+        }
+      } catch (err) {
+        console.error(`Search failed for ${category.category}:`, err instanceof Error ? err.message : err);
+        continue;
+      }
+
+      await refreshSession();
+    }
+
+    // Deduplicate by domain
+    const seen = new Map<string, Record<string, unknown>>();
+    for (const c of allCandidates) {
+      const key = ((c.domain as string) || (c.company_name as string)).toLowerCase();
+      if (!seen.has(key)) {
+        seen.set(key, c);
+      }
+    }
+    const deduped = Array.from(seen.values());
+
+    stageData.current.search = { candidates: deduped };
+    lastCompletedStage.current = 'search';
+
+    // Update session stage to 'search'
+    await supabase
+      .from('agent_sessions')
+      .update({ current_stage: 'search' })
+      .eq('id', session.id);
+
+    // Insert summary event
+    await supabase.from('session_events').insert({
+      session_id: session.id,
+      partner_id: null,
+      event_type: 'candidates_discovered',
+      event_data: {
+        count: deduped.length,
+        categories_searched: categories.length,
+        candidates: deduped.map((c) => ({
+          company_name: c.company_name,
+          domain: c.domain,
+          category: c.category,
+        })),
+      },
+    });
+
+    await refreshSession();
+  }
+
   async function runDraftPerPartner() {
     if (!session) return;
 
@@ -204,6 +291,14 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     setAwaitingApproval(false);
 
     try {
+      // Search stage uses per-category iteration to avoid serverless timeout
+      if (stage === 'search') {
+        await runSearchPerCategory();
+        setAwaitingApproval(session.mode === 'guided');
+        setRunning(false);
+        return;
+      }
+
       // Draft stage uses per-partner iteration to avoid serverless timeout
       if (stage === 'draft') {
         await runDraftPerPartner();
@@ -225,7 +320,16 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(28000),
       });
+
+      // Handle non-JSON responses (e.g. Vercel 504 HTML page)
+      const contentType = res.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        setError(`Stage ${stage} failed: server returned ${res.status}`);
+        setRunning(false);
+        return;
+      }
 
       const result = await res.json();
 
@@ -397,6 +501,25 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
                     <span className="text-white font-medium">{cat.category}</span>
                     <span className="text-dark-400 ml-2">{cat.rationale}</span>
                   </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+
+      case 'category_searched':
+        return (
+          <div>
+            <p className="text-dark-300 mb-1">
+              <span className="text-white font-medium">{d.category as string}</span>
+              {' — '}{d.count as number} candidates found
+            </p>
+            <div className="space-y-1">
+              {(d.candidates as Array<{ company_name: string; domain: string }>)?.map((c, i) => (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <span className="text-dark-500 font-mono w-5">{i + 1}.</span>
+                  <span className="text-white">{c.company_name}</span>
+                  <span className="text-dark-500">({c.domain})</span>
                 </div>
               ))}
             </div>

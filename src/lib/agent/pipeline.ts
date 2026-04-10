@@ -227,83 +227,61 @@ Return JSON: {"subject": "...", "body": "..."}`,
   }
 }
 
-// --- SEARCH STAGE ---
-// Takes categories, searches Brave for 3-5 candidates per category
-export async function runSearchStage(
+// --- SEARCH STAGE (per-category) ---
+// Searches Brave for 3-5 candidates for a single category
+export async function runSearchForCategory(
   product: Product,
-  categories: Array<{ category: string; rationale: string }>
+  category: { category: string; rationale: string }
 ): Promise<StageResult> {
   try {
-    const allCandidates: Array<{
-      company_name: string;
-      domain: string;
-      category: string;
-      description: string;
-      search_url: string;
-    }> = [];
+    const queries = [
+      `${category.category} R&D tax incentive Australia`,
+      `${category.category} startup clients Australia`,
+    ];
 
-    for (const cat of categories) {
-      const queries = [
-        `${cat.category} R&D tax incentive Australia`,
-        `${cat.category} startup clients Australia`,
-      ];
+    const searchResults = [];
+    for (const q of queries) {
+      const results = await braveWebSearch(q, 5);
+      searchResults.push(...results);
+    }
 
-      const searchResults = [];
-      for (const q of queries) {
-        const results = await braveWebSearch(q, 5);
-        searchResults.push(...results);
-      }
-
-      // Ask Claude to extract company candidates from search results
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 2000,
-        messages: [{
-          role: 'user',
-          content: `From these search results, extract 3-5 specific companies that fit the category "${cat.category}" and could be partner candidates for this product:
+    // Ask Claude to extract company candidates from search results
+    const response = await anthropic.messages.create({
+      model: 'claude-sonnet-4-20250514',
+      max_tokens: 2000,
+      messages: [{
+        role: 'user',
+        content: `From these search results, extract 3-5 specific companies that fit the category "${category.category}" and could be partner candidates for this product:
 
 ${buildProductContext(product)}
 
-CATEGORY RATIONALE: ${cat.rationale}
+CATEGORY RATIONALE: ${category.rationale}
 
 SEARCH RESULTS:
 ${searchResults.map((r, i) => `${i + 1}. ${r.title}\n   URL: ${r.url}\n   ${r.description}`).join('\n\n')}
 
 Extract real companies only. Do not invent companies not present in results.
 Return JSON array: [{"company_name": "...", "domain": "...", "description": "one line about what they do", "search_url": "source URL"}]`,
-        }],
-      });
+      }],
+    });
 
-      const text = response.content[0].type === 'text' ? response.content[0].text : '';
-      const jsonMatch = text.match(/\[[\s\S]*\]/);
-      const candidates = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    const text = response.content[0].type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    const candidates = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
 
-      for (const c of candidates) {
-        allCandidates.push({ ...c, category: cat.category });
-      }
-    }
-
-    // Deduplicate by domain
-    const seen = new Map<string, typeof allCandidates[0]>();
-    for (const c of allCandidates) {
-      const key = (c.domain || c.company_name).toLowerCase();
-      if (!seen.has(key)) {
-        seen.set(key, c);
-      }
-    }
-    const deduped = Array.from(seen.values());
+    const tagged = candidates.map((c: Record<string, string>) => ({ ...c, category: category.category }));
 
     return {
       success: true,
       stage: 'search',
-      data: { candidates: deduped },
+      data: { candidates: tagged },
       events: [{
         partner_id: null,
-        event_type: 'candidates_discovered',
+        event_type: 'category_searched',
         event_data: {
-          count: deduped.length,
-          categories_searched: categories.length,
-          candidates: deduped.map((c) => ({ company_name: c.company_name, domain: c.domain, category: c.category })),
+          category: category.category,
+          count: tagged.length,
+          candidates: tagged.map((c: Record<string, string>) => ({ company_name: c.company_name, domain: c.domain })),
         },
       }],
     };
