@@ -7,45 +7,16 @@ import {
   ArrowLeft, CheckCircle, Circle, Loader2, AlertTriangle,
   Search, Filter, BarChart3, Globe, UserSearch, Mail,
   Target, FileText, Play, Pause, ChevronDown, ChevronRight,
-  ExternalLink, XCircle, Trash2,
+  XCircle, Trash2,
 } from 'lucide-react';
-import type { PipelineStage, SessionMode } from '@/lib/types';
-
-const STAGE_CONFIG: Record<string, {
-  label: string;
-  icon: typeof Search;
-  description: string;
-  apiRoute: string;
-}> = {
-  initialise: { label: 'Initialise', icon: Play, description: 'Starting session', apiRoute: '' },
-  categories: { label: 'Categories', icon: Search, description: 'Identifying partner categories', apiRoute: '/api/agent/categories' },
-  search: { label: 'Search', icon: Globe, description: 'Discovering candidate companies', apiRoute: '/api/agent/search' },
-  screen: { label: 'Screen', icon: Filter, description: 'Filtering out poor fits', apiRoute: '/api/agent/screen' },
-  score: { label: 'Score', icon: BarChart3, description: 'Scoring on 5 dimensions', apiRoute: '/api/agent/score' },
-  browse: { label: 'Browse', icon: Globe, description: 'Researching company websites', apiRoute: '/api/agent/browse' },
-  find_contact: { label: 'Find Contact', icon: UserSearch, description: 'Finding the right person', apiRoute: '/api/agent/find-contact' },
-  enrich_email: { label: 'Enrich', icon: Mail, description: 'Verifying email addresses', apiRoute: '/api/agent/enrich-email' },
-  select_motion: { label: 'Motion', icon: Target, description: 'Selecting partnership approach', apiRoute: '/api/agent/select-motion' },
-  draft: { label: 'Draft', icon: FileText, description: 'Drafting outreach emails', apiRoute: '/api/agent/draft' },
-  file_gmail: { label: 'File', icon: Mail, description: 'Filing drafts to Gmail', apiRoute: '/api/agent/file-gmail' },
-  hunter_push: { label: 'Push', icon: ExternalLink, description: 'Pushing to Hunter campaigns', apiRoute: '/api/agent/hunter-push' },
-};
-
-// Stages that require approval in guided mode
-const GUIDED_GATES: PipelineStage[] = ['categories', 'search', 'score', 'find_contact', 'select_motion', 'draft'];
-
-// The active pipeline stages (skip enrich_email, file_gmail, hunter_push for now)
-const ACTIVE_STAGES: PipelineStage[] = [
-  'initialise', 'categories', 'search', 'screen', 'score',
-  'browse', 'find_contact', 'select_motion', 'draft',
-];
+import type { SessionMode } from '@/lib/types';
 
 interface SessionData {
   id: string;
   product_id: string;
   mode: SessionMode;
   status: string;
-  current_stage: PipelineStage;
+  current_stage: string;
   partners_added: number;
   partners_updated: number;
   contacts_found: number;
@@ -62,22 +33,21 @@ interface EventCard {
 export default function SessionDetailPage({ params }: { params: { id: string } }) {
   const [session, setSession] = useState<SessionData | null>(null);
   const [events, setEvents] = useState<EventCard[]>([]);
-  const [running, setRunning] = useState(false);
+  const [streaming, setStreaming] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [awaitingApproval, setAwaitingApproval] = useState(false);
-  const [approvalStage, setApprovalStage] = useState<PipelineStage | null>(null);
+  const [approvalMessage, setApprovalMessage] = useState('');
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
-  // Store intermediate data between stages
-  const stageData = useRef<Record<string, unknown>>({});
-  const lastCompletedStage = useRef<PipelineStage | null>(null);
+  const [agentMessage, setAgentMessage] = useState<string | null>(null);
   const feedEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const supabase = createClient();
 
   const scrollToBottom = useCallback(() => {
     feedEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, []);
 
-  // Load session and events
+  // Load session and events from DB
   useEffect(() => {
     async function load() {
       const { data: sess } = await supabase
@@ -86,9 +56,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         .eq('id', params.id)
         .single();
 
-      if (sess) {
-        setSession(sess as SessionData);
-      }
+      if (sess) setSession(sess as SessionData);
 
       const { data: evts } = await supabase
         .from('session_events')
@@ -98,6 +66,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
       if (evts) {
         setEvents(evts as EventCard[]);
+        // Check if last event is an approval request (resume state)
+        const lastEvt = evts[evts.length - 1];
+        if (lastEvt?.event_type === 'approval_required') {
+          setAwaitingApproval(true);
+          setApprovalMessage((lastEvt.event_data as Record<string, unknown>).message as string || 'Review and approve to continue.');
+        }
       }
     }
     load();
@@ -107,729 +81,13 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     scrollToBottom();
   }, [events, scrollToBottom]);
 
-  function getNextStage(): PipelineStage | null {
-    if (!session) return null;
-    const idx = ACTIVE_STAGES.indexOf(session.current_stage);
-    if (idx < 0 || idx >= ACTIVE_STAGES.length - 1) return null;
-    return ACTIVE_STAGES[idx + 1];
-  }
-
-  function getStageStatus(stage: PipelineStage): 'completed' | 'current' | 'pending' | 'error' {
-    if (!session) return 'pending';
-    const currentIdx = ACTIVE_STAGES.indexOf(session.current_stage);
-    const stageIdx = ACTIVE_STAGES.indexOf(stage);
-    if (stageIdx < currentIdx) return 'completed';
-    if (stageIdx === currentIdx) return running ? 'current' : 'completed';
-    return 'pending';
-  }
-
-  function getNextStageAfter(completedStage: PipelineStage): PipelineStage | null {
-    const idx = ACTIVE_STAGES.indexOf(completedStage);
-    if (idx < 0 || idx >= ACTIVE_STAGES.length - 1) return null;
-    return ACTIVE_STAGES[idx + 1];
-  }
-
-  async function runScreenInBatches() {
-    if (!session) return;
-    console.log('[SCREEN] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id, product_id: session.product_id };
-    const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
-    const allCandidates = searchData?.candidates || [];
-    console.log('[SCREEN] candidates:', allCandidates.length);
-
-    if (allCandidates.length === 0) {
-      stageData.current.screen = { passed: [], screened_out: [] };
-      lastCompletedStage.current = 'screen';
-      await refreshSession();
-      return;
-    }
-
-    // Split into batches of 10
-    const BATCH_SIZE = 10;
-    const batches: Array<Array<Record<string, unknown>>> = [];
-    for (let i = 0; i < allCandidates.length; i += BATCH_SIZE) {
-      batches.push(allCandidates.slice(i, i + BATCH_SIZE));
-    }
-
-    const allPassed: Array<Record<string, unknown>> = [];
-    const allScreenedOut: Array<Record<string, unknown>> = [];
-
-    for (const batch of batches) {
-      try {
-        const res = await fetch('/api/agent/screen', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, candidates: batch }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Screen batch failed: server returned ${res.status}`);
-          // On failure, pass the batch through unscreened
-          allPassed.push(...batch);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error('Screen batch failed:', result.error);
-          allPassed.push(...batch);
-          continue;
-        }
-
-        if (result.data.passed) allPassed.push(...result.data.passed);
-        if (result.data.screened_out) allScreenedOut.push(...result.data.screened_out);
-      } catch (err) {
-        console.error('Screen batch failed:', err instanceof Error ? err.message : err);
-        allPassed.push(...batch);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    stageData.current.screen = { passed: allPassed, screened_out: allScreenedOut };
-    lastCompletedStage.current = 'screen';
-
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'screen' }),
-    });
-    await refreshSession();
-  }
-
-  async function runSearchPerCategory() {
-    if (!session) return;
-
-    const base = { session_id: session.id, product_id: session.product_id };
-    const catData = stageData.current.categories as { categories?: Array<{ category: string; rationale: string }> } | undefined;
-    const categories = catData?.categories || [];
-
-    if (categories.length === 0) {
-      stageData.current.search = { candidates: [] };
-      lastCompletedStage.current = 'search';
-      await refreshSession();
-      return;
-    }
-
-    const allCandidates: Array<Record<string, unknown>> = [];
-
-    for (const category of categories) {
-      try {
-        const res = await fetch('/api/agent/search', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, category }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Search failed for ${category.category}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Search failed for ${category.category}:`, result.error);
-          continue;
-        }
-
-        if (result.data.candidates) {
-          allCandidates.push(...result.data.candidates);
-        }
-      } catch (err) {
-        console.error(`Search failed for ${category.category}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    // Deduplicate by domain
-    const seen = new Map<string, Record<string, unknown>>();
-    for (const c of allCandidates) {
-      const key = ((c.domain as string) || (c.company_name as string)).toLowerCase();
-      if (!seen.has(key)) {
-        seen.set(key, c);
-      }
-    }
-    const deduped = Array.from(seen.values());
-
-    stageData.current.search = { candidates: deduped };
-    lastCompletedStage.current = 'search';
-
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'search' }),
-    });
-    await refreshSession();
-  }
-
-  async function runScorePerPartner() {
-    if (!session) return;
-    console.log('[SCORE] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id, product_id: session.product_id };
-    const screenData = stageData.current.screen as { passed?: Array<Record<string, unknown>> } | undefined;
-    const searchData = stageData.current.search as { candidates?: Array<Record<string, unknown>> } | undefined;
-    const candidates = screenData?.passed || searchData?.candidates || [];
-    console.log('[SCORE] candidates:', candidates.length, 'from screen.passed:', screenData?.passed?.length, 'search.candidates:', searchData?.candidates?.length);
-
-    if (candidates.length === 0) {
-      stageData.current.score = { scored_partners: [] };
-      lastCompletedStage.current = 'score';
-      await refreshSession();
-      return;
-    }
-
-    const allScored: Array<Record<string, unknown>> = [];
-
-    for (const candidate of candidates) {
-      try {
-        const res = await fetch('/api/agent/score', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, candidate }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Score failed for ${candidate.company_name}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Score failed for ${candidate.company_name}:`, result.error);
-          continue;
-        }
-
-        if (result.data.scored_partner) {
-          allScored.push(result.data.scored_partner);
-        }
-      } catch (err) {
-        console.error(`Score failed for ${candidate.company_name}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    stageData.current.score = { scored_partners: allScored };
-    lastCompletedStage.current = 'score';
-
-    // Update session stage and partners count
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'score', partners_added: allScored.length }),
-    });
-
-    await refreshSession();
-  }
-
-  async function runBrowsePerPartner() {
-    if (!session) return;
-    console.log('[BROWSE] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id };
-    const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
-    const candidates = scoreData?.scored_partners || [];
-    console.log('[BROWSE] candidates:', candidates.length);
-
-    if (candidates.length === 0) {
-      stageData.current.browse = { browsed_candidates: [] };
-      lastCompletedStage.current = 'browse';
-      await refreshSession();
-      return;
-    }
-
-    const allBrowsed: Array<Record<string, unknown>> = [];
-
-    for (const candidate of candidates) {
-      try {
-        const res = await fetch('/api/agent/browse', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, candidate }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Browse failed for ${candidate.company_name}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Browse failed for ${candidate.company_name}:`, result.error);
-          continue;
-        }
-
-        if (result.data.browsed_candidate) {
-          allBrowsed.push(result.data.browsed_candidate);
-        }
-      } catch (err) {
-        console.error(`Browse failed for ${candidate.company_name}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    stageData.current.browse = { browsed_candidates: allBrowsed };
-    lastCompletedStage.current = 'browse';
-
-    // Update session stage to 'browse'
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'browse' }),
-    });
-
-    await refreshSession();
-  }
-
-  async function runFindContactPerPartner() {
-    if (!session) return;
-    console.log('[FIND_CONTACT] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id, product_id: session.product_id };
-    const browseData = stageData.current.browse as { browsed_candidates?: Array<Record<string, unknown>> } | undefined;
-    const candidates = browseData?.browsed_candidates || [];
-    console.log('[FIND_CONTACT] candidates:', candidates.length);
-
-    if (candidates.length === 0) {
-      stageData.current.find_contact = { contacts: [] };
-      lastCompletedStage.current = 'find_contact';
-      await refreshSession();
-      return;
-    }
-
-    const allContacts: Array<Record<string, unknown>> = [];
-    let contactsFound = 0;
-
-    for (const candidate of candidates) {
-      const partner = {
-        company_name: candidate.company_name as string,
-        domain: candidate.domain as string,
-        partnership_motion: candidate.partnership_motion as string | undefined,
-        research: candidate.research as Array<{ title: string; url: string; snippet: string }> | undefined,
-      };
-
-      try {
-        const res = await fetch('/api/agent/find-contact', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, partner }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Find contact failed for ${partner.company_name}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Find contact failed for ${partner.company_name}:`, result.error);
-          continue;
-        }
-
-        if (result.data.contact) {
-          allContacts.push(result.data.contact);
-          if (result.data.contact.contact_email) contactsFound++;
-        }
-      } catch (err) {
-        console.error(`Find contact failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    stageData.current.find_contact = { contacts: allContacts };
-    lastCompletedStage.current = 'find_contact';
-    console.log('[FIND_CONTACT] complete, contacts:', allContacts.length, 'with email:', contactsFound);
-
-    // Update session stage and contacts_found count
-    const updateRes = await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'find_contact', contacts_found: contactsFound }),
-    });
-    console.log('[FIND_CONTACT] update-stage response:', updateRes.status);
-
-    await refreshSession();
-  }
-
-  async function runDraftPerPartner() {
-    if (!session) return;
-    console.log('[DRAFT] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id, product_id: session.product_id };
-
-    // Step 1: fetch eligible partners list (lightweight, no Anthropic call)
-    const listRes = await fetch('/api/agent/draft-list', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ product_id: session.product_id }),
-      signal: AbortSignal.timeout(10000),
-    });
-    const listResult = await listRes.json();
-
-    if (!listRes.ok || !listResult.success) {
-      throw new Error(listResult.error || 'Failed to fetch eligible partners');
-    }
-
-    const eligible = listResult.data.eligible_partners || [];
-    console.log('[DRAFT] eligible partners:', eligible.length, eligible.map((p: Record<string, unknown>) => p.company_name));
-    if (eligible.length === 0) {
-      console.log('[DRAFT] no eligible partners, completing with 0 drafts');
-      stageData.current.draft = { drafts: [], count: 0, message: 'No partners ready for drafting' };
-      lastCompletedStage.current = 'draft';
-      await refreshSession();
-      return;
-    }
-
-    // Step 2: draft one partner at a time, refreshing UI after each
-    const drafts = [];
-    for (const partner of eligible) {
-      try {
-        const res = await fetch('/api/agent/draft', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, partner_id: partner.id }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        // Handle non-JSON responses (e.g. Vercel 504 HTML page)
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Draft failed for ${partner.company_name}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Draft failed for ${partner.company_name}:`, result.error);
-          continue;
-        }
-
-        if (result.data.draft) {
-          drafts.push(result.data);
-        }
-      } catch (err) {
-        console.error(`Draft failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      // Refresh events after each partner so the UI updates in real time
-      await refreshSession();
-    }
-
-    stageData.current.draft = { drafts, count: drafts.length };
-    lastCompletedStage.current = 'draft';
-
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'draft' }),
-    });
-    await refreshSession();
-  }
-
-  async function runSelectMotionPerPartner() {
-    if (!session) return;
-    console.log('[SELECT_MOTION] starting, stageData keys:', Object.keys(stageData.current));
-
-    const base = { session_id: session.id, product_id: session.product_id };
-
-    // Get scored partners and contact data
-    const scoreData = stageData.current.score as { scored_partners?: Array<Record<string, unknown>> } | undefined;
-    const contactData = stageData.current.find_contact as { contacts?: Array<Record<string, unknown>> } | undefined;
-
-    const scoredPartners = scoreData?.scored_partners || [];
-    const contacts = contactData?.contacts || [];
-    console.log('[SELECT_MOTION] scoredPartners:', scoredPartners.length, 'contacts:', contacts.length);
-
-    if (scoredPartners.length === 0) {
-      stageData.current.select_motion = { motions: [] };
-      lastCompletedStage.current = 'select_motion';
-      await refreshSession();
-      return;
-    }
-
-    const allMotions: Array<Record<string, unknown>> = [];
-
-    for (const scored of scoredPartners) {
-      // Merge with contact data by domain
-      const contact = contacts.find((c) => c.domain === scored.domain);
-      const partner = {
-        company_name: scored.company_name as string,
-        domain: scored.domain as string,
-        weighted_score: scored.weighted_score as number,
-        partner_readiness_score: scored.partner_readiness_score as number,
-        confidence_score: scored.confidence_score as string,
-        contact_name: (contact?.contact_name as string) || null,
-        contact_title: (contact?.contact_title as string) || null,
-      };
-
-      try {
-        const res = await fetch('/api/agent/select-motion', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...base, partner }),
-          signal: AbortSignal.timeout(28000),
-        });
-
-        const contentType = res.headers.get('content-type') || '';
-        if (!contentType.includes('application/json')) {
-          console.error(`Motion selection failed for ${partner.company_name}: server returned ${res.status}`);
-          continue;
-        }
-
-        const result = await res.json();
-
-        if (!res.ok || !result.success) {
-          console.error(`Motion selection failed for ${partner.company_name}:`, result.error);
-          continue;
-        }
-
-        if (result.data.motion) {
-          allMotions.push(result.data.motion);
-        }
-      } catch (err) {
-        console.error(`Motion selection failed for ${partner.company_name}:`, err instanceof Error ? err.message : err);
-        continue;
-      }
-
-      await refreshSession();
-    }
-
-    stageData.current.select_motion = { motions: allMotions };
-    lastCompletedStage.current = 'select_motion';
-
-    // Update session stage to 'select_motion'
-    await fetch('/api/agent/update-stage', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ session_id: session.id, current_stage: 'select_motion' }),
-    });
-
-    await refreshSession();
-  }
-
-  async function runStage(stage: PipelineStage) {
-    if (!session) return;
-    console.log('[STAGE]', stage, 'starting');
-
-    setRunning(true);
-    setError(null);
-    setAwaitingApproval(false);
-
-    try {
-      // Screen stage uses batched requests to avoid serverless timeout
-      if (stage === 'screen') {
-        await runScreenInBatches();
-        // Screen is not a guided gate — auto-advance to score
-        const nextAfterScreen = getNextStageAfter('screen');
-        if (nextAfterScreen) {
-          setRunning(false);
-          setTimeout(() => runStage(nextAfterScreen), 500);
-        } else {
-          setRunning(false);
-        }
-        return;
-      }
-
-      // Search stage uses per-category iteration to avoid serverless timeout
-      if (stage === 'search') {
-        await runSearchPerCategory();
-        if (session.mode === 'guided') { setApprovalStage('search'); setAwaitingApproval(true); }
-        setRunning(false);
-        return;
-      }
-
-      // Score stage uses per-partner iteration to avoid serverless timeout
-      if (stage === 'score') {
-        await runScorePerPartner();
-        if (session.mode === 'guided') { setApprovalStage('score'); setAwaitingApproval(true); }
-        setRunning(false);
-        return;
-      }
-
-      // Browse stage uses per-partner iteration to avoid serverless timeout
-      if (stage === 'browse') {
-        await runBrowsePerPartner();
-        // Browse is not a guided gate — auto-advance to next stage
-        const nextAfterBrowse = getNextStageAfter('browse');
-        if (nextAfterBrowse) {
-          setRunning(false);
-          setTimeout(() => runStage(nextAfterBrowse), 500);
-        } else {
-          setRunning(false);
-        }
-        return;
-      }
-
-      // Find contact stage uses per-partner iteration to avoid serverless timeout
-      if (stage === 'find_contact') {
-        await runFindContactPerPartner();
-        if (session.mode === 'guided') { setApprovalStage('find_contact'); setAwaitingApproval(true); }
-        setRunning(false);
-        return;
-      }
-
-      // Select motion stage uses per-partner iteration to avoid serverless timeout
-      if (stage === 'select_motion') {
-        await runSelectMotionPerPartner();
-        if (session.mode === 'guided') { setApprovalStage('select_motion'); setAwaitingApproval(true); }
-        setRunning(false);
-        return;
-      }
-
-      // Draft stage uses per-partner iteration to avoid serverless timeout
-      if (stage === 'draft') {
-        await runDraftPerPartner();
-        if (session.mode === 'guided') { setApprovalStage('draft'); setAwaitingApproval(true); }
-        setRunning(false);
-        return;
-      }
-
-      const config = STAGE_CONFIG[stage];
-      if (!config?.apiRoute) {
-        setError(`No API route configured for stage: ${stage}`);
-        setRunning(false);
-        return;
-      }
-
-      const body = buildStageRequest(stage);
-
-      const res = await fetch(config.apiRoute, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-        signal: AbortSignal.timeout(28000),
-      });
-
-      // Handle non-JSON responses (e.g. Vercel 504 HTML page)
-      const contentType = res.headers.get('content-type') || '';
-      if (!contentType.includes('application/json')) {
-        setError(`Stage ${stage} failed: server returned ${res.status}`);
-        setRunning(false);
-        return;
-      }
-
-      const result = await res.json();
-
-      if (!res.ok || !result.success) {
-        setError(result.error || `Stage ${stage} failed`);
-        setRunning(false);
-        return;
-      }
-
-      // Store stage data for subsequent stages
-      stageData.current[stage] = result.data;
-      lastCompletedStage.current = stage;
-
-      // Refresh session and events
-      await refreshSession();
-
-      // Check if we need approval (guided mode gate)
-      if (session.mode === 'guided' && GUIDED_GATES.includes(stage)) {
-        setApprovalStage(stage);
-        setAwaitingApproval(true);
-        setRunning(false);
-        return;
-      }
-
-      // Auto-advance non-gate stages to the NEXT stage
-      const nextAfterThis = getNextStageAfter(stage);
-      if (nextAfterThis) {
-        setRunning(false);
-        setTimeout(() => runStage(nextAfterThis), 500);
-        return;
-      }
-
-      setRunning(false);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
-      setRunning(false);
-    }
-  }
-
-  function runNextStage() {
-    const nextStage = getNextStage();
-    if (nextStage) runStage(nextStage);
-  }
-
-  function buildStageRequest(stage: PipelineStage): Record<string, unknown> {
-    const base = { session_id: session!.id, product_id: session!.product_id };
-
-    switch (stage) {
-      case 'categories':
-        return base;
-
-      case 'search': {
-        const catData = stageData.current.categories as { categories?: Array<{ category: string; rationale: string }> } | undefined;
-        return { ...base, categories: catData?.categories || [] };
-      }
-
-      case 'screen': {
-        const searchData = stageData.current.search as { candidates?: unknown[] } | undefined;
-        return { ...base, candidates: searchData?.candidates || [] };
-      }
-
-      case 'score': {
-        const screenData = stageData.current.screen as { passed?: unknown[] } | undefined;
-        const searchData = stageData.current.search as { candidates?: unknown[] } | undefined;
-        return { ...base, candidates: screenData?.passed || searchData?.candidates || [] };
-      }
-
-      case 'browse':
-        // Browse is per-partner, handled by runBrowsePerPartner
-        return base;
-
-      case 'find_contact': {
-        const browseData = stageData.current.browse as { browsed_candidates?: unknown[] } | undefined;
-        return { ...base, partners: browseData?.browsed_candidates || [] };
-      }
-
-      case 'select_motion':
-        // Handled by runSelectMotionPerPartner — should not reach here
-        return base;
-
-      case 'draft':
-        // Draft is per-partner, handled differently
-        return base;
-
-      default:
-        return base;
-    }
-  }
-
+  // Refresh session data from DB
   async function refreshSession() {
     const { data: sess } = await supabase
       .from('agent_sessions')
       .select('*')
       .eq('id', params.id)
       .single();
-
     if (sess) setSession(sess as SessionData);
 
     const { data: evts } = await supabase
@@ -837,22 +95,101 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       .select('*')
       .eq('session_id', params.id)
       .order('created_at', { ascending: true });
-
     if (evts) setEvents(evts as EventCard[]);
   }
 
-  function approveAndContinue() {
-    const completed = approvalStage || lastCompletedStage.current || session?.current_stage;
-    const nextAfter = completed ? getNextStageAfter(completed) : null;
-    console.log('[APPROVE]', { approvalStage, lastCompleted: lastCompletedStage.current, dbStage: session?.current_stage, completed, nextAfter });
+  // Core SSE reader — connects to /api/agent/run and processes events
+  async function startAgent(action: 'start' | 'continue' | 'approve') {
+    setStreaming(true);
+    setError(null);
     setAwaitingApproval(false);
-    setApprovalStage(null);
-    if (nextAfter) {
-      runStage(nextAfter);
-      return;
+    setAgentMessage(null);
+
+    const controller = new AbortController();
+    abortRef.current = controller;
+
+    try {
+      const res = await fetch('/api/agent/run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: params.id, action }),
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const body = await res.text();
+        setError(`Agent failed: ${res.status} ${body}`);
+        setStreaming(false);
+        return;
+      }
+
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const chunks = buffer.split('\n\n');
+        buffer = chunks.pop()!;
+
+        for (const chunk of chunks) {
+          if (!chunk.startsWith('data: ')) continue;
+          try {
+            const event = JSON.parse(chunk.slice(6));
+
+            if (event.type === 'event') {
+              // Add event to feed (it's already saved to DB by the server)
+              setEvents((prev) => [...prev, {
+                id: `live-${Date.now()}-${Math.random()}`,
+                event_type: event.event_type,
+                event_data: event.event_data,
+                created_at: new Date().toISOString(),
+              }]);
+            } else if (event.type === 'approval_required') {
+              setAwaitingApproval(true);
+              setApprovalMessage(event.message || 'Review and approve to continue.');
+              setStreaming(false);
+              await refreshSession();
+              return;
+            } else if (event.type === 'continue') {
+              // Auto-continue to next chunk
+              setStreaming(false);
+              await refreshSession();
+              setTimeout(() => startAgent('continue'), 500);
+              return;
+            } else if (event.type === 'pipeline_complete') {
+              setStreaming(false);
+              await refreshSession();
+              return;
+            } else if (event.type === 'agent_message') {
+              setAgentMessage(event.content);
+            } else if (event.type === 'error') {
+              setError(event.message);
+            }
+          } catch {
+            // Ignore malformed SSE chunks
+          }
+        }
+      }
+
+      // Stream ended normally
+      setStreaming(false);
+      await refreshSession();
+    } catch (err) {
+      if ((err as Error).name === 'AbortError') return;
+      setError(err instanceof Error ? err.message : 'Connection lost');
+      setStreaming(false);
+      // Auto-reconnect from DB on connection drop
+      await refreshSession();
     }
-    // No next stage = pipeline complete
-    console.log('[APPROVE] Pipeline complete or no next stage found');
+  }
+
+  function approveAndContinue() {
+    setAwaitingApproval(false);
+    startAgent('approve');
   }
 
   function toggleEvent(id: string) {
@@ -870,6 +207,8 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     window.location.href = '/sessions';
   }
 
+  // --- Event rendering (preserved from original) ---
+
   function formatEventType(type: string): string {
     return type.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
   }
@@ -884,6 +223,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     if (type.includes('contact')) return <UserSearch className="w-4 h-4 text-blue-400" />;
     if (type.includes('motion')) return <Target className="w-4 h-4 text-purple-400" />;
     if (type.includes('draft')) return <FileText className="w-4 h-4 text-amber-400" />;
+    if (type.includes('approval')) return <Pause className="w-4 h-4 text-amber-400" />;
     return <Circle className="w-4 h-4 text-dark-400" />;
   }
 
@@ -922,25 +262,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
                   <span className="text-dark-500 font-mono w-5">{i + 1}.</span>
                   <span className="text-white">{c.company_name}</span>
                   <span className="text-dark-500">({c.domain})</span>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-
-      case 'candidates_discovered':
-        return (
-          <div>
-            <p className="text-dark-300 mb-2">
-              {d.count as number} candidates from {d.categories_searched as number} categories
-            </p>
-            <div className="space-y-1">
-              {(d.candidates as Array<{ company_name: string; domain: string; category: string }>)?.map((c, i) => (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <span className="text-dark-500 font-mono w-5">{i + 1}.</span>
-                  <span className="text-white">{c.company_name}</span>
-                  <span className="text-dark-500">({c.domain})</span>
-                  <span className="badge-grey text-xs">{c.category}</span>
                 </div>
               ))}
             </div>
@@ -1018,9 +339,24 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         );
 
       case 'stage_error':
+      case 'agent_error':
         return (
           <div className="text-sm text-red-400">
-            Stage "{d.stage as string}" failed: {d.error as string}
+            {d.error as string}
+          </div>
+        );
+
+      case 'approval_required':
+        return (
+          <div className="text-sm text-amber-400">
+            {d.message as string}
+          </div>
+        );
+
+      case 'stage_progress':
+        return (
+          <div className="text-sm text-dark-300">
+            {d.message as string}
           </div>
         );
 
@@ -1033,6 +369,8 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     }
   }
 
+  // --- Render ---
+
   if (!session) {
     return (
       <div className="flex items-center justify-center h-64">
@@ -1041,8 +379,10 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     );
   }
 
-  const nextStage = getNextStage();
-  const isCompleted = !nextStage && session.current_stage !== 'initialise';
+  const isCompleted = session.status === 'completed';
+  const canStart = !streaming && !awaitingApproval && !isCompleted && events.length === 0;
+  const canResume = !streaming && !awaitingApproval && !isCompleted && events.length > 0
+    && session.status === 'active' && !events.some((e) => e.event_type === 'approval_required' && e === events[events.length - 1]);
 
   return (
     <div>
@@ -1072,7 +412,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         </div>
 
         <div className="flex items-center gap-6">
-          {/* Stats */}
           <div className="flex gap-6 text-sm">
             <div className="text-center">
               <div className="text-2xl font-bold">{session.partners_added}</div>
@@ -1087,7 +426,6 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
               <div className="text-dark-500">Drafts</div>
             </div>
           </div>
-          {/* Delete */}
           <button
             onClick={deleteSession}
             className="p-2 text-dark-600 hover:text-red-400 transition-colors"
@@ -1098,169 +436,136 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-        {/* Stage Progress - Sidebar */}
-        <div className="lg:col-span-1">
-          <div className="card sticky top-8">
-            <h4 className="text-sm font-semibold text-dark-400 uppercase tracking-wider mb-4">Pipeline</h4>
-            <div className="space-y-1">
-              {ACTIVE_STAGES.map((stage) => {
-                const config = STAGE_CONFIG[stage];
-                const status = getStageStatus(stage);
-                const Icon = config.icon;
+      {/* Event Feed */}
+      <div className="space-y-4">
+        {/* Start button */}
+        {canStart && (
+          <div className="card text-center py-12">
+            <Play className="w-10 h-10 text-dark-600 mx-auto mb-3" />
+            <p className="text-dark-400 mb-4">Ready to start the partnership discovery agent.</p>
+            <button onClick={() => startAgent('start')} className="btn-primary">
+              Start Agent
+            </button>
+          </div>
+        )}
 
-                return (
-                  <div
-                    key={stage}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg text-sm ${
-                      status === 'current' ? 'bg-corp-green-500/10 text-corp-green-400' :
-                      status === 'completed' ? 'text-dark-300' :
-                      'text-dark-600'
-                    }`}
-                  >
-                    {status === 'completed' ? (
-                      <CheckCircle className="w-4 h-4 text-corp-green-500 shrink-0" />
-                    ) : status === 'current' ? (
-                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                    ) : (
-                      <Circle className="w-4 h-4 shrink-0" />
-                    )}
-                    <Icon className="w-4 h-4 shrink-0" />
-                    <span className="truncate">{config.label}</span>
-                  </div>
-                );
-              })}
+        {/* Event cards */}
+        {events.filter((e) => e.event_type !== 'approval_required').map((event) => (
+          <div key={event.id} className="card">
+            <button
+              onClick={() => toggleEvent(event.id)}
+              className="flex items-center gap-3 w-full text-left"
+            >
+              {getEventIcon(event.event_type)}
+              <span className="font-medium text-sm flex-1">{formatEventType(event.event_type)}</span>
+              <span className="text-dark-600 text-xs">
+                {new Date(event.created_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
+              </span>
+              {collapsedEvents.has(event.id) ? (
+                <ChevronRight className="w-4 h-4 text-dark-500" />
+              ) : (
+                <ChevronDown className="w-4 h-4 text-dark-500" />
+              )}
+            </button>
+            {!collapsedEvents.has(event.id) && (
+              <div className="mt-3 pt-3 border-t border-dark-800">
+                {renderEventContent(event)}
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Streaming indicator */}
+        {streaming && (
+          <div className="card border-corp-green-500/30">
+            <div className="flex items-center gap-3">
+              <Loader2 className="w-5 h-5 animate-spin text-corp-green-400" />
+              <div>
+                <p className="font-medium text-corp-green-400">Agent is working...</p>
+                <p className="text-dark-500 text-sm mt-0.5">Discovering and analyzing partners</p>
+              </div>
             </div>
           </div>
-        </div>
+        )}
 
-        {/* Event Feed - Main */}
-        <div className="lg:col-span-3 space-y-4">
-          {/* Event cards */}
-          {events.length === 0 && !running && (
-            <div className="card text-center py-12">
-              <Play className="w-10 h-10 text-dark-600 mx-auto mb-3" />
-              <p className="text-dark-400 mb-4">Ready to start the partnership discovery pipeline.</p>
-              <button onClick={runNextStage} className="btn-primary">
-                Start Pipeline
+        {/* Error */}
+        {error && (
+          <div className="card border-red-500/30">
+            <div className="flex items-center gap-3">
+              <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
+              <div className="flex-1">
+                <p className="font-medium text-red-400">Error</p>
+                <p className="text-dark-400 text-sm mt-1">{error}</p>
+              </div>
+              <button onClick={() => startAgent('continue')} className="btn-secondary text-sm py-1.5 px-4">
+                Retry
               </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {events.map((event) => (
-            <div key={event.id} className="card">
-              <button
-                onClick={() => toggleEvent(event.id)}
-                className="flex items-center gap-3 w-full text-left"
-              >
-                {getEventIcon(event.event_type)}
-                <span className="font-medium text-sm flex-1">{formatEventType(event.event_type)}</span>
-                <span className="text-dark-600 text-xs">
-                  {new Date(event.created_at).toLocaleTimeString('en-AU', { hour: '2-digit', minute: '2-digit' })}
-                </span>
-                {collapsedEvents.has(event.id) ? (
-                  <ChevronRight className="w-4 h-4 text-dark-500" />
-                ) : (
-                  <ChevronDown className="w-4 h-4 text-dark-500" />
-                )}
+        {/* Approval Gate */}
+        {awaitingApproval && (
+          <div className="card border-amber-500/30">
+            <div className="flex items-center gap-3 mb-4">
+              <Pause className="w-5 h-5 text-amber-400" />
+              <div>
+                <p className="font-medium text-amber-400">Approval Required</p>
+                <p className="text-dark-400 text-sm mt-0.5">{approvalMessage}</p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <button onClick={approveAndContinue} className="btn-primary">
+                Approve & Continue
               </button>
-              {!collapsedEvents.has(event.id) && (
-                <div className="mt-3 pt-3 border-t border-dark-800">
-                  {renderEventContent(event)}
-                </div>
-              )}
+              <Link href="/sessions" className="btn-secondary">
+                Pause Session
+              </Link>
             </div>
-          ))}
+          </div>
+        )}
 
-          {/* Running indicator */}
-          {running && (
-            <div className="card border-corp-green-500/30">
-              <div className="flex items-center gap-3">
-                <Loader2 className="w-5 h-5 animate-spin text-corp-green-400" />
-                <div>
-                  <p className="font-medium text-corp-green-400">
-                    {nextStage ? STAGE_CONFIG[nextStage]?.description : 'Processing...'}
-                  </p>
-                  <p className="text-dark-500 text-sm mt-0.5">This may take a moment</p>
-                </div>
+        {/* Resume button */}
+        {canResume && (
+          <div className="card">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="font-medium">Session paused</p>
+                <p className="text-dark-500 text-sm">Resume the agent to continue discovery</p>
               </div>
+              <button onClick={() => startAgent('continue')} className="btn-primary">
+                Resume Agent
+              </button>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Error */}
-          {error && (
-            <div className="card border-red-500/30">
-              <div className="flex items-center gap-3">
-                <AlertTriangle className="w-5 h-5 text-red-400 shrink-0" />
-                <div className="flex-1">
-                  <p className="font-medium text-red-400">Stage Failed</p>
-                  <p className="text-dark-400 text-sm mt-1">{error}</p>
-                </div>
-                <button onClick={runNextStage} className="btn-secondary text-sm py-1.5 px-4">
-                  Retry
-                </button>
+        {/* Agent summary message */}
+        {agentMessage && (
+          <div className="card border-corp-green-500/30">
+            <p className="text-dark-300 text-sm whitespace-pre-wrap">{agentMessage}</p>
+          </div>
+        )}
+
+        {/* Completed */}
+        {isCompleted && (
+          <div className="card border-corp-green-500/30">
+            <div className="flex items-center gap-3">
+              <CheckCircle className="w-6 h-6 text-corp-green-400" />
+              <div>
+                <p className="font-medium text-corp-green-400">Discovery Complete</p>
+                <p className="text-dark-400 text-sm mt-0.5">
+                  {session.partners_added} partners discovered, {session.contacts_found} contacts found, {session.drafts_filed} drafts created.
+                </p>
               </div>
+              <Link href="/partners" className="btn-secondary ml-auto">
+                View Partners
+              </Link>
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Approval Gate */}
-          {awaitingApproval && (
-            <div className="card border-amber-500/30">
-              <div className="flex items-center gap-3 mb-4">
-                <Pause className="w-5 h-5 text-amber-400" />
-                <div>
-                  <p className="font-medium text-amber-400">Approval Required</p>
-                  <p className="text-dark-400 text-sm mt-0.5">
-                    Review the {session.current_stage} results above, then approve to continue.
-                  </p>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <button onClick={approveAndContinue} className="btn-primary">
-                  Approve & Continue
-                </button>
-                <Link href="/sessions" className="btn-secondary">
-                  Pause Session
-                </Link>
-              </div>
-            </div>
-          )}
-
-          {/* Continue button (when not running, not awaiting approval, and more stages remain) */}
-          {!running && !awaitingApproval && !error && nextStage && events.length > 0 && (
-            <div className="card">
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="font-medium">Next: {STAGE_CONFIG[nextStage]?.label}</p>
-                  <p className="text-dark-500 text-sm">{STAGE_CONFIG[nextStage]?.description}</p>
-                </div>
-                <button onClick={runNextStage} className="btn-primary">
-                  {session.mode === 'batch' ? 'Continue Pipeline' : 'Run Next Stage'}
-                </button>
-              </div>
-            </div>
-          )}
-
-          {/* Completed */}
-          {isCompleted && (
-            <div className="card border-corp-green-500/30">
-              <div className="flex items-center gap-3">
-                <CheckCircle className="w-6 h-6 text-corp-green-400" />
-                <div>
-                  <p className="font-medium text-corp-green-400">Pipeline Complete</p>
-                  <p className="text-dark-400 text-sm mt-0.5">
-                    {session.partners_added} partners discovered, {session.contacts_found} contacts found, {session.drafts_filed} drafts filed.
-                  </p>
-                </div>
-                <Link href="/partners" className="btn-secondary ml-auto">
-                  View Partners
-                </Link>
-              </div>
-            </div>
-          )}
-
-          <div ref={feedEndRef} />
-        </div>
+        <div ref={feedEndRef} />
       </div>
     </div>
   );
