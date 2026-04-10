@@ -8,25 +8,9 @@ import type { AgentAction } from '@/lib/agent/context';
 
 export const maxDuration = 30;
 
-// Use OpenRouter as primary provider for resilience
-// OpenRouter supports the Anthropic SDK natively via base URL override
-const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
-const anthropic = useOpenRouter
-  ? new Anthropic({
-      apiKey: process.env.OPENROUTER_API_KEY!,
-      baseURL: 'https://openrouter.ai/api/v1',
-      defaultHeaders: {
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
-        'X-Title': 'PartnerPilot',
-      },
-    })
-  : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
 
-const MODEL = useOpenRouter
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.6')
-  : 'claude-sonnet-4-20250514';
-
-// Simple wrapper for retries
 async function callLLM(params: {
   system: string;
   tools: Anthropic.Tool[];
