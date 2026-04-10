@@ -65,6 +65,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [awaitingApproval, setAwaitingApproval] = useState(false);
+  const [approvalStage, setApprovalStage] = useState<PipelineStage | null>(null);
   const [collapsedEvents, setCollapsedEvents] = useState<Set<string>>(new Set());
   // Store intermediate data between stages
   const stageData = useRef<Record<string, unknown>>({});
@@ -627,7 +628,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Search stage uses per-category iteration to avoid serverless timeout
       if (stage === 'search') {
         await runSearchPerCategory();
-        setAwaitingApproval(session.mode === 'guided');
+        if (session.mode === 'guided') { setApprovalStage('search'); setAwaitingApproval(true); }
         setRunning(false);
         return;
       }
@@ -635,7 +636,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Score stage uses per-partner iteration to avoid serverless timeout
       if (stage === 'score') {
         await runScorePerPartner();
-        setAwaitingApproval(session.mode === 'guided');
+        if (session.mode === 'guided') { setApprovalStage('score'); setAwaitingApproval(true); }
         setRunning(false);
         return;
       }
@@ -657,7 +658,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Find contact stage uses per-partner iteration to avoid serverless timeout
       if (stage === 'find_contact') {
         await runFindContactPerPartner();
-        setAwaitingApproval(session.mode === 'guided');
+        if (session.mode === 'guided') { setApprovalStage('find_contact'); setAwaitingApproval(true); }
         setRunning(false);
         return;
       }
@@ -665,7 +666,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Select motion stage uses per-partner iteration to avoid serverless timeout
       if (stage === 'select_motion') {
         await runSelectMotionPerPartner();
-        setAwaitingApproval(session.mode === 'guided');
+        if (session.mode === 'guided') { setApprovalStage('select_motion'); setAwaitingApproval(true); }
         setRunning(false);
         return;
       }
@@ -673,7 +674,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       // Draft stage uses per-partner iteration to avoid serverless timeout
       if (stage === 'draft') {
         await runDraftPerPartner();
-        setAwaitingApproval(session.mode === 'guided');
+        if (session.mode === 'guided') { setApprovalStage('draft'); setAwaitingApproval(true); }
         setRunning(false);
         return;
       }
@@ -809,8 +810,9 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
   function approveAndContinue() {
     setAwaitingApproval(false);
-    // Use lastCompletedStage to determine next stage, since DB may not be updated yet
-    const completed = lastCompletedStage.current || session?.current_stage;
+    // Use approvalStage to determine next — DB state may be stale
+    const completed = approvalStage || lastCompletedStage.current || session?.current_stage;
+    setApprovalStage(null);
     if (completed) {
       const nextAfter = getNextStageAfter(completed);
       if (nextAfter) {
