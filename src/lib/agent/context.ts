@@ -70,11 +70,41 @@ export function buildMessages(
     }];
   }
 
+  // Trim orphaned tool_results from the start — they reference tool_use blocks
+  // that were in earlier messages outside the 20-message window
+  while (messages.length > 0) {
+    const first = messages[0];
+    if (first.role === 'user' && Array.isArray(first.content)) {
+      const hasToolResult = (first.content as Array<{ type: string }>).some(
+        (b) => b.type === 'tool_result'
+      );
+      if (hasToolResult) {
+        messages.shift();
+        continue;
+      }
+    }
+    break;
+  }
+
+  // Also trim any assistant messages at the start that have tool_use blocks
+  // without their matching tool_results (orphaned from the other direction)
+  while (messages.length > 0 && messages[0].role === 'assistant') {
+    const content = messages[0].content;
+    if (Array.isArray(content) && content.some((b: { type: string }) => b.type === 'tool_use')) {
+      // Check if next message has matching tool_results
+      if (messages.length < 2 || messages[1].role !== 'user') {
+        messages.shift();
+        continue;
+      }
+    }
+    break;
+  }
+
   // Ensure conversation starts with a user message (API requirement)
-  if (messages[0].role !== 'user') {
+  if (messages.length === 0 || messages[0].role !== 'user') {
     messages.unshift({
       role: 'user',
-      content: 'Continue the partnership discovery process.',
+      content: 'Continue the partnership discovery process from where you left off.',
     });
   }
 
