@@ -66,9 +66,16 @@ export default function OutreachPage() {
 
   async function loadOutreach() {
     setLoading(true);
+    // Wait for auth state to be ready before querying
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      setLoading(false);
+      return;
+    }
     const { data: profile } = await supabase
       .from('profiles')
       .select('organisation_id')
+      .eq('id', user.id)
       .single();
 
     if (!profile?.organisation_id) {
