@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  LayoutDashboard, Users, Package, MessageSquare,
+  LayoutDashboard, Users, Package, Search,
   Settings, LogOut, Zap,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
@@ -11,8 +11,8 @@ import { createClient } from '@/lib/supabase/client';
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/partners', label: 'Partners', icon: Users },
+  { href: '/discover', label: 'Discover', icon: Search },
   { href: '/products', label: 'Products', icon: Package },
-  { href: '/sessions', label: 'Sessions', icon: MessageSquare },
   { href: '/settings', label: 'Settings', icon: Settings },
 ];
 

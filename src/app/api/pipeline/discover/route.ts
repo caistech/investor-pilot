@@ -52,15 +52,37 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const body = await request.json();
-  const { product_id, organisation_id, query, domains } = body as {
-    product_id: string;
-    organisation_id: string;
+  let { product_id, organisation_id, query, domains } = body as {
+    product_id?: string;
+    organisation_id?: string;
     query?: string;
     domains?: string[];
   };
 
-  if (!product_id || !organisation_id) {
-    return NextResponse.json({ error: 'product_id and organisation_id required' }, { status: 400 });
+  // Auto-resolve org and product from authenticated user if not provided
+  if (!organisation_id || organisation_id === 'auto') {
+    const { data: profile } = await db
+      .from('profiles')
+      .select('organisation_id')
+      .eq('id', user!.id)
+      .single();
+    organisation_id = profile?.organisation_id;
+  }
+  if (!organisation_id) {
+    return NextResponse.json({ error: 'Could not resolve organisation' }, { status: 400 });
+  }
+
+  if (!product_id || product_id === 'auto') {
+    const { data: firstProduct } = await db
+      .from('products')
+      .select('id')
+      .eq('organisation_id', organisation_id)
+      .limit(1)
+      .single();
+    product_id = firstProduct?.id;
+  }
+  if (!product_id) {
+    return NextResponse.json({ error: 'No product found. Create one in Products first.' }, { status: 400 });
   }
 
   // Load product for context
