@@ -231,8 +231,8 @@ export async function executeTool(
       }
 
       case 'save_contact': {
-        // Try exact match first, then fuzzy domain matching
-        const domain = (input.partner_domain as string || '').replace(/^www\./, '');
+        // Try exact match first, then fuzzy domain matching, then company name
+        const domain = (input.partner_domain as string || '').replace(/^www\./, '').replace(/\/.*$/, '');
         let { data: partner } = await context.db
           .from('partners')
           .select('id, email_confidence')
@@ -250,6 +250,21 @@ export async function executeTool(
             .limit(1)
             .single();
           partner = fuzzy;
+        }
+
+        // Fallback: try matching by company name (agent may know it)
+        if (!partner && input.contact_name) {
+          const companyHint = (input.partner_domain as string || '').split('.')[0];
+          if (companyHint) {
+            const { data: nameMatch } = await context.db
+              .from('partners')
+              .select('id, email_confidence')
+              .eq('organisation_id', context.organisationId)
+              .ilike('company_name', `%${companyHint}%`)
+              .limit(1)
+              .single();
+            partner = nameMatch;
+          }
         }
 
         if (!partner) return { error: `Partner not found for domain: ${input.partner_domain}` };
@@ -288,7 +303,7 @@ export async function executeTool(
       }
 
       case 'save_draft': {
-        const draftDomain = (input.partner_domain as string || '').replace(/^www\./, '');
+        const draftDomain = (input.partner_domain as string || '').replace(/^www\./, '').replace(/\/.*$/, '');
         let { data: partner } = await context.db
           .from('partners')
           .select('id')
@@ -305,6 +320,21 @@ export async function executeTool(
             .limit(1)
             .single();
           partner = fuzzy;
+        }
+
+        // Fallback: try matching by company name from domain
+        if (!partner) {
+          const companyHint = draftDomain.split('.')[0];
+          if (companyHint) {
+            const { data: nameMatch } = await context.db
+              .from('partners')
+              .select('id')
+              .eq('organisation_id', context.organisationId)
+              .ilike('company_name', `%${companyHint}%`)
+              .limit(1)
+              .single();
+            partner = nameMatch;
+          }
         }
 
         if (!partner) return { error: `Partner not found for domain: ${input.partner_domain}` };
