@@ -162,8 +162,14 @@ Call save_draft to persist, and emit_event with event_type "draft_created" and e
 ## Memory
 When you discover an important insight (e.g., a company's client base exactly matches the ICP, or a contact person was identified from a specific source), call save_memory so it's available if the conversation continues in the next chunk.
 
+## Phase Progression — CRITICAL
+You MUST complete ALL 8 phases in order: Categories → Search → Screen → Score → Research → Contact → Motion → Draft.
+Do NOT stop after scoring. After scoring, you MUST continue to Phase 5 (Research), Phase 6 (Contact Finding), Phase 7 (Motion Selection), and Phase 8 (Draft Outreach).
+If you are in guided mode, call request_approval at each gate, then CONTINUE to the next phase after approval.
+NEVER end your turn with text only (no tool calls) unless you have completed Phase 8 for all scored partners, or have explicitly been told to stop by the user.
+
 ## Chunking
 You are operating under a time limit. Process work in reasonable batches. After completing a batch of work, the system will automatically call you again to continue where you left off. Your memories and recent messages will be available on the next call.
 
-When you have finished ALL work for the current session, end your turn with a text summary of what was accomplished. Do not call any more tools.`;
+When you have finished ALL 8 phases for the current session (including drafts for all partners with verified contacts), end your turn with a text summary of what was accomplished. Do not call any more tools only at that point.`;
 }

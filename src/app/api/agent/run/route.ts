@@ -117,9 +117,10 @@ export async function POST(request: Request) {
 
       const startTime = Date.now();
       let currentMessages = [...messages];
-      let partnersAdded = 0;
-      let contactsFound = 0;
-      let draftsCreated = 0;
+      // Accumulate counters across chunks instead of resetting
+      let partnersAdded = session.partners_added || 0;
+      let contactsFound = session.contacts_found || 0;
+      let draftsCreated = session.drafts_filed || 0;
 
       try {
         // Update session to active
