@@ -8,8 +8,23 @@ import type { AgentAction } from '@/lib/agent/context';
 
 export const maxDuration = 30;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-const MODEL = process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
+// OpenRouter as primary provider (avoids Anthropic rate limits),
+// falls back to direct Anthropic if OPENROUTER_API_KEY is not set
+const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
+const client = useOpenRouter
+  ? new Anthropic({
+      apiKey: process.env.OPENROUTER_API_KEY!,
+      baseURL: 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
+        'X-Title': 'PartnerPilot',
+      },
+    })
+  : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+
+const MODEL = useOpenRouter
+  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
+  : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
 
 async function callLLM(params: {
   system: string;
@@ -17,7 +32,7 @@ async function callLLM(params: {
   messages: Anthropic.MessageParam[];
   max_tokens: number;
 }): Promise<Anthropic.Message> {
-  return anthropic.messages.create({
+  return client.messages.create({
     model: MODEL,
     ...params,
   });
