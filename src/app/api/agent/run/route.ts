@@ -263,13 +263,37 @@ export async function POST(request: Request) {
               (b): b is Anthropic.TextBlock => b.type === 'text'
             );
 
-            // If no drafts created yet and partners exist, the agent stopped early.
+            // If no partners saved yet, the agent searched but didn't screen/score.
             // Send it back with a nudge to continue.
-            if (draftsCreated === 0 && partnersAdded > 0) {
+            if (partnersAdded === 0 && Date.now() - startTime < TIMEOUT_MS - 15000) {
+              // Check if any category_searched events exist (meaning searches happened)
+              const { count } = await db
+                .from('session_events')
+                .select('id', { count: 'exact', head: true })
+                .eq('session_id', session_id)
+                .eq('event_type', 'category_searched');
+
+              if (count && count > 0) {
+                if (textBlock) {
+                  emit({ type: 'agent_message', content: textBlock.text });
+                }
+                currentMessages.push({
+                  role: 'assistant',
+                  content: response.content,
+                });
+                currentMessages.push({
+                  role: 'user',
+                  content: 'You searched for candidates but did not screen, score, or save any partners. Continue from Phase 3 (Screening) now. Screen the candidates you found, score the ones that pass, and save them with save_partner. Then continue through contact finding, motion selection, and drafting.',
+                });
+                continue;
+              }
+            }
+
+            // If partners saved but no drafts, the agent stopped before drafting.
+            if (draftsCreated === 0 && partnersAdded > 0 && Date.now() - startTime < TIMEOUT_MS - 15000) {
               if (textBlock) {
                 emit({ type: 'agent_message', content: textBlock.text });
               }
-              // Inject a continuation message and loop again
               currentMessages.push({
                 role: 'assistant',
                 content: response.content,
