@@ -121,40 +121,79 @@ export async function POST(request: Request) {
             break;
           }
 
-          // Sanitise: strip orphaned tool_use / tool_result blocks before every LLM call
+          // Sanitise: enforce strict pairwise tool_use↔tool_result adjacency
+          // Anthropic requires: tool_result in msg[i] must reference tool_use in msg[i-1]
+          // and every tool_use in msg[i] must have tool_result in msg[i+1]
           {
             type CB = { type: string; id?: string; tool_use_id?: string };
-            const allTU = new Set<string>();
-            const allTR = new Set<string>();
-            for (const m of currentMessages) {
-              if (!Array.isArray(m.content)) continue;
-              for (const b of m.content as CB[]) {
-                if (b.type === 'tool_use' && b.id) allTU.add(b.id);
-                if (b.type === 'tool_result' && b.tool_use_id) allTR.add(b.tool_use_id);
+
+            const getToolUseIds = (m: Anthropic.MessageParam): Set<string> => {
+              const ids = new Set<string>();
+              if (Array.isArray(m.content)) {
+                for (const b of m.content as CB[]) {
+                  if (b.type === 'tool_use' && b.id) ids.add(b.id);
+                }
+              }
+              return ids;
+            };
+
+            const getToolResultIds = (m: Anthropic.MessageParam): Set<string> => {
+              const ids = new Set<string>();
+              if (Array.isArray(m.content)) {
+                for (const b of m.content as CB[]) {
+                  if (b.type === 'tool_result' && b.tool_use_id) ids.add(b.tool_use_id);
+                }
+              }
+              return ids;
+            };
+
+            // Multiple passes until stable — stripping can create new orphans
+            let changed = true;
+            while (changed) {
+              changed = false;
+
+              for (let i = currentMessages.length - 1; i >= 0; i--) {
+                const msg = currentMessages[i];
+                if (!Array.isArray(msg.content)) continue;
+                const blocks = msg.content as CB[];
+
+                if (msg.role === 'assistant') {
+                  // Every tool_use must have a matching tool_result in the NEXT message
+                  const nextMsg = currentMessages[i + 1];
+                  const nextTR = nextMsg ? getToolResultIds(nextMsg) : new Set<string>();
+                  const clean = blocks.filter((b) => {
+                    if (b.type === 'tool_use' && b.id && !nextTR.has(b.id)) return false;
+                    return true;
+                  });
+                  if (clean.length !== blocks.length) {
+                    changed = true;
+                    if (clean.length === 0) { currentMessages.splice(i, 1); }
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    else { (msg as any).content = clean; }
+                  }
+                } else if (msg.role === 'user') {
+                  // Every tool_result must match a tool_use in the PREVIOUS message
+                  const prevMsg = currentMessages[i - 1];
+                  const prevTU = prevMsg ? getToolUseIds(prevMsg) : new Set<string>();
+                  const clean = blocks.filter((b) => {
+                    if (b.type === 'tool_result' && b.tool_use_id && !prevTU.has(b.tool_use_id)) return false;
+                    return true;
+                  });
+                  if (clean.length !== blocks.length) {
+                    changed = true;
+                    if (clean.length === 0) { currentMessages.splice(i, 1); }
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    else { (msg as any).content = clean; }
+                  }
+                }
               }
             }
-            // Remove any blocks whose pair is missing
-            for (let i = currentMessages.length - 1; i >= 0; i--) {
-              const m = currentMessages[i];
-              if (!Array.isArray(m.content)) continue;
-              const blocks = m.content as CB[];
-              const clean = blocks.filter((b) => {
-                if (b.type === 'tool_use' && b.id && !allTR.has(b.id)) return false;
-                if (b.type === 'tool_result' && b.tool_use_id && !allTU.has(b.tool_use_id)) return false;
-                return true;
-              });
-              if (clean.length === 0) {
-                currentMessages.splice(i, 1);
-              } else if (clean.length !== blocks.length) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                (m as any).content = clean;
-              }
-            }
+
             // Ensure first message is user role
             if (currentMessages.length === 0 || currentMessages[0].role !== 'user') {
               currentMessages.unshift({ role: 'user', content: 'Continue the partnership discovery process.' });
             }
-            // Ensure alternating roles (no two consecutive same-role messages)
+            // Ensure alternating roles
             for (let i = currentMessages.length - 1; i > 0; i--) {
               if (currentMessages[i].role === currentMessages[i - 1].role) {
                 currentMessages.splice(i, 1);
