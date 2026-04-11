@@ -14,7 +14,7 @@ const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
 const client = useOpenRouter
   ? new Anthropic({
       apiKey: process.env.OPENROUTER_API_KEY!,
-      baseURL: 'https://openrouter.ai/api/v1',
+      baseURL: 'https://openrouter.ai/api',
       defaultHeaders: {
         'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
         'X-Title': 'PartnerPilot',
