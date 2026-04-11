@@ -15,9 +15,12 @@ export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
 
-  const { partner_id, organisation_id } = await request.json() as {
+  const { partner_id, organisation_id, contact_email: overrideEmail, draft_subject: overrideSubject, draft_body: overrideBody } = await request.json() as {
     partner_id: string;
     organisation_id: string;
+    contact_email?: string;
+    draft_subject?: string;
+    draft_body?: string;
   };
 
   if (!partner_id || !organisation_id) {
@@ -36,12 +39,26 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Partner not found' }, { status: 404 });
   }
 
-  if (!partner.contact_email) {
+  // Use DB fields, falling back to overrides from the UI (session inline drafts have these)
+  const finalEmail = partner.contact_email || overrideEmail;
+  const finalSubject = partner.draft_subject || overrideSubject;
+  const finalBody = partner.draft_body || overrideBody;
+
+  if (!finalEmail) {
     return NextResponse.json({ error: 'No contact email for this partner' }, { status: 400 });
   }
 
-  if (!partner.draft_subject || !partner.draft_body) {
+  if (!finalSubject || !finalBody) {
     return NextResponse.json({ error: 'No draft exists for this partner' }, { status: 400 });
+  }
+
+  // Backfill the partner record if it was missing contact/draft data
+  const backfill: Record<string, unknown> = {};
+  if (!partner.contact_email && finalEmail) backfill.contact_email = finalEmail;
+  if (!partner.draft_subject && finalSubject) backfill.draft_subject = finalSubject;
+  if (!partner.draft_body && finalBody) backfill.draft_body = finalBody;
+  if (Object.keys(backfill).length > 0) {
+    await db.from('partners').update(backfill).eq('id', partner_id);
   }
 
   // Check if already sent
@@ -61,9 +78,9 @@ export async function POST(request: Request) {
     organisation_id,
     partner_id,
     email_type: 'first_touch',
-    to_email: partner.contact_email,
-    subject: partner.draft_subject,
-    body: partner.draft_body,
+    to_email: finalEmail,
+    subject: finalSubject,
+    body: finalBody,
   });
 
   if (outreachResult.error) {
@@ -86,8 +103,8 @@ export async function POST(request: Request) {
   return NextResponse.json({
     status: 'sent',
     outreach_id: outreachResult.id,
-    to: partner.contact_email,
-    subject: partner.draft_subject,
+    to: finalEmail,
+    subject: finalSubject,
     company: partner.company_name,
   });
 }

@@ -45,7 +45,13 @@ function InlineDraftCard({
       const res = await fetch('/api/pipeline/send', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_id: partner.id, organisation_id: partner.organisation_id }),
+        body: JSON.stringify({
+          partner_id: partner.id,
+          organisation_id: partner.organisation_id,
+          contact_email: contactEmail,
+          draft_subject: subject,
+          draft_body: body,
+        }),
       });
       const data = await res.json();
       if (!res.ok) {
