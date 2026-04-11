@@ -1,0 +1,173 @@
+import type { SupabaseClient } from '@supabase/supabase-js';
+
+export interface PartnerUpsertData {
+  organisation_id: string;
+  product_id: string;
+  company_name: string;
+  domain: string;
+  category?: string;
+  partner_type?: string;
+  status?: string;
+  weighted_score?: number;
+  confidence_score?: string;
+  audience_overlap_score?: number;
+  audience_overlap_notes?: string;
+  complementarity_score?: number;
+  complementarity_notes?: string;
+  partner_readiness_score?: number;
+  partner_readiness_notes?: string;
+  reachability_score?: number;
+  reachability_notes?: string;
+  strategic_leverage_score?: number;
+  strategic_leverage_notes?: string;
+  screened_out?: boolean;
+  screened_out_reason?: string;
+}
+
+export interface ContactData {
+  contact_name?: string;
+  contact_title?: string;
+  contact_email?: string;
+  contact_linkedin?: string;
+  email_confidence?: number;
+  email_status?: string;
+  contact_source?: string;
+  partnership_motion?: string;
+  selected_gtm_angle?: string;
+}
+
+export interface DraftData {
+  draft_subject: string;
+  draft_body: string;
+  partnership_motion?: string;
+  selected_gtm_angle?: string;
+}
+
+/**
+ * Compute weighted score from 5 dimension scores.
+ * Pure function, no API calls.
+ */
+export function computeWeightedScore(scores: {
+  audience_overlap: number;
+  complementarity: number;
+  partner_readiness: number;
+  reachability: number;
+  strategic_leverage: number;
+}): number {
+  return +(
+    scores.audience_overlap * 0.3 +
+    scores.complementarity * 0.25 +
+    scores.partner_readiness * 0.2 +
+    scores.reachability * 0.15 +
+    scores.strategic_leverage * 0.1
+  ).toFixed(2);
+}
+
+/**
+ * Upsert a partner by domain within an organisation.
+ * Returns { status: 'created' | 'updated' | 'error', partner_id?, error? }
+ */
+export async function upsertPartner(
+  db: SupabaseClient,
+  data: PartnerUpsertData
+): Promise<{ status: string; partner_id?: string; error?: string }> {
+  const { data: existing } = await db
+    .from('partners')
+    .select('id')
+    .eq('organisation_id', data.organisation_id)
+    .eq('domain', data.domain)
+    .single();
+
+  const row = {
+    ...data,
+    last_updated_at: new Date().toISOString(),
+  };
+
+  if (existing) {
+    const { error } = await db.from('partners').update(row).eq('id', existing.id);
+    if (error) return { status: 'error', error: error.message };
+    return { status: 'updated', partner_id: existing.id };
+  } else {
+    const { data: inserted, error } = await db.from('partners').insert(row).select('id').single();
+    if (error) return { status: 'error', error: error.message };
+    return { status: 'created', partner_id: inserted?.id };
+  }
+}
+
+/**
+ * Update contact info for a partner (by domain).
+ * Only overwrites if new confidence >= existing confidence.
+ */
+export async function updateContact(
+  db: SupabaseClient,
+  organisationId: string,
+  domain: string,
+  contact: ContactData
+): Promise<{ status: string; partner_id?: string; error?: string }> {
+  const { data: partner } = await db
+    .from('partners')
+    .select('id, email_confidence')
+    .eq('organisation_id', organisationId)
+    .eq('domain', domain)
+    .single();
+
+  if (!partner) return { status: 'error', error: `Partner not found: ${domain}` };
+
+  const newConf = contact.email_confidence || 0;
+  const existingConf = partner.email_confidence || 0;
+
+  if (newConf < existingConf) {
+    return { status: 'skipped', partner_id: partner.id };
+  }
+
+  const updateData: Record<string, unknown> = {
+    last_updated_at: new Date().toISOString(),
+  };
+  if (contact.contact_name) updateData.contact_name = contact.contact_name;
+  if (contact.contact_title) updateData.contact_title = contact.contact_title;
+  if (contact.contact_email) updateData.contact_email = contact.contact_email;
+  if (contact.contact_linkedin) updateData.contact_linkedin = contact.contact_linkedin;
+  if (contact.email_confidence != null) updateData.email_confidence = contact.email_confidence;
+  if (contact.email_status) updateData.email_status = contact.email_status;
+  if (contact.contact_source) updateData.contact_source = contact.contact_source;
+  if (contact.partnership_motion) updateData.partnership_motion = contact.partnership_motion;
+  if (contact.selected_gtm_angle) updateData.selected_gtm_angle = contact.selected_gtm_angle;
+
+  updateData.status = contact.contact_email ? 'contact_found' : 'contact_partial';
+
+  const { error } = await db.from('partners').update(updateData).eq('id', partner.id);
+  if (error) return { status: 'error', error: error.message };
+  return { status: 'updated', partner_id: partner.id };
+}
+
+/**
+ * Save a draft for a partner (by domain).
+ */
+export async function saveDraft(
+  db: SupabaseClient,
+  organisationId: string,
+  domain: string,
+  draft: DraftData
+): Promise<{ status: string; partner_id?: string; error?: string }> {
+  const { data: partner } = await db
+    .from('partners')
+    .select('id')
+    .eq('organisation_id', organisationId)
+    .eq('domain', domain)
+    .single();
+
+  if (!partner) return { status: 'error', error: `Partner not found: ${domain}` };
+
+  const { error } = await db.from('partners').update({
+    draft_subject: draft.draft_subject,
+    draft_body: draft.draft_body,
+    draft_status: 'created',
+    status: 'draft_ready',
+    partnership_motion: draft.partnership_motion || null,
+    selected_gtm_angle: draft.selected_gtm_angle || null,
+    last_updated_at: new Date().toISOString(),
+  }).eq('id', partner.id);
+
+  if (error) return { status: 'error', error: error.message };
+  return { status: 'draft_saved', partner_id: partner.id };
+}
