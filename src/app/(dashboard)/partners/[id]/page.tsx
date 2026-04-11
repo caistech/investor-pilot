@@ -6,6 +6,7 @@ import { formatDateTime } from '@/lib/utils';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus, SessionEvent } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
+import { DraftEditor } from '@/components/partners/draft-editor';
 
 function RadarChart({ partner }: { partner: Partner }) {
   const dimensions = [
@@ -66,6 +67,9 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
 
   if (!partner) notFound();
   const p = partner as Partner;
+
+  const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
+  const organisationId = profile?.organisation_id || '';
 
   const { data: events } = await supabase
     .from('session_events')
@@ -145,19 +149,16 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
             )}
           </div>
 
-          {/* Draft */}
-          {p.draft_subject && (
-            <div className="card">
-              <div className="flex items-center justify-between mb-4">
-                <h4>Draft Email</h4>
-                <span className={p.draft_status === 'filed' ? 'badge-green' : 'badge-amber'}>{p.draft_status}</span>
-              </div>
-              <div className="bg-dark-800 rounded-lg p-4">
-                <div className="text-dark-400 text-sm mb-2">Subject: <span className="text-white">{p.draft_subject}</span></div>
-                <div className="whitespace-pre-wrap text-sm">{p.draft_body}</div>
-              </div>
-            </div>
-          )}
+          {/* Draft Editor */}
+          <DraftEditor
+            partnerId={p.id}
+            organisationId={organisationId}
+            contactEmail={p.contact_email}
+            initialSubject={p.draft_subject}
+            initialBody={p.draft_body}
+            draftStatus={p.draft_status}
+            partnerStatus={p.status}
+          />
 
           {/* Notes */}
           <div className="card">
