@@ -149,6 +149,7 @@ interface SessionData {
   partners_updated: number;
   contacts_found: number;
   drafts_filed: number;
+  products?: { name: string };
 }
 
 interface EventCard {
@@ -180,7 +181,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
     async function load() {
       const { data: sess } = await supabase
         .from('agent_sessions')
-        .select('*')
+        .select('*, products(name)')
         .eq('id', params.id)
         .single();
 
@@ -213,7 +214,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
   async function refreshSession() {
     const { data: sess } = await supabase
       .from('agent_sessions')
-      .select('*')
+      .select('*, products(name)')
       .eq('id', params.id)
       .single();
     if (sess) setSession(sess as SessionData);
@@ -532,7 +533,7 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold">Agent Session</h1>
+          <h1 className="text-2xl font-bold">{session.products?.name || 'Agent Session'}</h1>
           <div className="flex items-center gap-3 mt-1">
             <span className={session.mode === 'guided' ? 'badge-blue' : 'badge-purple'}>
               {session.mode === 'guided' ? (

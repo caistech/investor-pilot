@@ -40,7 +40,7 @@ export default function SessionsPage() {
       const [sessResult, prodResult] = await Promise.all([
         supabase
           .from('agent_sessions')
-          .select('*')
+          .select('*, products(name)')
           .eq('organisation_id', orgId)
           .order('started_at', { ascending: false }),
         supabase
@@ -239,7 +239,10 @@ export default function SessionsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="font-medium">
-                      {sess.mode === 'guided' ? 'Guided' : 'Batch'} Session
+                      {(sess as unknown as { products?: { name: string } }).products?.name || 'Unknown Product'}
+                    </span>
+                    <span className="text-dark-500 text-xs">
+                      {sess.mode === 'guided' ? 'Guided' : 'Batch'}
                     </span>
                     <span className={
                       sess.status === 'active' ? 'badge-green' :
