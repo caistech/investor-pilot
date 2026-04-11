@@ -214,10 +214,18 @@ export async function executeTool(
         };
 
         if (existing) {
-          await context.db.from('partners').update(partnerData).eq('id', existing.id);
+          const { error: updateErr } = await context.db.from('partners').update(partnerData).eq('id', existing.id);
+          if (updateErr) {
+            console.error('[TOOL] save_partner update failed:', updateErr.message);
+            return { status: 'error', error: updateErr.message };
+          }
           return { status: 'updated', partner_id: existing.id };
         } else {
-          const { data } = await context.db.from('partners').insert(partnerData).select('id').single();
+          const { data, error: insertErr } = await context.db.from('partners').insert(partnerData).select('id').single();
+          if (insertErr) {
+            console.error('[TOOL] save_partner insert failed:', insertErr.message);
+            return { status: 'error', error: insertErr.message };
+          }
           return { status: 'created', partner_id: data?.id };
         }
       }
@@ -254,7 +262,11 @@ export async function executeTool(
             updateData.status = 'contact_partial';
           }
 
-          await context.db.from('partners').update(updateData).eq('id', partner.id);
+          const { error: contactErr } = await context.db.from('partners').update(updateData).eq('id', partner.id);
+          if (contactErr) {
+            console.error('[TOOL] save_contact failed:', contactErr.message);
+            return { status: 'error', error: contactErr.message };
+          }
           return { status: 'updated', partner_id: partner.id };
         }
 
@@ -271,7 +283,7 @@ export async function executeTool(
 
         if (!partner) return { error: `Partner not found for domain: ${input.partner_domain}` };
 
-        await context.db.from('partners').update({
+        const { error: draftErr } = await context.db.from('partners').update({
           draft_subject: input.subject,
           draft_body: input.body,
           draft_status: 'created',
@@ -281,6 +293,10 @@ export async function executeTool(
           last_updated_at: new Date().toISOString(),
         }).eq('id', partner.id);
 
+        if (draftErr) {
+          console.error('[TOOL] save_draft failed:', draftErr.message);
+          return { status: 'error', error: draftErr.message };
+        }
         return { status: 'draft_saved', partner_id: partner.id };
       }
 
