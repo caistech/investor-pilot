@@ -121,6 +121,47 @@ export async function POST(request: Request) {
             break;
           }
 
+          // Sanitise: strip orphaned tool_use / tool_result blocks before every LLM call
+          {
+            type CB = { type: string; id?: string; tool_use_id?: string };
+            const allTU = new Set<string>();
+            const allTR = new Set<string>();
+            for (const m of currentMessages) {
+              if (!Array.isArray(m.content)) continue;
+              for (const b of m.content as CB[]) {
+                if (b.type === 'tool_use' && b.id) allTU.add(b.id);
+                if (b.type === 'tool_result' && b.tool_use_id) allTR.add(b.tool_use_id);
+              }
+            }
+            // Remove any blocks whose pair is missing
+            for (let i = currentMessages.length - 1; i >= 0; i--) {
+              const m = currentMessages[i];
+              if (!Array.isArray(m.content)) continue;
+              const blocks = m.content as CB[];
+              const clean = blocks.filter((b) => {
+                if (b.type === 'tool_use' && b.id && !allTR.has(b.id)) return false;
+                if (b.type === 'tool_result' && b.tool_use_id && !allTU.has(b.tool_use_id)) return false;
+                return true;
+              });
+              if (clean.length === 0) {
+                currentMessages.splice(i, 1);
+              } else if (clean.length !== blocks.length) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                (m as any).content = clean;
+              }
+            }
+            // Ensure first message is user role
+            if (currentMessages.length === 0 || currentMessages[0].role !== 'user') {
+              currentMessages.unshift({ role: 'user', content: 'Continue the partnership discovery process.' });
+            }
+            // Ensure alternating roles (no two consecutive same-role messages)
+            for (let i = currentMessages.length - 1; i > 0; i--) {
+              if (currentMessages[i].role === currentMessages[i - 1].role) {
+                currentMessages.splice(i, 1);
+              }
+            }
+          }
+
           // Call LLM with tools (retry on 529/overloaded)
           let response: Anthropic.Message | null = null;
           for (let attempt = 0; attempt < 3; attempt++) {

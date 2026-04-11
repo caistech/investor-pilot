@@ -70,64 +70,51 @@ export function buildMessages(
     }];
   }
 
-  // Trim orphaned tool_results from the start — they reference tool_use blocks
-  // that were in earlier messages outside the 20-message window
-  while (messages.length > 0) {
-    const first = messages[0];
-    if (first.role === 'user' && Array.isArray(first.content)) {
-      const hasToolResult = (first.content as Array<{ type: string }>).some(
-        (b) => b.type === 'tool_result'
-      );
-      if (hasToolResult) {
-        messages.shift();
-        continue;
-      }
+  // ── Full-pass tool_use / tool_result pairing validation ──
+  // Collect every tool_use id and every tool_result id across ALL messages,
+  // then strip orphans regardless of where they appear in the array.
+
+  type ContentBlock = { type: string; id?: string; tool_use_id?: string };
+
+  // 1. Gather all IDs
+  const allToolUseIds = new Set<string>();
+  const allToolResultIds = new Set<string>();
+  for (const msg of messages) {
+    if (!Array.isArray(msg.content)) continue;
+    for (const b of msg.content as ContentBlock[]) {
+      if (b.type === 'tool_use' && b.id) allToolUseIds.add(b.id);
+      if (b.type === 'tool_result' && b.tool_use_id) allToolResultIds.add(b.tool_use_id);
     }
-    break;
   }
 
-  // Also trim any assistant messages at the start that have tool_use blocks
-  // without their matching tool_results (orphaned from the other direction)
-  while (messages.length > 0 && messages[0].role === 'assistant') {
-    const content = messages[0].content;
-    if (Array.isArray(content) && content.some((b: { type: string }) => b.type === 'tool_use')) {
-      // Check if next message has matching tool_results
-      if (messages.length < 2 || messages[1].role !== 'user') {
-        messages.shift();
-        continue;
-      }
-    }
-    break;
-  }
+  // 2. Find orphans: tool_use without matching tool_result & vice versa
+  const orphanedToolUseIds = new Set<string>(
+    Array.from(allToolUseIds).filter((id) => !allToolResultIds.has(id))
+  );
+  const orphanedToolResultIds = new Set<string>(
+    Array.from(allToolResultIds).filter((id) => !allToolUseIds.has(id))
+  );
 
-  // Trim orphaned tool_use from the END — the last assistant message may have
-  // tool_use blocks whose tool_results are outside the 20-message window
-  while (messages.length > 0) {
-    const last = messages[messages.length - 1];
-    if (last.role === 'assistant' && Array.isArray(last.content)) {
-      const hasToolUse = (last.content as Array<{ type: string }>).some(
-        (b) => b.type === 'tool_use'
-      );
-      if (hasToolUse) {
-        messages.pop();
-        continue;
+  // 3. Strip orphaned blocks from messages (remove blocks, then remove empty messages)
+  if (orphanedToolUseIds.size > 0 || orphanedToolResultIds.size > 0) {
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (!Array.isArray(msg.content)) continue;
+
+      const blocks = msg.content as ContentBlock[];
+      const filtered = blocks.filter((b) => {
+        if (b.type === 'tool_use' && b.id && orphanedToolUseIds.has(b.id)) return false;
+        if (b.type === 'tool_result' && b.tool_use_id && orphanedToolResultIds.has(b.tool_use_id)) return false;
+        return true;
+      });
+
+      if (filtered.length === 0) {
+        messages.splice(i, 1);
+      } else if (filtered.length !== blocks.length) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (msg as any).content = filtered;
       }
     }
-    // Also trim trailing tool_results with no preceding tool_use
-    if (last.role === 'user' && Array.isArray(last.content)) {
-      const hasToolResult = (last.content as Array<{ type: string }>).some(
-        (b) => b.type === 'tool_result'
-      );
-      if (hasToolResult && messages.length > 1) {
-        const prev = messages[messages.length - 2];
-        if (prev.role !== 'assistant' || !Array.isArray(prev.content) ||
-            !(prev.content as Array<{ type: string }>).some((b) => b.type === 'tool_use')) {
-          messages.pop();
-          continue;
-        }
-      }
-    }
-    break;
   }
 
   // Ensure conversation starts with a user message (API requirement)

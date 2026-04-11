@@ -2,8 +2,7 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus } from '@/lib/types';
-import { getCompanyLogoUrl } from '@/lib/utils';
-import Image from 'next/image';
+import { CompanyLogo } from '@/components/company-logo';
 
 export default async function PartnersPage() {
   const supabase = createClient();
@@ -45,14 +44,7 @@ export default async function PartnersPage() {
                   <td className="px-6 py-3">
                     <Link href={`/partners/${p.id}`} className="flex items-center gap-3 hover:text-corp-green-400">
                       {p.domain ? (
-                        <Image
-                          src={getCompanyLogoUrl(p.domain)!}
-                          alt={p.company_name}
-                          width={24}
-                          height={24}
-                          className="rounded"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                        />
+                        <CompanyLogo domain={p.domain} companyName={p.company_name} size={24} />
                       ) : (
                         <div className="w-6 h-6 bg-dark-700 rounded flex items-center justify-center text-xs font-bold">
                           {p.company_name[0]}

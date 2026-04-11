@@ -1,11 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import Image from 'next/image';
 import { ArrowLeft, ExternalLink, Mail, Link2, Globe } from 'lucide-react';
-import { getCompanyLogoUrl, formatDateTime } from '@/lib/utils';
+import { formatDateTime } from '@/lib/utils';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus, SessionEvent } from '@/lib/types';
+import { CompanyLogo } from '@/components/company-logo';
 
 function RadarChart({ partner }: { partner: Partner }) {
   const dimensions = [
@@ -85,7 +85,7 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
           <div className="card">
             <div className="flex items-start gap-4">
               {p.domain ? (
-                <Image src={getCompanyLogoUrl(p.domain)!} alt={p.company_name} width={48} height={48} className="rounded-lg" />
+                <CompanyLogo domain={p.domain} companyName={p.company_name} size={48} className="rounded-lg" />
               ) : (
                 <div className="w-12 h-12 bg-dark-700 rounded-lg flex items-center justify-center text-xl font-bold">
                   {p.company_name[0]}
