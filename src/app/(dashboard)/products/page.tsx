@@ -129,11 +129,44 @@ export default function ProductsPage() {
 
     if (editingId) {
       await supabase.from('products').update(form).eq('id', editingId);
+      // Save source URL to knowledge base if provided and not already saved
+      if (sourceUrl.trim()) {
+        const { data: existing } = await supabase
+          .from('product_sources')
+          .select('id')
+          .eq('product_id', editingId)
+          .eq('source_type', 'url')
+          .eq('url', sourceUrl.trim())
+          .limit(1)
+          .single();
+        if (!existing) {
+          await supabase.from('product_sources').insert({
+            product_id: editingId,
+            organisation_id: orgId,
+            source_type: 'url',
+            title: sourceUrl.trim(),
+            url: sourceUrl.trim(),
+            processing_status: 'completed',
+          });
+        }
+      }
     } else {
-      await supabase.from('products').insert({
+      const { data: newProduct } = await supabase.from('products').insert({
         ...form,
         organisation_id: orgId,
-      });
+      }).select('id').single();
+
+      // Save source URL to knowledge base if provided
+      if (newProduct && sourceUrl.trim()) {
+        await supabase.from('product_sources').insert({
+          product_id: newProduct.id,
+          organisation_id: orgId,
+          source_type: 'url',
+          title: sourceUrl.trim(),
+          url: sourceUrl.trim(),
+          processing_status: 'completed',
+        });
+      }
     }
 
     setShowForm(false);
