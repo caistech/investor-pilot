@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { saveDraft } from '@/lib/db/partners';
+import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 
 const client = new Anthropic({
@@ -36,6 +37,8 @@ EMAIL RULES:
 - Length: under 150 words
 - Tone: peer-to-peer, founder to senior BD lead
 - Signature: Dennis | Corporate AI Solutions | corporateaisolutions.com
+- After the signature, ALWAYS add: PS: See our other products here: https://corporate-ai-solutions.vercel.app/marketplace
+- The email body MUST include the product website link (provided in the product context)
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
 - NEVER fabricate specific claims about their company`;
 
@@ -53,15 +56,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'partner_ids[], organisation_id, and product_id required' }, { status: 400 });
   }
 
-  // Load product
-  const { data: product } = await db
-    .from('products')
-    .select('name, one_sentence_description, core_mechanism, customer_outcomes')
-    .eq('id', product_id)
-    .single();
+  // Load product and its website URL
+  const [{ data: product }, productUrl] = await Promise.all([
+    db.from('products')
+      .select('name, one_sentence_description, core_mechanism, customer_outcomes')
+      .eq('id', product_id)
+      .single(),
+    getProductWebsiteUrl(product_id),
+  ]);
 
   const productContext = product
-    ? `Product: ${product.name}. ${product.one_sentence_description || ''}. Core: ${product.core_mechanism || ''}. Outcomes: ${product.customer_outcomes || ''}.`
+    ? `Product: ${product.name}. ${product.one_sentence_description || ''}. Core: ${product.core_mechanism || ''}. Outcomes: ${product.customer_outcomes || ''}.${productUrl ? ` Product website: ${productUrl}` : ''}`
     : '';
 
   // Load partners

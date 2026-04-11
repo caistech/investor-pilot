@@ -3,7 +3,8 @@ import type { Product } from '@/lib/types';
 export function buildSystemPrompt(
   product: Product,
   sourceContent: string,
-  mode: 'guided' | 'batch'
+  mode: 'guided' | 'batch',
+  productUrl?: string | null
 ): string {
   const productContext = `
 PRODUCT: ${product.name}
@@ -151,10 +152,12 @@ EMAIL RULES:
 - Subject: specific and benefit-oriented, not "Partnership Opportunity"
 - Opening: one sentence grounded in observed evidence from research
 - Body: lead with what this means for THEIR clients
+- Body MUST include a link to the product website: ${productUrl || '[product URL not available]'}
 - Ask: the specific partnership motion, one low-commitment next step
 - Length: under 150 words
 - Tone: peer-to-peer, founder to senior BD lead
 - Signature: Dennis | Corporate AI Solutions | corporateaisolutions.com
+- After the signature, ALWAYS add: PS: See our other products here: https://corporate-ai-solutions.vercel.app/marketplace
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
 - NEVER fabricate: client segments, service claims, recent hires, or strategic priorities
 

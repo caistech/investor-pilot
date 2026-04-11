@@ -136,9 +136,10 @@ export function buildFullSystemPrompt(
   sourceContent: string,
   mode: 'guided' | 'batch',
   agentContext: AgentContext,
-  existingPartners: Array<{ company_name: string; domain: string; status: string }>
+  existingPartners: Array<{ company_name: string; domain: string; status: string }>,
+  productUrl?: string | null
 ): string {
-  let prompt = buildSystemPrompt(product, sourceContent, mode);
+  let prompt = buildSystemPrompt(product, sourceContent, mode, productUrl);
 
   // Inject memories
   if (agentContext.memories.length > 0) {

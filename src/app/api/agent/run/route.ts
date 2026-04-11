@@ -1,6 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { getProductSourceContent } from '@/lib/agent/sources';
+import { getProductSourceContent, getProductWebsiteUrl } from '@/lib/agent/sources';
 import { getAgentContext, saveMessage } from '@/lib/agent/memory';
 import { TOOL_DEFINITIONS, executeTool } from '@/lib/agent/tools';
 import { buildMessages, buildFullSystemPrompt } from '@/lib/agent/context';
@@ -82,8 +82,11 @@ export async function POST(request: Request) {
 
   const organisationId = profile?.organisation_id || session.organisation_id;
 
-  // Load source content
-  const sourceContent = await getProductSourceContent(product.id);
+  // Load source content and product website URL
+  const [sourceContent, productUrl] = await Promise.all([
+    getProductSourceContent(product.id),
+    getProductWebsiteUrl(product.id),
+  ]);
 
   // Load existing partners for this product
   const { data: existingPartners } = await db
@@ -101,7 +104,8 @@ export async function POST(request: Request) {
     sourceContent,
     session.mode || 'guided',
     agentContext,
-    existingPartners || []
+    existingPartners || [],
+    productUrl
   );
 
   // Build messages array

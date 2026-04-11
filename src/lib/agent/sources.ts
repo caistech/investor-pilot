@@ -10,7 +10,7 @@ export async function getProductSourceContent(productId: string): Promise<string
 
   const { data: sources } = await db
     .from('product_sources')
-    .select('title, source_type, content')
+    .select('title, source_type, url, content')
     .eq('product_id', productId)
     .eq('processing_status', 'completed')
     .order('created_at', { ascending: true });
@@ -33,4 +33,24 @@ export async function getProductSourceContent(productId: string): Promise<string
   }
 
   return chunks.join('\n\n');
+}
+
+/**
+ * Get the primary website URL for a product from its sources.
+ * Returns the first URL-type source's url field.
+ */
+export async function getProductWebsiteUrl(productId: string): Promise<string | null> {
+  const db = createServiceClient();
+
+  const { data } = await db
+    .from('product_sources')
+    .select('url')
+    .eq('product_id', productId)
+    .eq('source_type', 'url')
+    .eq('processing_status', 'completed')
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .single();
+
+  return data?.url || null;
 }
