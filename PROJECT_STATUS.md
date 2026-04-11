@@ -1,70 +1,72 @@
 # PartnerPilot — Project Status
 
-Last updated: 2026-04-11 08:15 AEST
-Session: Agentic rewrite session
+Last updated: 2026-04-11 22:30 AEST
 
-## Architecture: Streaming Agentic (SHIPPED)
-- Single `/api/agent/run` SSE endpoint replaces 11 old pipeline routes
-- Claude with tool_use controls the flow
-- Kira memory pattern: agent_messages + agent_memories tables + get_agent_context RPC
-- 25s timeout chunking with auto-continue
-- Plan: `C:\Users\denni\.claude\plans\zazzy-humming-milner.md`
+## Current State
 
-## What's Working
-- Agent starts, generates categories, searches Brave, screens, scores partners
-- Events stream to UI in real-time via SSE
-- Partner records save to Supabase (confirmed: counters update in sidebar)
-- Kira memory tables created and RPC functional
-- Retry logic for Anthropic 529 errors
-- Event schemas in system prompt for consistent rendering
-- Message window orphan trimming (both ends)
-- 50-message context window for resume
+107 scored partners in DB. Agent sessions can run through categories → search → score.
+Contact finding and drafting work but the agent sometimes stops early. Pipeline API
+routes exist as a manual fallback.
 
-## Known Issues (Fix Next Session)
+### What Works
+- Partner discovery: categories, search, screening, scoring (via agent sessions)
+- Partners page: filter tabs (All/Scored/Enriched/Drafted/Sent/Replied), search bar,
+  partner type filter, batch select with "Enrich Selected" / "Draft Selected"
+- Partner detail: radar chart, contact info, inline draft editor with send button
+- Pipeline API routes: /api/pipeline/discover, enrich, draft, send, track
+- Agent SSE endpoint: /api/agent/run with OpenRouter (Anthropic fallback)
+- Hunter.io email enrichment (HUNTER_API_KEY)
+- Brave Search company discovery (BRAVE_SEARCH_API_KEY)
+- Supabase auth, RLS, outreach_log table
+- Inline draft editor in session detail page (new: edit + send in-flow)
+- Premature completion guard (nudges agent to continue if no drafts yet)
+- 403/429 rate limit recovery with auto-resume
 
-### 1. Session not found on resume (CRITICAL)
-- Error: `404 {"error":"Session not found"}` on auto-continue after timeout
-- Likely: Supabase auth cookie expiring between chunks, or authenticateAndGetDb failing
-- Fix: Debug auth on resume path, consider session token for auto-continue
+### Known Issues (Fix Next Session)
 
-### 2. OpenRouter integration (DEFERRED)
-- SDK base URL override returns 404 (endpoint doesn't exist on OpenRouter)
-- OpenAI format translation caused 500 errors
-- Reverted to direct Anthropic. Revisit later.
+1. **Client-side crash on session page** — old draft_created events missing new fields
+   (domain, body, contact_name, contact_email). The InlineDraftCard component needs
+   null guards. Quick fix: add `|| ''` defaults to the event_data destructuring.
 
-### 3. Platform-trust integration (NOT STARTED)
-- Plan includes wrapping tools with audit logging, rate limiting, cost metering
-- Requires @platform-trust/middleware from C:\Users\denni\PycharmProjects\platform-trust
+2. **Agent sometimes stops after scoring** — premature completion guard added but needs
+   testing. The guard nudges the agent to continue from Phase 5 if no drafts exist.
+
+3. **Domain mismatch on save_contact/save_draft** — fuzzy matching added (tries exact,
+   then www. prefix, then ilike) but needs end-to-end testing.
+
+4. **Counter tracking** — now counts both 'created' and 'updated' saves, but still
+   sometimes shows 0 contacts when contacts were actually found.
+
+### Architecture
+- Agent sessions: SSE endpoint, Claude with tool_use, Kira memory pattern
+- Pipeline routes: deterministic API calls for manual batch operations
+- Both coexist: sessions for guided AI flow, pipeline routes for manual control
+- OpenRouter primary, Anthropic fallback for LLM
+- 60s Vercel timeout, 55s agent timeout with auto-continue
 
 ## Key Files
-- `src/app/api/agent/run/route.ts` — SSE agent endpoint
-- `src/lib/agent/tools.ts` — 9 tool definitions + executeTool
-- `src/lib/agent/system-prompt.ts` — discovery protocol instructions
-- `src/lib/agent/context.ts` — message reconstruction with orphan trimming
-- `src/lib/agent/memory.ts` — Kira pattern (getAgentContext, saveMessage, saveMemory)
-- `src/app/(dashboard)/sessions/[id]/page.tsx` — SSE event renderer (~570 lines)
-- `supabase/migrations/003_agent_memory.sql` — memory tables + RPC
+- `src/app/api/agent/run/route.ts` — SSE agent endpoint (with sanitiser + guards)
+- `src/app/api/pipeline/` — deterministic pipeline routes
+- `src/lib/agent/tools.ts` — tool definitions + execution with error handling
+- `src/lib/agent/system-prompt.ts` — discovery protocol (8 phases)
+- `src/lib/agent/context.ts` — forward-walk message sanitiser
+- `src/lib/agent/memory.ts` — Kira pattern context recovery
+- `src/lib/db/partners.ts` — partner upsert, contact, draft helpers
+- `src/lib/db/outreach.ts` — outreach tracking + status sync
+- `src/app/(dashboard)/sessions/[id]/page.tsx` — session detail + inline drafts
+- `src/components/partners/pipeline-table.tsx` — filter tabs, search, batch select
+- `src/components/partners/draft-editor.tsx` — draft editor on partner detail
+- `supabase/migrations/004_outreach_log.sql` — outreach tracking table + RLS
 
-## What Was Deleted (Old Pipeline)
-- 11 per-stage API routes (categories, search, screen, score, browse, find-contact, select-motion, draft, draft-list, update-stage)
-- src/lib/agent/pipeline.ts (860 lines)
-- ~1000 lines of client-side orchestration code
+## Environment
+- Vercel: partner-pilot-theta.vercel.app (Pro plan for 60s functions)
+- Supabase: rlwexqzoiqtbcvwqtqqf (ap-southeast-2)
+- Env vars: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, BRAVE_SEARCH_API_KEY,
+  HUNTER_API_KEY, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL,
+  NEXT_PUBLIC_SUPABASE_ANON_KEY
 
-## Next Steps
-1. **Fix session-not-found on resume** — debug authenticateAndGetDb on auto-continue
-2. **Test full end-to-end run** — categories through to draft emails
-3. **Add platform-trust middleware**
-4. **Polish UI** — event rendering, error messages
-5. **Ship for real partner discovery**
-
-## Related Work
-- Partner Portal Brief: `C:\Users\denni\PycharmProjects\R-and-D-Tax-Eligibility-Work-Recording\PARTNER_PORTAL_BRIEF.md`
-- Platform Trust: `C:\Users\denni\PycharmProjects\platform-trust`
-- Kira Memory: `C:\Users\denni\PycharmProjects\Kira`
-
-## Key Architecture Decisions
-1. Agentic over pipeline: Claude controls flow via tool_use, not fixed stages
-2. Kira memory pattern: DB is source of truth, each invocation is stateless
-3. 25s timeout chunking: auto-continue via SSE events
-4. Direct Anthropic SDK: OpenRouter deferred due to API incompatibility
-5. 50-message context window for resume conversations
+## Priority for Next Session
+1. Fix the client-side crash (null guards on draft event fields)
+2. Test full agent session end-to-end (all 8 phases)
+3. If agent is still flaky, fall back to batch pipeline on /partners page
+4. Either way: get 10 emails actually drafted, reviewed, and queued for send

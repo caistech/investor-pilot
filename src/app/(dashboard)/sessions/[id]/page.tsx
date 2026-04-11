@@ -462,12 +462,12 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
       case 'draft_created':
         return (
           <InlineDraftCard
-            companyName={d.company_name as string}
-            domain={d.domain as string}
-            contactName={d.contact_name as string}
-            contactEmail={d.contact_email as string}
-            initialSubject={d.subject as string}
-            initialBody={d.body as string}
+            companyName={(d.company_name as string) || 'Unknown'}
+            domain={(d.domain as string) || ''}
+            contactName={(d.contact_name as string) || ''}
+            contactEmail={(d.contact_email as string) || ''}
+            initialSubject={(d.subject as string) || ''}
+            initialBody={(d.body as string) || ''}
           />
         );
 
