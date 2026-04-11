@@ -1,89 +1,70 @@
 # PartnerPilot — Project Status
 
-Last updated: 2026-04-09
-Session: Build session 2
+Last updated: 2026-04-11 08:15 AEST
+Session: Agentic rewrite session
 
-## What Was Done
+## Architecture: Streaming Agentic (SHIPPED)
+- Single `/api/agent/run` SSE endpoint replaces 11 old pipeline routes
+- Claude with tool_use controls the flow
+- Kira memory pattern: agent_messages + agent_memories tables + get_agent_context RPC
+- 25s timeout chunking with auto-continue
+- Plan: `C:\Users\denni\.claude\plans\zazzy-humming-milner.md`
 
-### Reviews (Step 1)
-- /office-hours: Design doc approved. Startup mode. Guillermo play validated. Vertical slice approach chosen.
-- /plan-ceo-review: SELECTIVE EXPANSION mode. 5 cherry-picks accepted (demo mode, /playbook page, stats counter, radar chart, evidence trail). Key decisions: stage-per-request architecture, env vars only (no api_keys table), Anthropic tool_use pattern for MCP integration.
-- /plan-eng-review: 1 issue (MCP integration → Anthropic tool_use). Test strategy defined. 3-lane parallelization mapped.
-- /plan-design-review: Focused pass. 4 UI decisions (chat cards, approval gates, dashboard layout, radar chart).
+## What's Working
+- Agent starts, generates categories, searches Brave, screens, scores partners
+- Events stream to UI in real-time via SSE
+- Partner records save to Supabase (confirmed: counters update in sidebar)
+- Kira memory tables created and RPC functional
+- Retry logic for Anthropic 529 errors
+- Event schemas in system prompt for consistent rendering
+- Message window orphan trimming (both ends)
+- 50-message context window for resume
 
-### Infrastructure (Steps 2-8)
-- GitHub: dennissolver/partner-pilot (private)
-- Vercel: partner-pilot-theta.vercel.app (auto-deploy on push)
-- Supabase: rlwexqzoiqtbcvwqtqqf (ap-southeast-2)
-- Schema: 6 tables (organisations, profiles, products, partners, agent_sessions, session_events) with RLS, indexes, triggers
-- All env vars on Vercel: Supabase, Anthropic, Hunter, Brave, Resend
-- .mcp.json configured (Brave, Hunter, Gmail)
+## Known Issues (Fix Next Session)
 
-### Application (Steps 9-13)
-- Landing page with Guillermo attribution and CAS branding
-- /playbook page (side-by-side mapping of playbook to product)
-- Auth: login, signup, magic link, callback with auto org/profile creation
-- Middleware: protects dashboard + API routes
-- Dashboard: stats cards, action items, recent partners
-- Partners table: logos (Hunter API), scores, status badges, contact info
-- Partner detail: radar chart (SVG), contact, draft preview, scoring notes, evidence trail
-- Products: CRUD with full ICP fields
-- Sessions: guided/batch mode selection
-- Settings: org profile, API connection status
-- Export API: xlsx and csv
-- Agent pipeline: categories + scoring stages via Anthropic API
-- Partners API: upsert by domain
+### 1. Session not found on resume (CRITICAL)
+- Error: `404 {"error":"Session not found"}` on auto-continue after timeout
+- Likely: Supabase auth cookie expiring between chunks, or authenticateAndGetDb failing
+- Fix: Debug auth on resume path, consider session token for auto-continue
 
-### Session 2 — Agent Pipeline + Chat UI (Steps 14-16)
-- MCP Tool Execution Layer:
-  - src/lib/agent/brave-tools.ts — Brave Search API (web search, AU locale)
-  - src/lib/agent/hunter-tools.ts — Hunter Email Finder, Domain Search, Email Verifier
-- 5 new pipeline stage functions in pipeline.ts:
-  - runSearchStage (Brave Search per category, Claude extracts candidates, deduplication)
-  - runScreenStage (negative screening: competitors, size mismatch, closed ecosystem)
-  - runBrowseStage (research each company via Brave Search for evidence)
-  - runFindContactStage (Claude identifies target role, Hunter finds email)
-  - runSelectMotionStage (Claude selects partnership motion + GTM angle)
-- 7 new API routes: /api/agent/{search,screen,score,browse,find-contact,select-motion,draft}
-  - Each: auth check, run pipeline stage, log events, update session, upsert partners
-- Session Detail Page (sessions/[id]/page.tsx):
-  - Card-based agent chat UI with expandable event cards
-  - Stage progress sidebar (pipeline tracker with icons + completion states)
-  - Rich rendering per event type (categories, candidates, scores, contacts, motions, drafts, errors)
-  - Approval gates in guided mode, auto-advance in batch mode
-  - Error handling with retry, pipeline completion state
-- Sessions List Page: updated with real session history from Supabase
-- Deployed to Vercel: partner-pilot-theta.vercel.app (build passes, 36s deploy)
+### 2. OpenRouter integration (DEFERRED)
+- SDK base URL override returns 404 (endpoint doesn't exist on OpenRouter)
+- OpenAI format translation caused 500 errors
+- Reverted to direct Anthropic. Revisit later.
 
-## What's Next
+### 3. Platform-trust integration (NOT STARTED)
+- Plan includes wrapping tools with audit logging, rate limiting, cost metering
+- Requires @platform-trust/middleware from C:\Users\denni\PycharmProjects\platform-trust
 
-### Priority 1 — Accepted Scope Expansions
-- Demo mode at /demo/[product-slug] (public session replay)
-- Pipeline stats counter on dashboard + landing page
+## Key Files
+- `src/app/api/agent/run/route.ts` — SSE agent endpoint
+- `src/lib/agent/tools.ts` — 9 tool definitions + executeTool
+- `src/lib/agent/system-prompt.ts` — discovery protocol instructions
+- `src/lib/agent/context.ts` — message reconstruction with orphan trimming
+- `src/lib/agent/memory.ts` — Kira pattern (getAgentContext, saveMessage, saveMemory)
+- `src/app/(dashboard)/sessions/[id]/page.tsx` — SSE event renderer (~570 lines)
+- `supabase/migrations/003_agent_memory.sql` — memory tables + RPC
 
-### Priority 2 — Polish & QA
-- /design-review on live site
-- /qa with browser testing
-- /review pre-landing code review
-- /health code quality check
+## What Was Deleted (Old Pipeline)
+- 11 per-stage API routes (categories, search, screen, score, browse, find-contact, select-motion, draft, draft-list, update-stage)
+- src/lib/agent/pipeline.ts (860 lines)
+- ~1000 lines of client-side orchestration code
 
-### Priority 3 — Ship & Monitor
-- /ship PR creation
-- /land-and-deploy
-- /canary monitoring
+## Next Steps
+1. **Fix session-not-found on resume** — debug authenticateAndGetDb on auto-continue
+2. **Test full end-to-end run** — categories through to draft emails
+3. **Add platform-trust middleware**
+4. **Polish UI** — event rendering, error messages
+5. **Ship for real partner discovery**
 
-## Pending Manual Config
-- Supabase Auth redirect URLs: add https://partner-pilot-three.vercel.app/** and http://localhost:3000/**
-- Supabase SMTP: configure with Resend (smtp.resend.com, port 465, user resend, password = Resend API key, sender updates@corporateaisolutions.com)
+## Related Work
+- Partner Portal Brief: `C:\Users\denni\PycharmProjects\R-and-D-Tax-Eligibility-Work-Recording\PARTNER_PORTAL_BRIEF.md`
+- Platform Trust: `C:\Users\denni\PycharmProjects\platform-trust`
+- Kira Memory: `C:\Users\denni\PycharmProjects\Kira`
 
 ## Key Architecture Decisions
-1. Stage-per-request: Each pipeline stage is a separate API call (not one long-running function). Client orchestrates.
-2. Anthropic tool_use: Claude orchestrates via tool calls. API routes execute tools against MCP servers.
-3. Env vars only: All API keys in Vercel env vars. No api_keys table in DB.
-4. Vertical slice: Deploy working demo at every stage. Full SaaS scope but build order matters.
-
-## Design Doc
-~/.gstack/projects/PartnerPilot/denni-pre-init-design-20260409-094509.md
-
-## CEO Plan
-~/.gstack/projects/PartnerPilot/ceo-plans/2026-04-09-partner-pilot-mvp.md
+1. Agentic over pipeline: Claude controls flow via tool_use, not fixed stages
+2. Kira memory pattern: DB is source of truth, each invocation is stateless
+3. 25s timeout chunking: auto-continue via SSE events
+4. Direct Anthropic SDK: OpenRouter deferred due to API incompatibility
+5. 50-message context window for resume conversations
