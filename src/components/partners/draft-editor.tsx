@@ -35,21 +35,19 @@ export function DraftEditor({
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch('/api/partners', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          domain: '', // Will be looked up server-side
+      const { createClient } = await import('@/lib/supabase/client');
+      const supabase = createClient();
+      const { error } = await supabase
+        .from('partners')
+        .update({
           draft_subject: subject,
           draft_body: body,
           draft_status: 'created',
           status: 'draft_ready',
-        }),
-      });
-      // Use direct update via the partner ID
-      const updateRes = await fetch(`/api/pipeline/send`, {
-        method: 'OPTIONS', // Just checking — we'll use a simpler approach
-      });
+          last_updated_at: new Date().toISOString(),
+        })
+        .eq('id', partnerId);
+      if (error) throw error;
       setMessage('Draft saved');
     } catch {
       setMessage('Failed to save draft');
