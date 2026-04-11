@@ -6,7 +6,7 @@ import { TOOL_DEFINITIONS, executeTool } from '@/lib/agent/tools';
 import { buildMessages, buildFullSystemPrompt } from '@/lib/agent/context';
 import type { AgentAction } from '@/lib/agent/context';
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 // OpenRouter as primary provider (avoids Anthropic rate limits),
 // falls back to direct Anthropic if OPENROUTER_API_KEY is not set
@@ -37,7 +37,7 @@ async function callLLM(params: {
     ...params,
   });
 }
-const TIMEOUT_MS = 24000; // 6s safety margin before Vercel's 30s hard kill
+const TIMEOUT_MS = 55000; // 5s safety margin before Vercel's 60s limit (Pro plan)
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
