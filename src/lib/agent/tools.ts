@@ -231,12 +231,26 @@ export async function executeTool(
       }
 
       case 'save_contact': {
-        const { data: partner } = await context.db
+        // Try exact match first, then fuzzy domain matching
+        const domain = (input.partner_domain as string || '').replace(/^www\./, '');
+        let { data: partner } = await context.db
           .from('partners')
           .select('id, email_confidence')
           .eq('organisation_id', context.organisationId)
-          .eq('domain', input.partner_domain)
+          .eq('domain', domain)
           .single();
+
+        // Fallback: try with www. prefix or ilike
+        if (!partner) {
+          const { data: fuzzy } = await context.db
+            .from('partners')
+            .select('id, email_confidence')
+            .eq('organisation_id', context.organisationId)
+            .or(`domain.eq.www.${domain},domain.ilike.%${domain}%`)
+            .limit(1)
+            .single();
+          partner = fuzzy;
+        }
 
         if (!partner) return { error: `Partner not found for domain: ${input.partner_domain}` };
 
@@ -274,12 +288,24 @@ export async function executeTool(
       }
 
       case 'save_draft': {
-        const { data: partner } = await context.db
+        const draftDomain = (input.partner_domain as string || '').replace(/^www\./, '');
+        let { data: partner } = await context.db
           .from('partners')
           .select('id')
           .eq('organisation_id', context.organisationId)
-          .eq('domain', input.partner_domain)
+          .eq('domain', draftDomain)
           .single();
+
+        if (!partner) {
+          const { data: fuzzy } = await context.db
+            .from('partners')
+            .select('id')
+            .eq('organisation_id', context.organisationId)
+            .or(`domain.eq.www.${draftDomain},domain.ilike.%${draftDomain}%`)
+            .limit(1)
+            .single();
+          partner = fuzzy;
+        }
 
         if (!partner) return { error: `Partner not found for domain: ${input.partner_domain}` };
 

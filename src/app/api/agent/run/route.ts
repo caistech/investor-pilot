@@ -356,10 +356,11 @@ export async function POST(request: Request) {
             const result = await executeTool(block.name, block.input as Record<string, unknown>, toolContext);
 
             // Track counters
-            if (block.name === 'save_partner' && (result as Record<string, unknown>).status === 'created') {
+            const resultStatus = (result as Record<string, unknown>).status as string;
+            if (block.name === 'save_partner' && (resultStatus === 'created' || resultStatus === 'updated')) {
               partnersAdded++;
             }
-            if (block.name === 'save_contact' && (result as Record<string, unknown>).status === 'updated') {
+            if (block.name === 'save_contact' && (resultStatus === 'updated' || resultStatus === 'skipped')) {
               contactsFound++;
             }
             if (block.name === 'save_draft') {
