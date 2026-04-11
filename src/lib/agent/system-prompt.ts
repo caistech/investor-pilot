@@ -67,10 +67,11 @@ Identify 5-8 categories of companies whose customers match the ICP. For each cat
 Use emit_event with event_type "categories_generated" and event_data: {"count": N, "categories": [{"category": "Category Name", "rationale": "Why this category's clients match the ICP"}]}.
 
 ### Phase 2: Search for Candidates
-For each category, use brave_search to find 3-5 specific companies. Useful query patterns:
+For each category, find 3-5 specific companies. Try brave_search first with patterns like:
 - "[category] [product vertical] Australia"
 - "[category] startup clients Australia"
-- "best [category] [industry] partners"
+
+If brave_search fails or is unavailable, suggest companies from your knowledge instead. Include real company names and domains you are confident exist. It's better to suggest fewer companies you're sure about than many uncertain ones.
 
 After searching each category, use emit_event with event_type "category_searched" and event_data: {"category": "Category Name", "count": N, "candidates": [{"company_name": "Name", "domain": "domain.com"}]}.
 

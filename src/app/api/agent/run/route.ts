@@ -225,11 +225,20 @@ export async function POST(request: Request) {
               break;
             } catch (apiErr) {
               const status = (apiErr as { status?: number }).status;
-              if ((status === 529 || status === 503) && attempt < 2 && Date.now() - startTime < TIMEOUT_MS - 5000) {
-                const delay = (attempt + 1) * 2000;
-                emit({ type: 'event', event_type: 'stage_progress', event_data: { message: `API busy, retrying in ${delay / 1000}s...` } });
+              const retryable = [429, 403, 529, 503].includes(status || 0);
+              if (retryable && attempt < 2 && Date.now() - startTime < TIMEOUT_MS - 10000) {
+                const delay = (attempt + 1) * 3000;
+                const msg = status === 403 ? 'Rate limited, waiting...' : `API busy, retrying in ${delay / 1000}s...`;
+                emit({ type: 'event', event_type: 'stage_progress', event_data: { message: msg } });
                 await new Promise((r) => setTimeout(r, delay));
                 continue;
+              }
+              // On non-retryable or exhausted retries, emit continue to auto-resume later
+              if (retryable) {
+                emit({ type: 'event', event_type: 'agent_error', event_data: { error: `Rate limited (${status}). Will auto-resume.` } });
+                emit({ type: 'continue', message: 'Rate limited, continuing in next chunk...' });
+                controller.close();
+                return;
               }
               throw apiErr;
             }
@@ -245,10 +254,29 @@ export async function POST(request: Request) {
           );
 
           if (response.stop_reason === 'end_turn' && toolUseBlocks.length === 0) {
-            // Claude is done — extract any text response
+            // Claude thinks it's done — but check if it actually completed all phases
             const textBlock = response.content.find(
               (b): b is Anthropic.TextBlock => b.type === 'text'
             );
+
+            // If no drafts created yet and partners exist, the agent stopped early.
+            // Send it back with a nudge to continue.
+            if (draftsCreated === 0 && partnersAdded > 0) {
+              if (textBlock) {
+                emit({ type: 'agent_message', content: textBlock.text });
+              }
+              // Inject a continuation message and loop again
+              currentMessages.push({
+                role: 'assistant',
+                content: response.content,
+              });
+              currentMessages.push({
+                role: 'user',
+                content: 'You have not completed all phases yet. You scored partners but did not find contacts, select motions, or draft emails. Continue from Phase 5 (Research) now. Do NOT end your turn until you have completed Phase 8 (Draft Outreach) for the top partners with verified contacts.',
+              });
+              continue;
+            }
+
             if (textBlock) {
               emit({ type: 'agent_message', content: textBlock.text });
             }
