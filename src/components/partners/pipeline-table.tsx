@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { CompanyLogo } from '@/components/company-logo';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus } from '@/lib/types';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Search, X } from 'lucide-react';
 
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
@@ -28,6 +28,19 @@ function matchesFilter(status: string, filter: FilterKey): boolean {
   return false;
 }
 
+function matchesSearch(partner: Partner, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    partner.company_name.toLowerCase().includes(q) ||
+    (partner.domain || '').toLowerCase().includes(q) ||
+    (partner.category || '').toLowerCase().includes(q) ||
+    (partner.contact_name || '').toLowerCase().includes(q) ||
+    (partner.contact_email || '').toLowerCase().includes(q) ||
+    (partner.partner_type || '').toLowerCase().includes(q)
+  );
+}
+
 export function PipelineTable({
   partners,
   organisationId,
@@ -38,11 +51,17 @@ export function PipelineTable({
   productId: string;
 }) {
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [search, setSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState<string>('all');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
 
-  const filtered = partners.filter(p => matchesFilter(p.status, filter));
+  const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
+  const filtered = partners
+    .filter(p => matchesFilter(p.status, filter))
+    .filter(p => matchesSearch(p, search))
+    .filter(p => typeFilter === 'all' || p.partner_type === typeFilter);
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   function toggleSelect(id: string) {
@@ -107,7 +126,35 @@ export function PipelineTable({
 
   return (
     <div>
-      {/* Filter tabs */}
+      {/* Search + type filter */}
+      <div className="flex gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search partners, contacts, categories..."
+            className="w-full bg-dark-800 border border-dark-700 rounded-lg pl-9 pr-8 py-2 text-sm focus:border-corp-green-500 focus:outline-none"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-dark-500 hover:text-white">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
+        </div>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-dark-300 focus:border-corp-green-500 focus:outline-none"
+        >
+          {partnerTypes.map(t => (
+            <option key={t} value={t}>{t === 'all' ? 'All types' : t}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Status filter tabs */}
       <div className="flex gap-1 mb-4 border-b border-dark-700 pb-2">
         {FILTER_TABS.map(tab => (
           <button

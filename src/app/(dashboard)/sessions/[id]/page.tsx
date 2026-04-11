@@ -5,11 +5,133 @@ import { createClient } from '@/lib/supabase/client';
 import Link from 'next/link';
 import {
   ArrowLeft, CheckCircle, Circle, Loader2, AlertTriangle,
-  Search, Filter, BarChart3, Globe, UserSearch, Mail,
+  Search, Filter, BarChart3, Globe, UserSearch, Mail, Send,
   Target, FileText, Play, Pause, ChevronDown, ChevronRight,
-  XCircle, Trash2,
+  XCircle, Trash2, Edit3,
 } from 'lucide-react';
 import type { SessionMode } from '@/lib/types';
+
+function InlineDraftCard({
+  companyName, domain, contactName, contactEmail, initialSubject, initialBody,
+}: {
+  companyName: string; domain: string; contactName: string;
+  contactEmail: string; initialSubject: string; initialBody: string;
+}) {
+  const [subject, setSubject] = useState(initialSubject || '');
+  const [body, setBody] = useState(initialBody || '');
+  const [editing, setEditing] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [sent, setSent] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function handleSend() {
+    setSending(true);
+    setError(null);
+    try {
+      // Look up the partner by domain to get the ID
+      const supabase = (await import('@/lib/supabase/client')).createClient();
+      const { data: partner } = await supabase
+        .from('partners')
+        .select('id, organisation_id')
+        .ilike('domain', `%${domain}%`)
+        .limit(1)
+        .single();
+
+      if (!partner) {
+        setError('Partner not found in database');
+        return;
+      }
+
+      const res = await fetch('/api/pipeline/send', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_id: partner.id, organisation_id: partner.organisation_id }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Send failed');
+      } else {
+        setSent(true);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (sent) {
+    return (
+      <div className="text-sm">
+        <div className="flex items-center gap-2 text-corp-green-400 mb-2">
+          <CheckCircle className="w-4 h-4" />
+          <span className="font-medium">Sent to {contactName} at {companyName}</span>
+        </div>
+        <div className="text-dark-500">Subject: {subject}</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="text-sm space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <span className="text-white font-medium">{companyName}</span>
+          <span className="text-dark-400 ml-2">→ {contactName}</span>
+          <span className="text-dark-500 ml-2">{contactEmail}</span>
+        </div>
+        <button onClick={() => setEditing(!editing)} className="text-dark-400 hover:text-white">
+          <Edit3 className="w-3.5 h-3.5" />
+        </button>
+      </div>
+
+      {editing ? (
+        <div className="space-y-2">
+          <input
+            type="text"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            className="w-full bg-dark-900 border border-dark-600 rounded px-3 py-1.5 text-sm focus:border-corp-green-500 focus:outline-none"
+          />
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            rows={6}
+            className="w-full bg-dark-900 border border-dark-600 rounded px-3 py-2 text-sm focus:border-corp-green-500 focus:outline-none resize-y"
+          />
+        </div>
+      ) : (
+        <div className="bg-dark-800 rounded-lg p-3">
+          <div className="text-dark-400 text-xs mb-1">Subject: <span className="text-white">{subject}</span></div>
+          <div className="whitespace-pre-wrap text-dark-300 text-xs mt-2">{body}</div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={handleSend}
+          disabled={sending || !contactEmail}
+          className="btn-primary text-xs py-1.5 px-3 flex items-center gap-1.5"
+        >
+          {sending ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+          Approve & Send
+        </button>
+        {!editing && (
+          <button onClick={() => setEditing(true)} className="btn-secondary text-xs py-1.5 px-3">
+            Edit
+          </button>
+        )}
+        {editing && (
+          <button onClick={() => setEditing(false)} className="btn-secondary text-xs py-1.5 px-3">
+            Done Editing
+          </button>
+        )}
+      </div>
+
+      {error && <div className="text-red-400 text-xs">{error}</div>}
+    </div>
+  );
+}
 
 interface SessionData {
   id: string;
@@ -339,10 +461,14 @@ export default function SessionDetailPage({ params }: { params: { id: string } }
 
       case 'draft_created':
         return (
-          <div className="text-sm">
-            <span className="text-dark-300">Subject: </span>
-            <span className="text-white">{d.subject as string}</span>
-          </div>
+          <InlineDraftCard
+            companyName={d.company_name as string}
+            domain={d.domain as string}
+            contactName={d.contact_name as string}
+            contactEmail={d.contact_email as string}
+            initialSubject={d.subject as string}
+            initialBody={d.body as string}
+          />
         );
 
       case 'stage_error':

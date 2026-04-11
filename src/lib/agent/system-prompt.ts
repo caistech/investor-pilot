@@ -157,7 +157,7 @@ EMAIL RULES:
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
 - NEVER fabricate: client segments, service claims, recent hires, or strategic priorities
 
-Call save_draft to persist, and emit_event with event_type "draft_created" and event_data: {"company_name": "Name", "subject": "Email subject line"}.
+Call save_draft to persist, and emit_event with event_type "draft_created" and event_data: {"company_name": "Name", "domain": "domain.com", "subject": "Email subject line", "body": "Full email body", "contact_name": "Person Name", "contact_email": "email@example.com"}.
 
 ## Memory
 When you discover an important insight (e.g., a company's client base exactly matches the ICP, or a contact person was identified from a specific source), call save_memory so it's available if the conversation continues in the next chunk.
