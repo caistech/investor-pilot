@@ -151,8 +151,10 @@ BEFORE DRAFTING, check:
 EMAIL RULES:
 - Subject: specific and benefit-oriented, not "Partnership Opportunity"
 - Opening: one sentence grounded in observed evidence from research
-- Body: lead with what this means for THEIR clients
-- Body MUST include a link to the product website: ${productUrl || '[product URL not available]'}
+- Body: lead with what this means for THEIR clients${productUrl ? `
+- MANDATORY: The email body MUST contain this exact product URL as a clickable link: ${productUrl}
+  Place it naturally in the body where you mention the product. Example: "...our R&D Tax Tracker (${productUrl}) automates..."
+  DO NOT omit this link. Every draft without this link will be rejected.` : ''}
 - Ask: the specific partnership motion, one low-commitment next step
 - Length: under 150 words
 - Tone: peer-to-peer, founder to senior BD lead

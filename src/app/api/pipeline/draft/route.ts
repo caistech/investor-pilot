@@ -33,12 +33,12 @@ EMAIL RULES:
 - Subject: specific and benefit-oriented
 - Opening: one sentence grounded in what their clients need
 - Body: lead with what this means for THEIR clients, not for us
+- MANDATORY: The email body MUST contain the product website URL (provided in the product context) as a clickable link. Place it naturally where you mention the product. Every draft without this link will be rejected.
 - Ask: one low-commitment next step
 - Length: under 150 words
 - Tone: peer-to-peer, founder to senior BD lead
 - Signature: Dennis | Corporate AI Solutions | corporateaisolutions.com
 - After the signature, ALWAYS add: PS: See our other products here: https://corporate-ai-solutions.vercel.app/marketplace
-- The email body MUST include the product website link (provided in the product context)
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
 - NEVER fabricate specific claims about their company`;
 

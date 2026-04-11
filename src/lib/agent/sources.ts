@@ -42,15 +42,18 @@ export async function getProductSourceContent(productId: string): Promise<string
 export async function getProductWebsiteUrl(productId: string): Promise<string | null> {
   const db = createServiceClient();
 
+  // Try completed URL sources first
   const { data } = await db
     .from('product_sources')
-    .select('url')
+    .select('url, title')
     .eq('product_id', productId)
     .eq('source_type', 'url')
-    .eq('processing_status', 'completed')
     .order('created_at', { ascending: true })
     .limit(1)
     .single();
 
-  return data?.url || null;
+  // url field is primary, fall back to title if it looks like a URL
+  if (data?.url) return data.url;
+  if (data?.title?.startsWith('http')) return data.title;
+  return null;
 }
