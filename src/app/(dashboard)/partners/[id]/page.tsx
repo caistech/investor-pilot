@@ -167,7 +167,7 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
               {[
                 { label: 'Audience Overlap', notes: p.audience_overlap_notes, score: p.audience_overlap_score },
                 { label: 'Complementarity', notes: p.complementarity_notes, score: p.complementarity_score },
-                { label: 'Partner Readiness', notes: p.partner_readiness_notes, score: p.partner_readiness_score },
+                { label: 'Regulatory Standing', notes: p.partner_readiness_notes, score: p.partner_readiness_score },
                 { label: 'Reachability', notes: p.reachability_notes, score: p.reachability_score },
                 { label: 'Strategic Leverage', notes: p.strategic_leverage_notes, score: p.strategic_leverage_score },
               ].map((dim) => (
@@ -210,7 +210,7 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
 
           {p.partnership_motion && (
             <div className="card">
-              <h4 className="mb-2">Partnership Motion</h4>
+              <h4 className="mb-2">Engagement Strategy</h4>
               <p className="text-dark-400 text-sm">{p.partnership_motion}</p>
             </div>
           )}

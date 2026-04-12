@@ -9,7 +9,7 @@ const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 async function fetchPageContent(url: string): Promise<string> {
   try {
     const res = await fetch(url, {
-      headers: { 'User-Agent': 'PartnerPilot/1.0 (product-profile-extractor)' },
+      headers: { 'User-Agent': 'InvestorPilot/1.0 (product-profile-extractor)' },
       signal: AbortSignal.timeout(10000),
     });
     if (!res.ok) return `[Failed to fetch: ${res.status}]`;

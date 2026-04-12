@@ -1,12 +1,12 @@
-# PartnerPilot — Project Status
+# InvestorPilot — Project Status
 
-Last updated: 2026-04-11 22:30 AEST
+Last updated: 2026-04-12 AEST
 
 ## Current State
 
-107 scored partners in DB. Agent sessions can run through categories → search → score.
-Contact finding and drafting work but the agent sometimes stops early. Pipeline API
-routes exist as a manual fallback.
+Forked from PartnerPilot. Rebranded for investor sourcing (F2K Housing Development Fund).
+All migrations applied to new Supabase instance. Vercel project linked. Auth configured.
+Scoring dimensions updated for investor/advisor context.
 
 ### What Works
 - Partner discovery: categories, search, screening, scoring (via agent sessions)
@@ -59,8 +59,8 @@ routes exist as a manual fallback.
 - `supabase/migrations/004_outreach_log.sql` — outreach tracking table + RLS
 
 ## Environment
-- Vercel: partner-pilot-theta.vercel.app (Pro plan for 60s functions)
-- Supabase: rlwexqzoiqtbcvwqtqqf (ap-southeast-2)
+- Vercel: investorpilot.vercel.app (corporate-ai-solutions org)
+- Supabase: azelomanmlywwzbpkksy (Seoul)
 - Env vars: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, BRAVE_SEARCH_API_KEY,
   HUNTER_API_KEY, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL,
   NEXT_PUBLIC_SUPABASE_ANON_KEY

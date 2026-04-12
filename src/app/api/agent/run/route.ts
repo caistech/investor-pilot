@@ -16,8 +16,8 @@ const client = useOpenRouter
       apiKey: process.env.OPENROUTER_API_KEY!,
       baseURL: 'https://openrouter.ai/api',
       defaultHeaders: {
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
-        'X-Title': 'PartnerPilot',
+        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
+        'X-Title': 'InvestorPilot',
       },
     })
   : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
@@ -209,7 +209,7 @@ export async function POST(request: Request) {
 
             // Ensure starts with user
             if (clean.length === 0 || clean[0].role !== 'user') {
-              clean.unshift({ role: 'user', content: 'Continue the partnership discovery process.' });
+              clean.unshift({ role: 'user', content: 'Continue the investor discovery process.' });
             }
 
             currentMessages.length = 0;

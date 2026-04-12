@@ -56,7 +56,7 @@ export default function PlaybookPage() {
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <Link href="/" className="flex items-center gap-2">
             <Zap className="w-6 h-6 text-corp-green-500" />
-            <span className="text-xl font-bold">PartnerPilot</span>
+            <span className="text-xl font-bold">InvestorPilot</span>
           </Link>
           <Link href="/signup" className="btn-primary">Get Started</Link>
         </div>
@@ -95,7 +95,7 @@ export default function PlaybookPage() {
                     </div>
                     <div>
                       <div className="text-corp-green-500 text-xs mb-1 flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" /> PartnerPilot does:
+                        <CheckCircle className="w-3 h-3" /> InvestorPilot does:
                       </div>
                       <p className="text-white text-sm">{step.product}</p>
                     </div>

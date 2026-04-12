@@ -8,7 +8,7 @@ export default function LandingPage() {
         <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Zap className="w-6 h-6 text-corp-green-500" />
-            <span className="text-xl font-bold">PartnerPilot</span>
+            <span className="text-xl font-bold">InvestorPilot</span>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/login" className="nav-link">Sign in</Link>
@@ -18,14 +18,14 @@ export default function LandingPage() {
       </header>
 
       <section className="max-w-6xl mx-auto px-6 py-24 text-center">
-        <div className="badge-green mb-6 mx-auto">AI-Powered Partnerships</div>
+        <div className="badge-green mb-6 mx-auto">AI-Powered Investor Discovery</div>
         <h1 className="text-5xl md:text-6xl font-bold tracking-tight mb-6">
-          Find channel partners<br />
+          Find investors &amp; advisors<br />
           <span className="text-corp-green-400">with an AI agent</span>
         </h1>
         <p className="text-dark-300 text-xl max-w-2xl mx-auto mb-8">
-          PartnerPilot discovers, scores, and prepares outreach for your ideal
-          channel partners. Paste your ICP, watch the agent work.
+          InvestorPilot discovers, scores, and prepares outreach for financial
+          advisors and wealth managers who serve sophisticated investors.
         </p>
         <div className="flex items-center justify-center gap-4">
           <Link href="/signup" className="btn-primary text-lg px-8 py-3">Start Free Trial</Link>
@@ -37,10 +37,10 @@ export default function LandingPage() {
       <section className="max-w-6xl mx-auto px-6 py-16">
         <div className="grid md:grid-cols-3 gap-8">
           {[
-            { icon: Search, title: 'AI Discovery', desc: 'Searches the web for partner candidates matching your ICP across 5-8 categories. Scores each on 5 evidence-based dimensions.' },
-            { icon: Users, title: 'Contact Enrichment', desc: 'Finds the right person to contact based on partnership motion. Enriches with verified email via Hunter.' },
-            { icon: Mail, title: 'Draft Outreach', desc: 'Generates personalised, evidence-grounded outreach emails. Anti-hallucination rules ensure nothing is fabricated.' },
-            { icon: BarChart3, title: '5-Dimension Scoring', desc: 'Audience overlap, complementarity, partner readiness, reachability, and strategic leverage. Weighted and ranked.' },
+            { icon: Search, title: 'AI Discovery', desc: 'Searches the web for investor prospects across 5-8 categories. Scores each on 5 evidence-based dimensions.' },
+            { icon: Users, title: 'Contact Enrichment', desc: 'Finds the right person to contact at each advisory firm. Enriches with verified email via Hunter.' },
+            { icon: Mail, title: 'Draft Outreach', desc: 'Generates personalised, evidence-grounded outreach emails with compliance disclaimers. Anti-hallucination rules ensure nothing is fabricated.' },
+            { icon: BarChart3, title: '5-Dimension Scoring', desc: 'Advisor reach, client profile fit, regulatory standing, geographic relevance, and engagement likelihood. Weighted and ranked.' },
             { icon: Shield, title: 'Evidence Trail', desc: 'Every claim backed by evidence. See exactly what the agent found, what it inferred, and where the data came from.' },
             { icon: Zap, title: 'Approval Gates', desc: 'The agent never sends anything automatically. You approve categories, candidates, contacts, and drafts at every stage.' },
           ].map((f) => (
@@ -61,7 +61,7 @@ export default function LandingPage() {
               Guillermo Flor&apos;s Partnerships Agent Playbook
             </a>
           </p>
-          <p className="text-dark-500 mt-2">The playbook, productised. Every step of the methodology, built into a SaaS you can run in 30 minutes.</p>
+          <p className="text-dark-500 mt-2">The playbook, adapted for investor sourcing. Every step of the methodology, built into a SaaS you can run in 30 minutes.</p>
         </div>
       </section>
 

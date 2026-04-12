@@ -71,8 +71,8 @@ export default function DiscoverPage() {
   return (
     <div>
       <div className="mb-8">
-        <h1>Discover Partners</h1>
-        <p className="text-dark-400 mt-1">Find and score new potential partners</p>
+        <h1>Discover Prospects</h1>
+        <p className="text-dark-400 mt-1">Find and score new investor prospects</p>
       </div>
 
       {/* Mode toggle */}
@@ -141,7 +141,7 @@ export default function DiscoverPage() {
           ) : (
             <>
               <Search className="w-4 h-4" />
-              Discover Partners
+              Discover Prospects
             </>
           )}
         </button>
@@ -204,7 +204,7 @@ export default function DiscoverPage() {
               href="/partners"
               className="btn-primary mt-6 inline-flex items-center gap-2"
             >
-              View in Partners <ArrowRight className="w-4 h-4" />
+              View in Prospects <ArrowRight className="w-4 h-4" />
             </Link>
           )}
         </div>
@@ -214,7 +214,7 @@ export default function DiscoverPage() {
       {!results && !loading && (
         <div className="card text-center py-12 text-dark-500">
           <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
-          <p>Search for partner companies or paste a list of domains to get started.</p>
+          <p>Search for investor prospects or paste a list of domains to get started.</p>
           <p className="text-xs mt-2">Each company will be scored on audience overlap, complementarity, readiness, reachability, and leverage.</p>
         </div>
       )}

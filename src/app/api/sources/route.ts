@@ -3,7 +3,7 @@ import { NextResponse } from 'next/server';
 
 async function extractTextFromUrl(url: string): Promise<{ title: string; content: string }> {
   const res = await fetch(url, {
-    headers: { 'User-Agent': 'PartnerPilot/1.0 (knowledge-base-extractor)' },
+    headers: { 'User-Agent': 'InvestorPilot/1.0 (knowledge-base-extractor)' },
     signal: AbortSignal.timeout(15000),
   });
 

@@ -1,10 +1,10 @@
-# PartnerPilot — Hybrid Stage Pipeline
+# InvestorPilot — Hybrid Stage Pipeline
 
 ## Architecture
 
-PartnerPilot is a Next.js 14 app on Vercel with Supabase (auth + DB).
-It helps founders find channel partners, enrich contacts, draft outreach,
-send emails, and track replies.
+InvestorPilot is a Next.js 14 app on Vercel with Supabase (auth + DB).
+It helps founders find investor prospects (financial advisors, wealth managers,
+SMSF administrators), enrich contacts, draft outreach, send emails, and track replies.
 
 The pipeline is stage-by-stage with explicit user action between each step.
 No agentic loops. No SSE streaming. No conversation state management.
@@ -78,19 +78,27 @@ One-shot calls only — no tool_use, no agentic loops, no message windows.
 
 ## Product Context
 
-PartnerPilot is built for R&D Tax Tracker by Corporate AI Solutions.
-R&D Tax Tracker helps Australian businesses track R&D work effort
-and expenses for ATO R&D Tax Incentive compliance.
+InvestorPilot is built for F2K Housing Development Fund by Corporate AI Solutions.
+F2K is a tokenized fractional real estate investment product targeting
+sophisticated investors (s708(8) Corporations Act) with $50K+ minimums.
 
-ICP: 5-200 employee Australian tech/manufacturing/biotech companies.
-Buyer: CFO, Finance Manager, or Founder.
+ICP: Financial advisors, wealth managers, SMSF advisors, and family offices
+who serve sophisticated/wholesale investors interested in alternative real estate investments.
+Buyer: Principal advisor, investment director, or managing director.
 
 ## Scoring Formula
 
-Weighted score = overlap*0.3 + complementarity*0.25 + readiness*0.2 + reachability*0.15 + leverage*0.1
+Weighted score = advisor_reach*0.3 + client_fit*0.25 + regulatory*0.15 + geographic*0.15 + engagement*0.15
 
 Each dimension is 1-10, scored by Claude one-shot call during discovery.
 The weighted formula is computed in JS (deterministic).
+
+Dimensions:
+- Advisor Reach (30%): Size of client base, AUM under advice
+- Client Profile Fit (25%): Do their clients match sophisticated investor criteria
+- Regulatory Standing (15%): AFSL holder, clean regulatory record
+- Geographic Relevance (15%): Australian market presence, state coverage
+- Engagement Likelihood (15%): Openness to new product referrals, alternative investment history
 
 ## Skill routing
 

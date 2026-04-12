@@ -9,8 +9,8 @@ const client = new Anthropic({
   ...(process.env.OPENROUTER_API_KEY ? {
     baseURL: 'https://openrouter.ai/api',
     defaultHeaders: {
-      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
-      'X-Title': 'PartnerPilot',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
+      'X-Title': 'InvestorPilot',
     },
   } : {}),
 });
@@ -19,7 +19,7 @@ const MODEL = process.env.OPENROUTER_API_KEY
   ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
   : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
 
-const SCORING_PROMPT = `You are a partnership scoring analyst. Given a company description from search results, score it on 5 dimensions for partnership potential with the product described below.
+const SCORING_PROMPT = `You are an investor prospect scoring analyst. Given a company description from search results, score it on 5 dimensions for investor distribution potential with the product described below.
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
@@ -34,16 +34,16 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "strategic_leverage_score": <1-10>,
   "strategic_leverage_notes": "<one sentence>",
   "confidence_score": "<normal or low-confidence>",
-  "category": "<partner category>",
+  "category": "<prospect category>",
   "partner_type": "<referral or integration or reseller>"
 }
 
 Scoring rules:
-- AUDIENCE OVERLAP (weight 30%): How precisely do their clients match the ICP?
-- COMPLEMENTARITY (weight 25%): Does referring the product make their service better?
-- PARTNER READINESS (weight 20%): Evidence of partnership programs? Tier 1 (8-10): dedicated partner page. Tier 2 (5-7): "we recommend" language. Tier 3 (2-4): generic. No evidence (0-1).
-- REACHABILITY (weight 15%): Can we find a named contact in a relevant role?
-- STRATEGIC LEVERAGE (weight 10%): Distribution power into the ICP?
+- ADVISOR REACH (weight 30%): Size of client base, assets under management/advice?
+- CLIENT PROFILE FIT (weight 25%): Do their clients match sophisticated/wholesale investor criteria?
+- REGULATORY STANDING (weight 15%): AFSL holder, clean regulatory record? Tier 1 (8-10): AFSL holder, compliance team. Tier 2 (5-7): authorised representative. Tier 3 (2-4): limited regulatory info. No evidence (0-1).
+- GEOGRAPHIC RELEVANCE (weight 15%): Australian market presence, state coverage?
+- ENGAGEMENT LIKELIHOOD (weight 15%): Openness to new product referrals, history of alternative investments?
 
 If a dimension relies more on inference than evidence, cap at 4/10 and set confidence_score to "low-confidence".`;
 

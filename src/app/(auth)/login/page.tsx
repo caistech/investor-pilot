@@ -46,7 +46,7 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-dark-950 px-4">
       <div className="card max-w-md w-full">
         <h2 className="text-center mb-2">Welcome back</h2>
-        <p className="text-dark-400 text-center mb-8">Sign in to PartnerPilot</p>
+        <p className="text-dark-400 text-center mb-8">Sign in to InvestorPilot</p>
 
         <form onSubmit={handleLogin} className="space-y-4">
           <div>

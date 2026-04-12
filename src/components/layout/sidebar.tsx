@@ -10,7 +10,7 @@ import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/partners', label: 'Partners', icon: Users },
+  { href: '/partners', label: 'Prospects', icon: Users },
   { href: '/sessions', label: 'Sessions', icon: MessageSquare },
   { href: '/outreach', label: 'Outreach', icon: Send },
   { href: '/discover', label: 'Discover', icon: Search },
@@ -32,7 +32,7 @@ export default function Sidebar() {
       <div className="p-6 border-b border-dark-700">
         <Link href="/dashboard" className="flex items-center gap-2">
           <Zap className="w-6 h-6 text-corp-green-500" />
-          <span className="text-xl font-bold">PartnerPilot</span>
+          <span className="text-xl font-bold">InvestorPilot</span>
         </Link>
         <p className="text-dark-500 text-xs mt-1">by Corporate AI Solutions</p>
       </div>

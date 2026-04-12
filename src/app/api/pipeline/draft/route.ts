@@ -9,8 +9,8 @@ const client = new Anthropic({
   ...(process.env.OPENROUTER_API_KEY ? {
     baseURL: 'https://openrouter.ai/api',
     defaultHeaders: {
-      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://partner-pilot-theta.vercel.app',
-      'X-Title': 'PartnerPilot',
+      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
+      'X-Title': 'InvestorPilot',
     },
   } : {}),
 });
@@ -19,28 +19,28 @@ const MODEL = process.env.OPENROUTER_API_KEY
   ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
   : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
 
-const DRAFT_PROMPT = `You are an outreach email writer for B2B SaaS partnerships. Write a personalized cold outreach email.
+const DRAFT_PROMPT = `You are an outreach email writer for investor sourcing. Write a personalized cold outreach email to a financial advisor or wealth manager about an investment opportunity.
 
 Return ONLY a JSON object (no markdown, no explanation):
 {
-  "subject": "<specific, benefit-oriented subject line — not 'Partnership Opportunity'>",
+  "subject": "<specific, benefit-oriented subject line — framed as investment opportunity brief>",
   "body": "<email body, under 150 words>",
-  "partnership_motion": "<referral arrangement | integration discovery | co-marketing test | exploratory call>",
+  "partnership_motion": "<investment briefing | referral arrangement | distribution partnership | introductory call>",
   "selected_gtm_angle": "<one sentence describing the angle>"
 }
 
 EMAIL RULES:
-- Subject: specific and benefit-oriented
+- Subject: specific and benefit-oriented, framed as investment opportunity
 - Opening: one sentence grounded in what their clients need
-- Body: lead with what this means for THEIR clients, not for us
+- Body: lead with the investment thesis and why it's relevant to THEIR clients
 - MANDATORY: The email body MUST contain the product website URL (provided in the product context) as a clickable link. Place it naturally where you mention the product. Every draft without this link will be rejected.
 - Ask: one low-commitment next step
 - Length: under 150 words
-- Tone: peer-to-peer, founder to senior BD lead
+- Tone: professional, founder to senior financial advisor
 - Signature: Dennis | Corporate AI Solutions | corporateaisolutions.com
 - After the signature, ALWAYS add: PS: See our other products here: https://corporate-ai-solutions.vercel.app/marketplace
 - NEVER use: "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity"
-- NEVER fabricate specific claims about their company`;
+- NEVER fabricate specific claims about their company or AUM`;
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();

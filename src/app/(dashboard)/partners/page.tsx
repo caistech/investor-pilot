@@ -28,8 +28,8 @@ export default async function PartnersPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1>Partners</h1>
-          <p className="text-dark-400 mt-1">{partners?.length || 0} partners in pipeline</p>
+          <h1>Prospects</h1>
+          <p className="text-dark-400 mt-1">{partners?.length || 0} prospects in pipeline</p>
         </div>
         <Link href="/sessions" className="btn-primary">
           Discover More
@@ -44,8 +44,8 @@ export default async function PartnersPage() {
         />
       ) : (
         <div className="card text-center py-16">
-          <p className="text-dark-400 text-lg">No partners discovered yet</p>
-          <p className="text-dark-500 mt-2">Start a session to discover and score potential partners.</p>
+          <p className="text-dark-400 text-lg">No prospects discovered yet</p>
+          <p className="text-dark-500 mt-2">Start a session to discover and score potential investor prospects.</p>
           <Link href="/sessions" className="btn-primary inline-block mt-4">Start a Session</Link>
         </div>
       )}

@@ -15,7 +15,7 @@ export default async function DashboardPage() {
   if (!profile?.organisation_id) {
     return (
       <div className="text-center py-20">
-        <h2>Welcome to PartnerPilot</h2>
+        <h2>Welcome to InvestorPilot</h2>
         <p className="text-dark-400 mt-2">Setting up your organisation...</p>
       </div>
     );

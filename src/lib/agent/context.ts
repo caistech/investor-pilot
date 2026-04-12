@@ -19,7 +19,7 @@ export function buildMessages(
   if (action === 'start') {
     return [{
       role: 'user',
-      content: 'Begin the partnership discovery process. Start by generating categories of potential partner companies.',
+      content: 'Begin the investor discovery process. Start by generating categories of potential partner companies.',
     }];
   }
 
@@ -66,7 +66,7 @@ export function buildMessages(
   if (messages.length === 0) {
     return [{
       role: 'user',
-      content: 'Continue the partnership discovery process from where you left off.',
+      content: 'Continue the investor discovery process from where you left off.',
     }];
   }
 
@@ -121,7 +121,7 @@ export function buildMessages(
   if (messages.length === 0 || messages[0].role !== 'user') {
     messages.unshift({
       role: 'user',
-      content: 'Continue the partnership discovery process from where you left off.',
+      content: 'Continue the investor discovery process from where you left off.',
     });
   }
 

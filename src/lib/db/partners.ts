@@ -48,18 +48,18 @@ export interface DraftData {
  * Pure function, no API calls.
  */
 export function computeWeightedScore(scores: {
-  audience_overlap: number;
-  complementarity: number;
-  partner_readiness: number;
-  reachability: number;
-  strategic_leverage: number;
+  audience_overlap: number;   // Advisor Reach
+  complementarity: number;    // Client Profile Fit
+  partner_readiness: number;  // Regulatory Standing
+  reachability: number;       // Geographic Relevance
+  strategic_leverage: number; // Engagement Likelihood
 }): number {
   return +(
     scores.audience_overlap * 0.3 +
     scores.complementarity * 0.25 +
-    scores.partner_readiness * 0.2 +
+    scores.partner_readiness * 0.15 +
     scores.reachability * 0.15 +
-    scores.strategic_leverage * 0.1
+    scores.strategic_leverage * 0.15
   ).toFixed(2);
 }
 

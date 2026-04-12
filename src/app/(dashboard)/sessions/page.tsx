@@ -109,7 +109,7 @@ export default function SessionsPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1>Agent Sessions</h1>
-          <p className="text-dark-400 mt-1">AI-powered partnership discovery pipeline</p>
+          <p className="text-dark-400 mt-1">AI-powered investor discovery pipeline</p>
         </div>
         <button onClick={() => setShowNew(true)} className="btn-primary flex items-center gap-2">
           <Plus className="w-4 h-4" />
