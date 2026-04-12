@@ -53,6 +53,6 @@ DO $$ BEGIN
   IF NOT EXISTS (SELECT 1 FROM pg_trigger WHERE tgname = 'set_product_sources_updated_at') THEN
     CREATE TRIGGER set_product_sources_updated_at
       BEFORE UPDATE ON public.product_sources
-      FOR EACH ROW EXECUTE FUNCTION public.handle_updated_at();
+      FOR EACH ROW EXECUTE FUNCTION public.update_updated_at();
   END IF;
 END $$;
