@@ -19,7 +19,7 @@ export default function SignupPage() {
     setLoading(true);
     setError(null);
 
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -30,9 +30,18 @@ export default function SignupPage() {
 
     if (error) {
       setError(error.message);
-    } else {
-      setSuccess(true);
+      setLoading(false);
+      return;
     }
+
+    // If session exists, confirmations are disabled — redirect immediately
+    if (data.session) {
+      window.location.href = '/dashboard';
+      return;
+    }
+
+    // Otherwise show "check email" for confirmation flow
+    setSuccess(true);
     setLoading(false);
   }
 
@@ -54,7 +63,7 @@ export default function SignupPage() {
     <div className="min-h-screen flex items-center justify-center bg-dark-950 px-4">
       <div className="card max-w-md w-full">
         <h2 className="text-center mb-2">Create your account</h2>
-        <p className="text-dark-400 text-center mb-8">Start finding partners with AI</p>
+        <p className="text-dark-400 text-center mb-8">Start finding investor prospects with AI</p>
 
         <form onSubmit={handleSignup} className="space-y-4">
           <div>
