@@ -1,16 +1,58 @@
-import { createClient } from '@/lib/supabase/server';
+import { createClient, createServiceClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Plus, AlertCircle, Clock, Users, FileText, Zap } from 'lucide-react';
 import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
+import { slugify } from '@/lib/utils';
 
 export default async function DashboardPage() {
   const supabase = createClient();
 
-  const { data: profile } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return <div className="text-center py-20"><p className="text-dark-400">Not authenticated</p></div>;
+
+  let { data: profile } = await supabase
     .from('profiles')
     .select('organisation_id, full_name')
     .single();
+
+  // Auto-provision org + profile on first login (password signup skips /auth/callback)
+  if (!profile?.organisation_id) {
+    const admin = createServiceClient();
+    const meta = user.user_metadata;
+    const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
+
+    const { data: org } = await admin
+      .from('organisations')
+      .insert({
+        name: orgName,
+        slug: slugify(orgName) + '-' + Date.now().toString(36),
+        owner_id: user.id,
+      })
+      .select()
+      .single();
+
+    if (org) {
+      if (!profile) {
+        await admin.from('profiles').insert({
+          id: user.id,
+          organisation_id: org.id,
+          full_name: meta?.full_name || null,
+          email: user.email,
+          role: 'owner',
+        });
+      } else {
+        await admin.from('profiles').update({ organisation_id: org.id }).eq('id', user.id);
+      }
+
+      // Re-fetch profile
+      const { data: refreshed } = await supabase
+        .from('profiles')
+        .select('organisation_id, full_name')
+        .single();
+      profile = refreshed;
+    }
+  }
 
   if (!profile?.organisation_id) {
     return (
@@ -40,7 +82,7 @@ export default async function DashboardPage() {
   ]);
 
   const stats = [
-    { label: 'Partners Discovered', value: totalPartners || 0, icon: Users, color: 'text-corp-green-400' },
+    { label: 'Prospects Discovered', value: totalPartners || 0, icon: Users, color: 'text-corp-green-400' },
     { label: 'Contacts Enriched', value: contactsFound || 0, icon: Zap, color: 'text-blue-400' },
     { label: 'Drafts Ready', value: draftsReady || 0, icon: FileText, color: 'text-amber-400' },
     { label: 'Active Sessions', value: activeSessions || 0, icon: Clock, color: 'text-purple-400' },
@@ -101,7 +143,7 @@ export default async function DashboardPage() {
       {/* Recent Partners */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3>Recent Partners</h3>
+          <h3>Recent Prospects</h3>
           <Link href="/partners" className="text-corp-green-400 text-sm hover:text-corp-green-300">
             View all
           </Link>
@@ -133,7 +175,7 @@ export default async function DashboardPage() {
           </div>
         ) : (
           <div className="card text-center py-12">
-            <p className="text-dark-400">No partners yet. Start a session to discover partners.</p>
+            <p className="text-dark-400">No prospects yet. Start a session to discover investor prospects.</p>
             <Link href="/sessions" className="btn-primary inline-flex items-center gap-2 mt-4">
               <Plus className="w-4 h-4" />
               Start First Session
