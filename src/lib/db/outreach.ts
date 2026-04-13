@@ -35,7 +35,7 @@ export async function createOutreachEntry(
 export async function markOutreachSent(
   db: SupabaseClient,
   outreachId: string,
-  gmailData: { message_id?: string; thread_id?: string }
+  emailData: { message_id?: string; thread_id?: string }
 ): Promise<{ error?: string }> {
   const sentAt = new Date().toISOString();
   const followUpDue = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
@@ -45,8 +45,8 @@ export async function markOutreachSent(
     .update({
       status: 'sent',
       sent_at: sentAt,
-      gmail_message_id: gmailData.message_id || null,
-      gmail_thread_id: gmailData.thread_id || null,
+      gmail_message_id: emailData.message_id || null,
+      gmail_thread_id: emailData.thread_id || null,
       follow_up_due_at: followUpDue,
       updated_at: new Date().toISOString(),
     })

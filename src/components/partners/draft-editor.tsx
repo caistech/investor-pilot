@@ -165,7 +165,7 @@ export function DraftEditor({
             className="btn-primary flex items-center gap-2"
           >
             {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-            Queue to Send
+            Send Email
           </button>
         </div>
       </div>

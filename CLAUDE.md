@@ -26,7 +26,7 @@ Everything else is deterministic code.
 - `src/app/api/pipeline/discover/route.ts` — Brave Search + Claude one-shot scoring
 - `src/app/api/pipeline/enrich/route.ts` — batch Hunter.io email lookup
 - `src/app/api/pipeline/draft/route.ts` — Claude one-shot draft generation
-- `src/app/api/pipeline/send/route.ts` — create outreach entry, mark sent
+- `src/app/api/pipeline/send/route.ts` — send email via Resend, log in outreach_log
 - `src/app/api/pipeline/track/route.ts` — check status, mark replied/bounced
 
 ### DB Helpers
@@ -75,6 +75,8 @@ One-shot calls only — no tool_use, no agentic loops, no message windows.
 - `ANTHROPIC_API_KEY` — LLM fallback
 - `BRAVE_API_KEY` — web search
 - `HUNTER_API_KEY` — email enrichment
+- `RESEND_API_KEY` — email sending via Resend
+- `RESEND_FROM_EMAIL` — verified sender address (e.g. "InvestorPilot <outreach@yourdomain.com>")
 
 ## Product Context
 

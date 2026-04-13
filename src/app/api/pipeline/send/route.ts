@@ -1,15 +1,11 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { createOutreachEntry, markOutreachSent } from '@/lib/db/outreach';
+import { sendEmail } from '@/lib/email/resend';
 import { NextResponse } from 'next/server';
 
 /**
  * POST /api/pipeline/send
- * Creates a Gmail draft for a partner's outreach email.
- * The founder then sends it manually from Gmail.
- *
- * For now, this just records the outreach in outreach_log
- * and marks the partner as 'sent'. Gmail MCP integration
- * for creating drafts can be added later.
+ * Sends an outreach email via Resend and logs it in outreach_log.
  */
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -73,6 +69,25 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Already sent to this partner', outreach_id: existing.id }, { status: 409 });
   }
 
+  // Look up sender's email for reply-to
+  const { data: profile } = await db
+    .from('profiles')
+    .select('email')
+    .eq('id', user!.id)
+    .single();
+
+  // Send via Resend
+  const emailResult = await sendEmail({
+    to: finalEmail,
+    subject: finalSubject,
+    body: finalBody,
+    replyTo: profile?.email || undefined,
+  });
+
+  if (emailResult.error) {
+    return NextResponse.json({ error: `Failed to send email: ${emailResult.error}` }, { status: 500 });
+  }
+
   // Create outreach log entry
   const outreachResult = await createOutreachEntry(db, {
     organisation_id,
@@ -87,8 +102,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Failed to create outreach entry: ${outreachResult.error}` }, { status: 500 });
   }
 
-  // Mark as sent (in production, this would happen after Gmail MCP confirms draft creation)
-  const sentResult = await markOutreachSent(db, outreachResult.id!, {});
+  // Mark as sent with Resend message ID
+  const sentResult = await markOutreachSent(db, outreachResult.id!, {
+    message_id: emailResult.id,
+  });
 
   if (sentResult.error) {
     return NextResponse.json({ error: `Failed to mark as sent: ${sentResult.error}` }, { status: 500 });
@@ -103,6 +120,7 @@ export async function POST(request: Request) {
   return NextResponse.json({
     status: 'sent',
     outreach_id: outreachResult.id,
+    resend_id: emailResult.id,
     to: finalEmail,
     subject: finalSubject,
     company: partner.company_name,
