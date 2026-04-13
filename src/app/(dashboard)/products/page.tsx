@@ -39,6 +39,7 @@ export default function ProductsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [expandedProduct, setExpandedProduct] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [sourceMode, setSourceMode] = useState<'name' | 'url' | 'text'>('name');
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceText, setSourceText] = useState('');
@@ -124,8 +125,13 @@ export default function ProductsPage() {
   async function handleSave(e: React.FormEvent) {
     e.preventDefault();
     setLoading(true);
+    setError(null);
     const orgId = await getOrgId();
-    if (!orgId) { setLoading(false); return; }
+    if (!orgId) {
+      setError('Could not find your organisation. Try refreshing the page.');
+      setLoading(false);
+      return;
+    }
 
     if (editingId) {
       await supabase.from('products').update(form).eq('id', editingId);
@@ -369,6 +375,12 @@ export default function ProductsPage() {
                 </div>
               )}
             </>
+          )}
+
+          {error && (
+            <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">
+              {error}
+            </div>
           )}
 
           <div className="flex gap-3">
