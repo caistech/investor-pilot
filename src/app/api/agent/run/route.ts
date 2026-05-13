@@ -23,8 +23,8 @@ const client = useOpenRouter
   : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
 
 const MODEL = useOpenRouter
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
+  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
+  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 async function callLLM(params: {
   system: string;

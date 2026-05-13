@@ -50,14 +50,20 @@ export function PipelineTable({
   organisationId: string;
   productId: string;
 }) {
+  const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
+
+  // Default the type filter to 'lender' when lender rows exist in the
+  // dataset. This hides leftover v2 advisor-channel rows by default while
+  // keeping the dropdown switch available. If the org doesn't have any
+  // lender rows yet, fall back to 'all'.
+  const initialTypeFilter = partnerTypes.includes('lender') ? 'lender' : 'all';
+
   const [filter, setFilter] = useState<FilterKey>('all');
   const [search, setSearch] = useState('');
-  const [typeFilter, setTypeFilter] = useState<string>('all');
+  const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
-
-  const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
   const filtered = partners
     .filter(p => matchesFilter(p.status, filter))
     .filter(p => matchesSearch(p, search))

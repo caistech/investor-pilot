@@ -28,8 +28,8 @@ const client = new Anthropic({
 });
 
 const MODEL = process.env.OPENROUTER_API_KEY
-  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514'
-  : process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
+  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5'
+  : process.env.AGENT_MODEL || 'claude-sonnet-4-5';
 
 export const SCORING_PROMPT = `You are a lender prospect scoring analyst for F2K's senior debt placement. Given a person/firm description from search results, score them on 5 dimensions for fit as a direct lender into Australian property development debt facilities ($1M-$5M cheques, first-mortgage senior secured, 8-11% p.a. coupon).
 
@@ -192,12 +192,27 @@ export async function scoreAndUpsertCandidate(
     }
 
     const scores = JSON.parse(jsonMatch[0]);
+
+    // Hard cap for out_of_scope candidates. The prompt says "score 0-2
+    // across the board" but Claude frequently returns 3-5 anyway, which
+    // pushes weighted_score to 4-5/10 and pollutes the Prospects view.
+    // Enforce the rejection deterministically here: if category resolves
+    // to out_of_scope, cap every dimension at 2 BEFORE computing the
+    // weighted score. The dimension notes stay (rationale is still useful)
+    // but the score reflects the rejection.
+    const isOutOfScope = typeof scores.category === 'string'
+      && /out[_ -]?of[_ -]?scope/i.test(scores.category);
+    const capDim = (raw: number | null | undefined) => {
+      const n = typeof raw === 'number' ? raw : 0;
+      return isOutOfScope ? Math.min(n, 2) : n;
+    };
+
     const weightedScore = computeWeightedScore({
-      audience_overlap: scores.audience_overlap_score || 0,
-      complementarity: scores.complementarity_score || 0,
-      partner_readiness: scores.partner_readiness_score || 0,
-      reachability: scores.reachability_score || 0,
-      strategic_leverage: scores.strategic_leverage_score || 0,
+      audience_overlap: capDim(scores.audience_overlap_score),
+      complementarity: capDim(scores.complementarity_score),
+      partner_readiness: capDim(scores.partner_readiness_score),
+      reachability: capDim(scores.reachability_score),
+      strategic_leverage: capDim(scores.strategic_leverage_score),
     });
 
     const upsertResult = await upsertPartner(db, {
@@ -213,15 +228,15 @@ export async function scoreAndUpsertCandidate(
         : 'scored',
       weighted_score: weightedScore,
       confidence_score: scores.confidence_score || 'normal',
-      audience_overlap_score: scores.audience_overlap_score,
+      audience_overlap_score: capDim(scores.audience_overlap_score),
       audience_overlap_notes: scores.audience_overlap_notes,
-      complementarity_score: scores.complementarity_score,
+      complementarity_score: capDim(scores.complementarity_score),
       complementarity_notes: scores.complementarity_notes,
-      partner_readiness_score: scores.partner_readiness_score,
+      partner_readiness_score: capDim(scores.partner_readiness_score),
       partner_readiness_notes: scores.partner_readiness_notes,
-      reachability_score: scores.reachability_score,
+      reachability_score: capDim(scores.reachability_score),
       reachability_notes: scores.reachability_notes,
-      strategic_leverage_score: scores.strategic_leverage_score,
+      strategic_leverage_score: capDim(scores.strategic_leverage_score),
       strategic_leverage_notes: scores.strategic_leverage_notes,
       contact_name: candidate.contact_name,
       contact_title: candidate.contact_title,

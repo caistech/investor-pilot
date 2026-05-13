@@ -4,6 +4,16 @@ import Image from 'next/image';
 import { useState } from 'react';
 import { getCompanyLogoUrl } from '@/lib/utils';
 
+// LinkedIn-sourced rows don't have a real company website — we store a
+// synthetic 'linkedin.com/in/<slug>' value as their domain. Hunter's logo
+// service rejects those as not-a-real-domain (400) and Next/Image surfaces
+// the error in console. Detect upfront and render a placeholder so we
+// never hit Hunter for these pseudo-domains.
+function isLinkedInPseudoDomain(domain: string | null | undefined): boolean {
+  if (!domain) return true;
+  return domain.startsWith('linkedin.com/in/') || domain.startsWith('linkedin-unknown-');
+}
+
 export function CompanyLogo({
   domain,
   companyName,
@@ -16,8 +26,9 @@ export function CompanyLogo({
   className?: string;
 }) {
   const [failed, setFailed] = useState(false);
+  const skipLogo = isLinkedInPseudoDomain(domain);
 
-  if (failed) {
+  if (failed || skipLogo) {
     return (
       <div
         className={`bg-dark-700 ${className} flex items-center justify-center text-xs font-bold`}

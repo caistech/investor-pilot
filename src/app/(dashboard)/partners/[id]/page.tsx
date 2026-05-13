@@ -13,6 +13,11 @@ import PartnerCommunications, {
   type TimelineEvent,
 } from '@/components/partners/partner-communications';
 
+// Force dynamic so the Communications card always reflects the latest
+// pending approvals / sent / inbound state. Static caching here masked
+// the comms section earlier in testing.
+export const dynamic = 'force-dynamic';
+
 function RadarChart({ partner }: { partner: Partner }) {
   const dimensions = [
     { label: 'Overlap', score: partner.audience_overlap_score || 0 },

@@ -16,8 +16,8 @@ const client = new Anthropic({
 });
 
 const MODEL = process.env.OPENROUTER_API_KEY
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
+  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
+  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 // Lender-channel draft prompt (v3, 2026-05-13) — per Senior Debt Brief v3 + docs/sprint-0/07-draft-email-message.md
 const DRAFT_PROMPT = `You are an outreach email writer for F2K's senior debt placement. Write a personalised cold credit-conversation email to a direct lender or family office private debt allocator about participation in F2K's senior debt facilities.

@@ -73,10 +73,13 @@ export async function POST(request: Request) {
     sources?: DiscoverSource[];
     network_tiers?: NetworkTier[];
   };
-  // Default false — per-candidate Brave enrichment is great for signal but
-  // adds a Brave call + extra latency per LinkedIn hit. Opt in when you
-  // want richer scoring evidence.
-  const enrichWithBrave: boolean = body?.enrich_with_brave === true;
+  // Default TRUE — per-candidate Brave enrichment surfaces fund reports,
+  // press, and named-deal evidence that the cold-sequence credit-signal
+  // extraction needs. Without it, every cold first-touch DM gets blocked
+  // by the compliance gate ("Credit signal extraction returned generic").
+  // Callers can opt out via { enrich_with_brave: false } for fast smoke
+  // tests where signal quality doesn't matter.
+  const enrichWithBrave: boolean = body?.enrich_with_brave !== false;
 
   const { data: profile } = await db
     .from('profiles')

@@ -34,8 +34,8 @@ const client = new Anthropic({
 });
 
 const MODEL = process.env.OPENROUTER_API_KEY
-  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514'
-  : process.env.AGENT_MODEL || 'claude-sonnet-4-20250514';
+  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5'
+  : process.env.AGENT_MODEL || 'claude-sonnet-4-5';
 
 // Hardcoded Sprint 1. Move to organisations table when multi-tenant ships.
 const SENDER_NAME = 'Dennis McMahon';

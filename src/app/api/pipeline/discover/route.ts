@@ -31,8 +31,8 @@ const client = new Anthropic({
 });
 
 const MODEL = process.env.OPENROUTER_API_KEY
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
+  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
+  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 // Lender ICP scoring prompt (v3, 2026-05-13) — per Senior Debt Brief v3 Section 4.
 // Schema field names retained from v2 (audience_overlap_score etc) to avoid migration;

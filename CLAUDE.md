@@ -146,7 +146,7 @@ One-shot calls only — no tool_use, no message windows, no streaming.
 
 - `OPENROUTER_API_KEY` — primary
 - `ANTHROPIC_API_KEY` — fallback
-- `AGENT_MODEL` — model ID override (default: `anthropic/claude-sonnet-4-20250514`)
+- `AGENT_MODEL` — model ID override (default: `anthropic/claude-sonnet-4.5` via OpenRouter, `claude-sonnet-4-5` direct)
 
 When constructing LLM calls:
 - Always include `HTTP-Referer` and `X-Title` headers for OpenRouter
