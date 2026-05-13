@@ -37,7 +37,9 @@ export async function POST(request: Request) {
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';
-  const returnUrl = `${appUrl}/dashboard/channels?connected=${provider}`;
+  // /channels lives in the (dashboard) route group — the group name is not
+  // in the URL path, so the public URL is /channels, not /dashboard/channels.
+  const returnUrl = `${appUrl}/channels?connected=${provider}`;
 
   const link = await createHostedAuthLink({
     provider,
