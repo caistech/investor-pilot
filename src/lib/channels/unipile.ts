@@ -163,6 +163,47 @@ export async function sendUnipileEmail(input: EmailSendInput): Promise<SendResul
 // Account / health
 // =============================================================================
 
+export interface UnipileAccountRaw {
+  id: string;
+  provider: string; // LINKEDIN | GMAIL | OUTLOOK | WHATSAPP | etc.
+  identifier?: string;
+  name?: string;
+  status?: string;
+  created_at?: string;
+  [key: string]: unknown;
+}
+
+export async function listAccounts(): Promise<{ ok: true; accounts: UnipileAccountRaw[] } | { ok: false; error: string }> {
+  if (!UNIPILE_API_KEY) return { ok: false, error: 'UNIPILE_API_KEY not set' };
+  if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
+
+  try {
+    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/accounts`, {
+      headers: {
+        'X-API-KEY': UNIPILE_API_KEY,
+        'accept': 'application/json',
+      },
+    });
+    const text = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 300)}` };
+    }
+    let parsed: { items?: UnipileAccountRaw[]; accounts?: UnipileAccountRaw[] } | UnipileAccountRaw[];
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { ok: false, error: `Non-JSON response: ${text.slice(0, 200)}` };
+    }
+    const accounts = Array.isArray(parsed)
+      ? parsed
+      : (parsed.items || parsed.accounts || []);
+    return { ok: true, accounts };
+  } catch (err) {
+    const detail = err instanceof Error ? err.message : String(err);
+    return { ok: false, error: `Network/fetch error: ${detail}` };
+  }
+}
+
 export async function getAccountStatus(account_id: string): Promise<UnipileAccount | null> {
   try {
     const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/accounts/${account_id}`, {

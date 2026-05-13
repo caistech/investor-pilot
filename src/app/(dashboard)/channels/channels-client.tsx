@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Send, Mail, Calendar, AlertTriangle, CheckCircle2, Pause, Play, ShieldAlert, Plus } from 'lucide-react';
+import { Send, Mail, Calendar, AlertTriangle, CheckCircle2, Pause, Play, ShieldAlert, Plus, RefreshCw } from 'lucide-react';
 
 interface Channel {
   id: string;
@@ -83,6 +83,26 @@ export default function ChannelsClient({ channels }: Props) {
     }
   }
 
+  async function syncFromUnipile() {
+    setBusy('sync');
+    setError(null);
+    try {
+      const res = await fetch('/api/channels/sync', { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Sync failed');
+        return;
+      }
+      const msg = `Synced ${json.synced_count} account(s)${json.skipped_count ? `, skipped ${json.skipped_count}` : ''}.`;
+      alert(msg);
+      window.location.reload();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusy(null);
+    }
+  }
+
   async function globalKillSwitch() {
     const reason = prompt('Why are you pausing all channels? (Logged to audit trail)');
     if (!reason) return;
@@ -109,21 +129,32 @@ export default function ChannelsClient({ channels }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-8 flex-wrap gap-3">
         <div>
           <h1>Channels</h1>
           <p className="text-dark-400 mt-1">Connect LinkedIn and email accounts to send outreach from your own identity.</p>
         </div>
-        {activeCount > 0 && (
+        <div className="flex items-center gap-2">
           <button
-            onClick={globalKillSwitch}
+            onClick={syncFromUnipile}
             disabled={busy !== null}
-            className="btn-danger flex items-center gap-2"
+            className="btn-secondary flex items-center gap-2 text-sm"
+            title="Pull connected accounts from Unipile into the local channel list"
           >
-            <ShieldAlert className="w-4 h-4" />
-            Kill switch — pause all
+            <RefreshCw className={`w-4 h-4 ${busy === 'sync' ? 'animate-spin' : ''}`} />
+            Sync from Unipile
           </button>
-        )}
+          {activeCount > 0 && (
+            <button
+              onClick={globalKillSwitch}
+              disabled={busy !== null}
+              className="btn-danger flex items-center gap-2"
+            >
+              <ShieldAlert className="w-4 h-4" />
+              Kill switch — pause all
+            </button>
+          )}
+        </div>
       </div>
 
       {error && (
