@@ -7,6 +7,7 @@ import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus, SessionEvent } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
 import { DraftEditor } from '@/components/partners/draft-editor';
+import AssignSequence from '@/components/partners/assign-sequence';
 
 function RadarChart({ partner }: { partner: Partner }) {
   const dimensions = [
@@ -76,6 +77,38 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     .select('*')
     .eq('partner_id', params.id)
     .order('created_at', { ascending: true });
+
+  // Pull active templates + any live (non-terminal) sequence_steps so we can
+  // either show "Assign to sequence" or the current in-flight status.
+  const [{ data: templates }, { data: liveStepsRaw }] = await Promise.all([
+    supabase
+      .from('sequence_templates')
+      .select('id, name, vertical, compliance_mode')
+      .eq('organisation_id', organisationId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('sequence_steps')
+      .select(`
+        id, template_id, step_index, status, scheduled_for,
+        sequence_templates ( name )
+      `)
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .not('status', 'in', '(sent,skipped,failed,replied,opted_out,compliance_blocked)'),
+  ]);
+
+  const liveSteps = (liveStepsRaw || []).map((s: Record<string, unknown>) => {
+    const tpl = Array.isArray(s.sequence_templates) ? s.sequence_templates[0] : s.sequence_templates;
+    return {
+      id: s.id as string,
+      template_id: s.template_id as string,
+      template_name: ((tpl as { name?: string } | null)?.name) || 'Unknown template',
+      step_index: s.step_index as number,
+      status: s.status as string,
+      scheduled_for: s.scheduled_for as string,
+    };
+  });
 
   return (
     <div>
@@ -207,6 +240,13 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
             <h4 className="mb-4">Score Breakdown</h4>
             <RadarChart partner={p} />
           </div>
+
+          <AssignSequence
+            partnerId={p.id}
+            templates={templates || []}
+            liveSteps={liveSteps}
+          />
+
 
           {p.partnership_motion && (
             <div className="card">
