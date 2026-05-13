@@ -61,6 +61,12 @@ export default function ProjectsPage() {
   const [form, setForm] = useState(EMPTY_FORM);
   const [expandedProject, setExpandedProject] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // New-project KB-first flow: when set, the modal switches from name-only to
+  // SourceManager. Operator uploads docs/URLs/text directly into the modal
+  // and clicks Auto-fill from KB; the project gets fully populated from the
+  // canonical material instead of typed-in by hand.
+  const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
+  const [draftProjectName, setDraftProjectName] = useState<string>('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -162,6 +168,38 @@ export default function ProjectsPage() {
     setShowForm(false);
     setEditingId(null);
     setForm(EMPTY_FORM);
+    setDraftProjectId(null);
+    setDraftProjectName('');
+  }
+
+  async function createDraftProject() {
+    const orgId = await getOrgId();
+    if (!orgId) {
+      setError('Could not find your organisation.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const placeholderName = draftProjectName.trim() || `Draft project (${new Date().toLocaleString('en-AU')})`;
+    const { data, error: insertError } = await supabase
+      .from('projects')
+      .insert({ organisation_id: orgId, name: placeholderName })
+      .select('id')
+      .single();
+    setLoading(false);
+    if (insertError || !data) {
+      setError(insertError?.message || 'Failed to create draft');
+      return;
+    }
+    setDraftProjectId(data.id);
+    loadProjects();
+  }
+
+  function finishDraft() {
+    setShowForm(false);
+    setDraftProjectId(null);
+    setDraftProjectName('');
+    loadProjects();
   }
 
   // Find Investors state
@@ -249,18 +287,72 @@ export default function ProjectsPage() {
         </button>
       </div>
 
-      {showForm && (
-        <form onSubmit={handleSave} className="card mb-8">
-          <h3 className="mb-4">{editingId ? 'Edit Project' : 'New Project'}</h3>
+      {showForm && !editingId && (
+        <div className="card mb-8">
+          <h3 className="mb-4">New Project</h3>
 
-          {!editingId && (
-            <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-dark-300">
-              <p className="font-medium text-blue-400 mb-1">💡 Recommended flow</p>
-              <p className="text-dark-400">
-                Enter the basics below and click <span className="text-dark-200">Create</span>. Then expand the project, upload your Investment Memorandum / Finance Submission / term sheet PDFs to the Knowledge Base, and click <span className="text-corp-green-400">Auto-fill from KB</span>. That produces the lender-focused ICP fields from the canonical documents.
-              </p>
+          {!draftProjectId ? (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20 text-xs text-dark-300">
+                <p className="font-medium text-corp-green-400 mb-1">KB-first project creation</p>
+                <p className="text-dark-400">
+                  Upload your Investment Memorandum, Finance Submission, term sheet PDFs (and add URLs / pasted text if you have any) directly here. The AI extracts the sponsor, funding terms, geography, asset class, lender ICP — everything — from those sources. No form to fill manually.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-sm text-dark-300 mb-1">Project Name <span className="text-dark-600">(optional — AI will extract if blank)</span></label>
+                <input
+                  value={draftProjectName}
+                  onChange={(e) => setDraftProjectName(e.target.value)}
+                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="e.g. Branscombe Estate — Senior Construction Debt"
+                />
+              </div>
+
+              {error && (
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+              )}
+
+              <div className="flex gap-3">
+                <button
+                  onClick={createDraftProject}
+                  disabled={loading}
+                  className="btn-primary disabled:opacity-50"
+                >
+                  {loading ? 'Creating…' : 'Next: Upload sources →'}
+                </button>
+                <button onClick={cancelForm} className="btn-secondary">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-dark-300">
+                <p className="font-medium text-blue-400 mb-1">Step 2 — Add sources, then auto-fill</p>
+                <p className="text-dark-400">
+                  Upload your Investment Memorandum / Finance Submission PDFs, add URLs, paste text. Once at least one source is added and processed, click <span className="text-corp-green-400">Auto-fill from KB</span> to populate all project fields from the canonical material.
+                </p>
+              </div>
+
+              <SourceManager projectId={draftProjectId} />
+
+              <div className="flex gap-3">
+                <button onClick={finishDraft} className="btn-secondary">Done</button>
+                <p className="text-dark-500 text-xs self-center">
+                  You can always edit fields manually later via the project&apos;s Edit button.
+                </p>
+              </div>
             </div>
           )}
+        </div>
+      )}
+
+      {showForm && editingId && (
+        <form onSubmit={handleSave} className="card mb-8">
+          <h3 className="mb-4">Edit Project</h3>
+          <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-dark-300">
+            <p className="text-dark-400">Manually edit any field below. Or close and click <span className="text-corp-green-400">Auto-fill from KB</span> in the project&apos;s Knowledge Base section to regenerate fields from the source documents.</p>
+          </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
             <div>

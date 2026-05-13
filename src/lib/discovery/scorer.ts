@@ -160,8 +160,10 @@ export async function scoreAndUpsertCandidate(
       : '';
 
     // Brave-enrich LinkedIn hits with company-level deal/fund/news signal
-    // before scoring. Big lift on strategic_leverage_score accuracy.
-    const enrichment = options?.enrichWithBrave === false ? '' : await enrichCandidateWithBrave(candidate);
+    // before scoring. Opt-in only — adds a Brave call per LinkedIn candidate
+    // which can push the batch over Vercel's function timeout. Worth it when
+    // signal quality matters; skip for fast runs.
+    const enrichment = options?.enrichWithBrave === true ? await enrichCandidateWithBrave(candidate) : '';
 
     const response = await client.messages.create({
       model: MODEL,

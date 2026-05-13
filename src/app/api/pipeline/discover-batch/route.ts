@@ -37,15 +37,17 @@ export const maxDuration = 300; // 5 min, Vercel Pro limit
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 type NetworkTier = '1st' | '2nd' | 'cold';
 
-// Tuned to finish reliably inside 60s (Vercel Pro default function timeout)
-// even if maxDuration=300 hasn't propagated. Bigger batches are still possible
-// via explicit { query_count, sources, network_tiers } in the request body.
-const DEFAULT_QUERY_COUNT = 5;          // was 8
-const SCORING_CONCURRENCY = 8;          // simultaneous Claude scoring calls (was 5)
-const SEARCH_CONCURRENCY = 4;           // simultaneous LinkedIn/Brave queries (was 3)
-const CANDIDATES_PER_QUERY = 10;
-const MAX_TOTAL_CANDIDATES = 50;        // hard cap; was 80
-const SEARCH_TIMEOUT_MS = 15_000;       // per-search timeout — one stuck Unipile call can't kill the batch
+// Default workload tuned to finish reliably under 45s. Operator can request
+// bigger batches via explicit body params.
+//
+// maxDuration is also forced to 300s via vercel.json (the `functions` config
+// doesn't rely on the export being parsed at deploy time).
+const DEFAULT_QUERY_COUNT = 5;
+const SCORING_CONCURRENCY = 8;
+const SEARCH_CONCURRENCY = 4;
+const CANDIDATES_PER_QUERY = 5;         // was 10 — fewer hits per query keeps the scoring budget tight
+const MAX_TOTAL_CANDIDATES = 40;        // was 50
+const SEARCH_TIMEOUT_MS = 12_000;       // per-search timeout — one stuck Unipile call can't kill the batch
 
 // Tier → Unipile's network_distance integer-array filter. Per the docs at
 // developer.unipile.com/docs/linkedin-search, classic search expects integers
@@ -70,6 +72,10 @@ export async function POST(request: Request) {
     sources?: DiscoverSource[];
     network_tiers?: NetworkTier[];
   };
+  // Default false — per-candidate Brave enrichment is great for signal but
+  // adds a Brave call + extra latency per LinkedIn hit. Opt in when you
+  // want richer scoring evidence.
+  const enrichWithBrave: boolean = body?.enrich_with_brave === true;
 
   const { data: profile } = await db
     .from('profiles')
@@ -325,7 +331,7 @@ export async function POST(request: Request) {
   for (let i = 0; i < uniqueCandidates.length; i += SCORING_CONCURRENCY) {
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null, { enrichWithBrave }))
     );
     scoredResults.push(...results);
   }

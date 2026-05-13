@@ -4,5 +4,19 @@
       "path": "/api/cron/sequencer",
       "schedule": "*/15 * * * *"
     }
-  ]
+  ],
+  "functions": {
+    "src/app/api/pipeline/discover-batch/route.ts": {
+      "maxDuration": 300
+    },
+    "src/app/api/pipeline/discover/route.ts": {
+      "maxDuration": 120
+    },
+    "src/app/api/agent/autofill-product/route.ts": {
+      "maxDuration": 60
+    },
+    "src/app/api/agent/autofill-project/route.ts": {
+      "maxDuration": 60
+    }
+  }
 }
