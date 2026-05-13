@@ -11,8 +11,25 @@
  * LinkedIn ban event. CRITICAL — Sprint 1 deliverable per D9 and Sec 5.1 of
  * Senior Debt Brief v3.
  *
- * Warmup curve: day 1-7 = 5/day, day 8-14 = 10/day, day 15-21 = 15/day,
- * day 22+ = full cap (default 20/day LinkedIn connects, 30/day DMs, 50/day email).
+ * Warmup curve (linkedin_dm — warm + cold post-accept):
+ *   Week 1   (day  1-7):  10/day
+ *   Weeks 2-3 (day 8-21): 15/day
+ *   Week 4+  (day 22+):   20/day
+ *
+ * This is tighter than the channel's nominal ceiling because LinkedIn's
+ * invisible spam classifier flags templated bulk DMs to connections at
+ * volumes well below the literal API throughput limit. Empirical
+ * recommendation per F2K operator feedback 2026-05-14. Stays well under
+ * both the in-app cap and LinkedIn's flag threshold.
+ *
+ * Warmup curve (linkedin_connect — cold connect requests):
+ *   Day 1-7: 25% of full, day 8-14: 50%, day 15-21: 75%, day 22+: 100%
+ *   (full = 20/day). Kept on percentage curve because cold connects are
+ *   the highest-risk action — small absolute numbers, slow ramp.
+ *
+ * Warmup curve (email — Resend):
+ *   Day 1-7: 25% of full, day 8-14: 50%, day 15-21: 75%, day 22+: 100%
+ *   (full = 50/day). SMTP-side limits dominate; warmup matters less.
  */
 
 import type { SupabaseClient } from '@supabase/supabase-js';
@@ -27,16 +44,33 @@ export interface ChannelGuardResult {
   warmup_cap?: number;
 }
 
-// Default caps per channel (after warmup). Values per docs/sprint-0/03-unipile-research.md.
+// Default caps per channel at FULL warmup (day 22+).
+//
+// linkedin_dm dropped from 30 → 20 per F2K operator decision 2026-05-14:
+// LinkedIn's anti-spam classifier flags templated bulk DMs to existing
+// connections at volumes below 30/day. 20/day is the empirical safe
+// ceiling — gives us 50% headroom on the soft limits we observe in
+// production. Operators can still override via client_channels.daily_send_cap
+// for trusted/aged accounts.
 const FULL_CAPS: Record<ChannelType, number> = {
   linkedin_connect: 20,
-  linkedin_dm: 30,
+  linkedin_dm: 20,
   email: 50,
 };
 
-// Warmup curve — fraction of full cap by day
-// Day 1-7: 25%, day 8-14: 50%, day 15-21: 75%, day 22+: 100%
+/**
+ * Compute the effective daily cap for a channel at a given warmup day.
+ *
+ * linkedin_dm uses absolute thresholds (10 / 15 / 20) rather than
+ * percentages because the warm-DM threshold is empirical, not derived.
+ * The other two channels stay on the original quarterly percentage curve.
+ */
 function warmupCapForDay(channel: ChannelType, warmupDay: number): number {
+  if (channel === 'linkedin_dm') {
+    if (warmupDay <= 7) return 10;
+    if (warmupDay <= 21) return 15;
+    return 20;
+  }
   const full = FULL_CAPS[channel];
   if (warmupDay <= 7) return Math.floor(full * 0.25);
   if (warmupDay <= 14) return Math.floor(full * 0.5);
