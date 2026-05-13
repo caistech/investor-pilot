@@ -223,6 +223,11 @@ export default function ProductsPage() {
 
   // Find Investors button state
   const [findingFor, setFindingFor] = useState<string | null>(null);
+  // Default to Sales Nav + Brave: richer SN filters dominate the ICP-matching
+  // signal, Brave catches company-level news/track-record evidence SN misses.
+  // Operator can override per-run with the chips. Classic LinkedIn ('linkedin')
+  // is the fall-back if SN subscription expires.
+  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['sales_nav', 'brave']);
   const [findResult, setFindResult] = useState<{
     productId: string;
     queries_used: Array<{ query: string; rationale: string; category: string }>;
@@ -234,6 +239,16 @@ export default function ProductsPage() {
     error?: string;
   } | null>(null);
 
+  function toggleFindSource(s: 'linkedin' | 'sales_nav' | 'brave') {
+    setFindSources(prev => {
+      if (prev.includes(s)) {
+        const next = prev.filter(p => p !== s);
+        return next.length === 0 ? prev : next;
+      }
+      return [...prev, s];
+    });
+  }
+
   async function findInvestorsForProduct(productId: string) {
     if (!confirm('This runs a multi-query discovery batch (~2-5 minutes). Score budget: up to 80 candidates. Continue?')) return;
     setFindingFor(productId);
@@ -242,7 +257,7 @@ export default function ProductsPage() {
       const res = await fetch('/api/pipeline/discover-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId }),
+        body: JSON.stringify({ product_id: productId, sources: findSources }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -528,8 +543,30 @@ export default function ProductsPage() {
                       <div className="min-w-0">
                         <p className="text-sm font-medium text-corp-green-400">Find investors for this product</p>
                         <p className="text-dark-500 text-xs mt-0.5">
-                          Generates 5-8 targeted queries from the Knowledge Base, runs them via your connected LinkedIn account (+ Brave supplement), scores everything against the lender ICP. ~2-5 min.
+                          Generates 5-8 targeted queries from the Knowledge Base and runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first, then 2nd-degree, then cold. ~2-5 min.
                         </p>
+                        <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
+                          {([
+                            { key: 'sales_nav' as const, label: 'Sales Nav', hint: 'Richer filters (seniority, function, years in role). Requires SN subscription.' },
+                            { key: 'linkedin' as const, label: 'LinkedIn', hint: 'Classic LinkedIn people search. Fallback if Sales Nav fails.' },
+                            { key: 'brave' as const, label: 'Brave', hint: 'Supplementary web search — fund reports, news, deal mentions.' },
+                          ] as const).map(s => (
+                            <button
+                              key={s.key}
+                              type="button"
+                              onClick={() => toggleFindSource(s.key)}
+                              disabled={findingFor !== null}
+                              className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium transition-colors ${
+                                findSources.includes(s.key)
+                                  ? 'bg-corp-green-500/20 text-corp-green-400 border border-corp-green-500/40'
+                                  : 'bg-dark-800 text-dark-500 border border-dark-700 hover:text-dark-300'
+                              }`}
+                              title={s.hint}
+                            >
+                              {s.label}
+                            </button>
+                          ))}
+                        </div>
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); findInvestorsForProduct(p.id); }}
