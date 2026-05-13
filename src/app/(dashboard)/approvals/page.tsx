@@ -46,19 +46,25 @@ export default async function ApprovalsPage() {
       .order('scheduled_for', { ascending: true })
       .limit(50);
 
-    items = (steps || []).map((s: any) => ({
-      step_id: s.id,
-      message_id: s.outbound_messages?.id || s.outbound_message_id,
-      partner_id: s.partner_id,
-      partner_name: s.partners?.company_name || 'Unknown',
-      partner_score: s.partners?.weighted_score ?? null,
-      channel: s.channel,
-      scheduled_for: s.scheduled_for,
-      rendered_subject: s.outbound_messages?.rendered_subject || null,
-      rendered_body: s.outbound_messages?.rendered_body || '',
-      compliance_check: s.outbound_messages?.compliance_check || null,
-      personalization_score: s.outbound_messages?.personalization_score ?? null,
-    }));
+    items = (steps || []).map((s: any) => {
+      // Supabase returns FK-joined rows as arrays even for 1:1 relationships.
+      // Normalise both partners and outbound_messages to a single object.
+      const partner = Array.isArray(s.partners) ? s.partners[0] : s.partners;
+      const message = Array.isArray(s.outbound_messages) ? s.outbound_messages[0] : s.outbound_messages;
+      return {
+        step_id: s.id,
+        message_id: message?.id || s.outbound_message_id,
+        partner_id: s.partner_id,
+        partner_name: partner?.company_name || 'Unknown',
+        partner_score: partner?.weighted_score ?? null,
+        channel: s.channel,
+        scheduled_for: s.scheduled_for,
+        rendered_subject: message?.rendered_subject || null,
+        rendered_body: message?.rendered_body || '',
+        compliance_check: message?.compliance_check || null,
+        personalization_score: message?.personalization_score ?? null,
+      };
+    });
   }
 
   return <ApprovalsClient items={items} />;
