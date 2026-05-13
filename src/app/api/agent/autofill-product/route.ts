@@ -100,28 +100,45 @@ export async function POST(request: Request) {
     max_tokens: 2000,
     messages: [{
       role: 'user',
-      content: `Extract a complete product profile from the information provided. This is for a partnership discovery tool that finds channel partners.
+      content: `Extract a product profile for InvestorPilot — a discovery tool that finds the BUYERS / INVESTORS / LENDERS / PARTNERS for the operator's offering.
+
+⚠ CRITICAL PERSPECTIVE — read this twice before generating:
+
+The operator using InvestorPilot is the entity OFFERING this product. The ICP fields describe the people/firms who would BUY, FUND, or PARTNER with that offering — NOT the operator themselves and NOT downstream consumers of what the operator builds.
+
+For financial pitch documents (investment memoranda, term sheets, debt placement memos, fund offerings) this is especially important:
+  - The "product" is the INVESTMENT OPPORTUNITY being placed
+  - The ICP is the CAPITAL PROVIDER — lender, family office private debt allocator, HNW direct lender, private credit fund — who would FUND that opportunity
+  - DO NOT describe the borrower's project, the developer co-partners, or the construction supply chain
+  - DO NOT describe the entity producing the asset — describe who would write the cheque
+
+For SaaS / service offerings:
+  - Product is the SaaS/service itself
+  - ICP is the customer who would buy it
+  - Buyer title is the BUYER's role at their company, never the seller's executives
+
+Always silently answer: "Who pays for / invests in / partners on this product?" — that answer is the ICP. The operator providing the product is NEVER the ICP.
 
 ${name ? `PRODUCT NAME: ${name}` : 'Extract the product name from the content below.'}
-${description ? `DESCRIPTION: ${description}` : ''}
+${description ? `OPERATOR-PROVIDED DESCRIPTION (authoritative — do NOT contradict): ${description}` : ''}
 ${sourceContent}
 
-Based on ALL the information above, generate accurate values for each field. Use specific details from the source material — don't generalize. If the source mentions pricing, customer types, industries, or tech stack, use those exact details.
+Based on ALL the information above (with perspective grounded as instructed), generate accurate values for each field. Use specific details from the source material — don't generalize. If the source mentions pricing, customer types, industries, or tech stack, use those exact details.
 
 Be concise — each field should be 1-2 sentences max.
 
 Return ONLY valid JSON with these exact keys:
 {
   "name": "Product name (extract from content if not provided)",
-  "one_sentence_description": "What it does in one sentence",
-  "core_mechanism": "How the product works — the key technical approach",
-  "customer_outcomes": "3 specific outcomes after 90 days, comma-separated",
-  "icp_company_size": "e.g. 5-200 employees",
-  "icp_stage": "e.g. Revenue-generating, profitable or well-funded startup",
-  "icp_verticals": "Comma-separated list of 3-6 verticals",
-  "icp_buyer_title": "Primary buyer title(s)",
-  "icp_user_title": "Primary user title(s)",
-  "icp_stack_tools": "3-5 tools most relevant in their current stack",
+  "one_sentence_description": "What the OPERATOR is offering, framed for the BUYER/LENDER/INVESTOR audience in one sentence",
+  "core_mechanism": "How the product works from the perspective of the buyer/investor — the key value lever",
+  "customer_outcomes": "3 specific outcomes the BUYER/INVESTOR/LENDER gets, comma-separated",
+  "icp_company_size": "Size of the BUYER/INVESTOR firm (e.g. AUM band for funds, employee count for SaaS)",
+  "icp_stage": "Stage of the BUYER/INVESTOR firm (e.g. 'Established direct lender' or 'Revenue-generating startup')",
+  "icp_verticals": "3-6 verticals the BUYER/INVESTOR operates in",
+  "icp_buyer_title": "Primary BUYER title at the investor/customer firm (e.g. 'Head of Private Credit', not 'Development Manager')",
+  "icp_user_title": "Primary user title at the BUYER firm",
+  "icp_stack_tools": "3-5 tools most relevant in the BUYER's current stack",
   "traction_arr": "Pricing tiers or ARR if mentioned, otherwise best guess",
   "traction_customers": "Customer count or stage if mentioned",
   "partner_types": "referral, integration, or reseller — pick most relevant",
