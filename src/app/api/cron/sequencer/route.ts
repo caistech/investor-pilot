@@ -22,6 +22,7 @@ import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { renderStep, type RenderPartner } from '@/lib/sequencer/render';
 import { checkCompliance } from '@/lib/compliance/filter';
+import { advanceAllWarmupDays } from '@/lib/channels/channel-guard';
 import type { ComplianceMode } from '@/lib/compliance/rules';
 
 const MAX_STEPS_PER_RUN = 25;
@@ -51,6 +52,13 @@ interface ChannelRow {
 async function runSequencer() {
   const db = createServiceClient();
   const startedAt = new Date().toISOString();
+
+  // Tick warmup_day forward for every active channel based on calendar days
+  // since creation. Idempotent — running every 15 min is cheap and ensures a
+  // freshly-connected account ramps cap correctly without waiting for the
+  // first send to trigger it. Without this, day 1's 5-connect cap stays
+  // forever.
+  const warmupTick = await advanceAllWarmupDays(db);
 
   // Pull due steps. Limit per run so a backlog can't blow our LLM budget in one
   // crontick; the next tick picks up the rest.
@@ -232,6 +240,7 @@ async function runSequencer() {
     ok: true,
     started_at: startedAt,
     finished_at: new Date().toISOString(),
+    warmup_tick: warmupTick,
     processed: results.length,
     counts: tally(results),
     results,

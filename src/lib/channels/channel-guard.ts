@@ -200,8 +200,13 @@ export async function resumeChannel(
 }
 
 /**
- * Advance warmup day. Should run daily via cron OR on first send of each new day.
- * Simpler: increment on first send of each new UTC day per channel.
+ * @deprecated Per-channel, send-driven warmup advance. Has two flaws:
+ *   1. Relies on cap_reset_at being set, which only happens after first send
+ *      (set by recordChannelSend) — fresh channels with no sends never tick.
+ *   2. Increments by 1 only — if 5 calendar days passed since last advance,
+ *      warmup_day still only moves 1 step.
+ *
+ * Prefer {@link advanceAllWarmupDays} called from the cron worker.
  */
 export async function advanceWarmupDayIfNewDay(
   db: SupabaseClient,
@@ -218,11 +223,54 @@ export async function advanceWarmupDayIfNewDay(
   const now = new Date();
   const resetAt = ch.cap_reset_at ? new Date(ch.cap_reset_at) : null;
 
-  // If the reset window has passed (new UTC day), advance warmup day
   if (resetAt && resetAt < now && ch.warmup_day < 22) {
     await db
       .from('client_channels')
       .update({ warmup_day: ch.warmup_day + 1 })
       .eq('id', client_channel_id);
   }
+}
+
+/**
+ * Bulk warmup advance — runs in the sequencer cron. Calendar-driven: each
+ * channel's warmup_day = days elapsed since created_at + 1, capped at 22+.
+ *
+ * Idempotent: calling multiple times in a single day is a no-op (the DB
+ * already shows the correct day, no updates needed).
+ *
+ * Handles all the edge cases the old send-driven advance missed:
+ *   - Fresh channels with no sends still progress through warmup
+ *   - Channels skipped for several days catch up in one step
+ *   - Restarting / reconnecting a channel doesn't reset warmup unless
+ *     the operator deletes and re-creates the client_channels row
+ */
+export async function advanceAllWarmupDays(
+  db: SupabaseClient
+): Promise<{ updated: number; total: number }> {
+  const { data: channels, error } = await db
+    .from('client_channels')
+    .select('id, created_at, warmup_day')
+    .eq('status', 'active');
+
+  if (error || !channels?.length) {
+    return { updated: 0, total: 0 };
+  }
+
+  const nowMs = Date.now();
+  const msPerDay = 24 * 60 * 60 * 1000;
+  let updated = 0;
+
+  for (const ch of channels) {
+    const createdMs = new Date(ch.created_at).getTime();
+    const expectedDay = Math.max(1, Math.floor((nowMs - createdMs) / msPerDay) + 1);
+    if (expectedDay !== ch.warmup_day) {
+      const { error: updErr } = await db
+        .from('client_channels')
+        .update({ warmup_day: expectedDay })
+        .eq('id', ch.id);
+      if (!updErr) updated++;
+    }
+  }
+
+  return { updated, total: channels.length };
 }
