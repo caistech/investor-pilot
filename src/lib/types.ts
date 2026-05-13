@@ -59,6 +59,35 @@ export interface Product {
   updated_at: string;
 }
 
+export type ProjectType = 'senior_debt' | 'mezzanine' | 'equity' | 'platform_equity' | 'mixed';
+
+export interface Project {
+  id: string;
+  organisation_id: string;
+  sponsor: string;             // F2K Capital
+  name: string;                // Branscombe Estate
+  description: string | null;  // What's being raised, for the lender
+  project_type: ProjectType | null;
+  funding_target: string | null;   // "$16.2M @ 8.5% indicative, first-mortgage"
+  geography: string | null;        // "Claremont, Tasmania"
+  asset_class: string | null;      // "Residential modular construction"
+  icp_buyer_title: string | null;
+  icp_user_title: string | null;
+  icp_company_size: string | null;
+  icp_stage: string | null;
+  icp_verticals: string | null;
+  icp_stack_tools: string | null;
+  customer_outcomes: string | null;
+  core_mechanism: string | null;
+  traction_arr: string | null;
+  traction_customers: string | null;
+  partner_types: string;
+  exclusions: string | null;
+  is_active: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface Partner {
   id: string;
   organisation_id: string;

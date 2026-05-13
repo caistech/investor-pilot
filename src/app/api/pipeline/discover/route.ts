@@ -87,12 +87,13 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const body = await request.json();
-  let { product_id, organisation_id, query, domains, sources, linkedin_filters } = body as {
+  let { product_id, project_id, organisation_id, query, domains, sources, linkedin_filters } = body as {
     product_id?: string;
+    project_id?: string;
     organisation_id?: string;
     query?: string;
     domains?: string[];
-    sources?: DiscoverSource[]; // default: ['linkedin'] if LI channel connected, else ['brave']
+    sources?: DiscoverSource[];
     linkedin_filters?: {
       title?: string;
       location?: string;
@@ -105,7 +106,7 @@ export async function POST(request: Request) {
     };
   };
 
-  // Auto-resolve org and product from authenticated user if not provided
+  // Auto-resolve org from authenticated user if not provided
   if (!organisation_id || organisation_id === 'auto') {
     const { data: profile } = await db
       .from('profiles')
@@ -118,29 +119,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Could not resolve organisation' }, { status: 400 });
   }
 
-  if (!product_id || product_id === 'auto') {
-    const { data: firstProduct } = await db
-      .from('products')
-      .select('id')
-      .eq('organisation_id', organisation_id)
-      .limit(1)
+  // Resolve offering. Prefer project context when project_id is provided.
+  let offeringName = '';
+  let offeringDesc = '';
+  let offeringICP = '';
+  let resolvedProjectId: string | null = null;
+  let resolvedProductId: string | null = null;
+
+  if (project_id) {
+    const { data: project } = await db
+      .from('projects')
+      .select('id, name, description, sponsor, funding_target, geography, asset_class, icp_company_size, icp_verticals, icp_buyer_title')
+      .eq('id', project_id)
       .single();
-    product_id = firstProduct?.id;
-  }
-  if (!product_id) {
-    return NextResponse.json({ error: 'No product found. Create one in Products first.' }, { status: 400 });
+    if (!project) return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    resolvedProjectId = project.id;
+    offeringName = project.name;
+    offeringDesc = `${project.description || ''} Sponsor: ${project.sponsor || '—'}. Funding: ${project.funding_target || '—'}. Geography: ${project.geography || '—'}. Asset class: ${project.asset_class || '—'}.`;
+    offeringICP = `${project.icp_company_size || ''} firms in ${project.icp_verticals || ''}, buyer: ${project.icp_buyer_title || ''}.`;
+  } else {
+    if (!product_id || product_id === 'auto') {
+      const { data: firstProduct } = await db
+        .from('products')
+        .select('id')
+        .eq('organisation_id', organisation_id)
+        .limit(1)
+        .single();
+      product_id = firstProduct?.id;
+    }
+    if (!product_id) {
+      return NextResponse.json({ error: 'No product or project found. Create one first.' }, { status: 400 });
+    }
+    resolvedProductId = product_id;
   }
 
-  // Load product for context
-  const { data: product } = await db
-    .from('products')
-    .select('name, one_sentence_description, icp_company_size, icp_verticals, icp_buyer_title')
-    .eq('id', product_id)
-    .single();
-
-  const productContext = product
-    ? `Product: ${product.name}. ${product.one_sentence_description || ''}. ICP: ${product.icp_company_size || ''} companies in ${product.icp_verticals || ''}, buyer: ${product.icp_buyer_title || ''}.`
-    : 'No product context available.';
+  let productContext = '';
+  if (resolvedProjectId) {
+    productContext = `Offering: ${offeringName}. ${offeringDesc} ICP: ${offeringICP}`;
+  } else if (resolvedProductId) {
+    const { data: product } = await db
+      .from('products')
+      .select('name, one_sentence_description, icp_company_size, icp_verticals, icp_buyer_title')
+      .eq('id', resolvedProductId)
+      .single();
+    productContext = product
+      ? `Product: ${product.name}. ${product.one_sentence_description || ''}. ICP: ${product.icp_company_size || ''} companies in ${product.icp_verticals || ''}, buyer: ${product.icp_buyer_title || ''}.`
+      : 'No product context available.';
+  } else {
+    productContext = 'No offering context available.';
+  }
 
   const results: Array<{
     company_name: string;
@@ -312,7 +339,8 @@ export async function POST(request: Request) {
 
       const result = await upsertPartner(db, {
         organisation_id,
-        product_id,
+        product_id: resolvedProductId,
+        project_id: resolvedProjectId,
         company_name: company.name,
         domain: company.domain,
         category: scores.category || null,

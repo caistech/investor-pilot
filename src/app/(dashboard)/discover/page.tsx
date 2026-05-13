@@ -51,9 +51,9 @@ export default function DiscoverPage() {
   const [selectedProductId, setSelectedProductId] = useState<string>('');
   const supabase = createClient();
 
-  // Load active products so the operator can pick which one drives discovery
-  // scoring context. Without this, the route silently uses the first product
-  // and you get nonsense for multi-product orgs.
+  // Load active projects + products so the operator can pick which one drives
+  // discovery scoring context. Projects (capital raise) take precedence — F2K's
+  // model. SaaS partner-discovery products listed second.
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -65,15 +65,27 @@ export default function DiscoverPage() {
         .eq('id', user.id)
         .single();
       if (!profile?.organisation_id) return;
-      const { data } = await supabase
-        .from('products')
-        .select('id, name')
-        .eq('organisation_id', profile.organisation_id)
-        .eq('is_active', true)
-        .order('created_at', { ascending: false });
-      if (cancelled || !data) return;
-      setProducts(data as ProductOption[]);
-      if (data.length > 0) setSelectedProductId(data[0].id);
+      const [{ data: projects }, { data: products }] = await Promise.all([
+        supabase
+          .from('projects')
+          .select('id, name')
+          .eq('organisation_id', profile.organisation_id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('products')
+          .select('id, name')
+          .eq('organisation_id', profile.organisation_id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false }),
+      ]);
+      if (cancelled) return;
+      const merged: ProductOption[] = [
+        ...((projects || []) as ProductOption[]).map(p => ({ id: `project:${p.id}`, name: `${p.name} (project)` })),
+        ...((products || []) as ProductOption[]).map(p => ({ id: `product:${p.id}`, name: `${p.name} (product)` })),
+      ];
+      setProducts(merged);
+      if (merged.length > 0) setSelectedProductId(merged[0].id);
     })();
     return () => { cancelled = true; };
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -95,16 +107,23 @@ export default function DiscoverPage() {
     setResults(null);
 
     try {
+      // Picker IDs are prefixed with 'project:' or 'product:' so the API
+      // route can route to the right context.
+      const [kind, rawId] = (selectedProductId || '').split(':');
+      const body: Record<string, unknown> = {
+        organisation_id: 'auto',
+        sources,
+        ...(mode === 'search' ? { query } : {}),
+        ...(mode === 'seed' ? { domains: domains.split('\n').map(d => d.trim()).filter(Boolean) } : {}),
+      };
+      if (kind === 'project') body.project_id = rawId;
+      else if (kind === 'product') body.product_id = rawId;
+      else body.product_id = 'auto';
+
       const settingsRes = await fetch('/api/pipeline/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          product_id: selectedProductId || 'auto',
-          organisation_id: 'auto',
-          sources,
-          ...(mode === 'search' ? { query } : {}),
-          ...(mode === 'seed' ? { domains: domains.split('\n').map(d => d.trim()).filter(Boolean) } : {}),
-        }),
+        body: JSON.stringify(body),
       });
 
       const data = await settingsRes.json();

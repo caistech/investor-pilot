@@ -9,13 +9,17 @@ import type { ProductSource } from '@/lib/types';
 import { createClient } from '@/lib/supabase/client';
 
 interface SourceManagerProps {
-  productId: string;
+  productId?: string;
+  projectId?: string;
 }
 
 const FILE_ACCEPT = '.pdf,.docx,.doc,.txt,.csv,.md,.json';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
-export default function SourceManager({ productId }: SourceManagerProps) {
+export default function SourceManager({ productId, projectId }: SourceManagerProps) {
+  const parentKey = projectId ? 'project_id' : 'product_id';
+  const parentValue = projectId || productId || '';
+  const autofillRoute = projectId ? '/api/agent/autofill-project' : '/api/agent/autofill-product';
   const [sources, setSources] = useState<ProductSource[]>([]);
   const [loading, setLoading] = useState(true);
   const [adding, setAdding] = useState(false);
@@ -31,13 +35,14 @@ export default function SourceManager({ productId }: SourceManagerProps) {
   const supabase = createClient();
 
   const loadSources = useCallback(async () => {
-    const res = await fetch(`/api/sources?product_id=${productId}`);
+    if (!parentValue) { setLoading(false); return; }
+    const res = await fetch(`/api/sources?${parentKey}=${parentValue}`);
     if (res.ok) {
       const data = await res.json();
       setSources(data);
     }
     setLoading(false);
-  }, [productId]);
+  }, [parentKey, parentValue]);
 
   useEffect(() => {
     loadSources();
@@ -53,7 +58,7 @@ export default function SourceManager({ productId }: SourceManagerProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: productId,
+          [parentKey]: parentValue,
           source_type: 'url',
           url: urlInput.startsWith('http') ? urlInput : `https://${urlInput}`,
         }),
@@ -81,7 +86,7 @@ export default function SourceManager({ productId }: SourceManagerProps) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: productId,
+          [parentKey]: parentValue,
           source_type: 'text',
           title: textTitle || 'Pasted text',
           content: textInput,
@@ -113,7 +118,7 @@ export default function SourceManager({ productId }: SourceManagerProps) {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('product_id', productId);
+      formData.append(parentKey, parentValue);
 
       const res = await fetch('/api/sources', {
         method: 'POST',
@@ -137,6 +142,10 @@ export default function SourceManager({ productId }: SourceManagerProps) {
     loadSources();
   }
 
+  if (!parentValue) {
+    return null;
+  }
+
   // Read uploaded sources, ask Claude to rewrite the product's ICP fields
   // using them, then write the result straight back to the products row.
   // This is the docs-first auto-fill: upload PDFs/URLs → click here → ICP
@@ -146,10 +155,10 @@ export default function SourceManager({ productId }: SourceManagerProps) {
     setError(null);
     setAutofillStatus('idle');
     try {
-      const res = await fetch('/api/agent/autofill-product', {
+      const res = await fetch(autofillRoute, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId }),
+        body: JSON.stringify({ [parentKey]: parentValue }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -158,22 +167,37 @@ export default function SourceManager({ productId }: SourceManagerProps) {
         return;
       }
 
-      // Apply the returned profile to the product row.
-      const update: Record<string, unknown> = {};
-      const keys = [
-        'name', 'one_sentence_description', 'core_mechanism', 'customer_outcomes',
+      // Apply the returned profile to the correct table.
+      // Both schemas share most ICP fields. Projects additionally have
+      // sponsor/project_type/funding_target/geography/asset_class/description.
+      const sharedKeys = [
+        'name', 'core_mechanism', 'customer_outcomes',
         'icp_company_size', 'icp_stage', 'icp_verticals', 'icp_buyer_title',
         'icp_user_title', 'icp_stack_tools', 'traction_arr', 'traction_customers',
         'partner_types', 'exclusions',
       ] as const;
-      for (const k of keys) {
+      const projectOnlyKeys = ['sponsor', 'description', 'project_type', 'funding_target', 'geography', 'asset_class'] as const;
+      const productOnlyKeys = ['one_sentence_description'] as const;
+
+      const update: Record<string, unknown> = {};
+      for (const k of sharedKeys) {
         if (typeof data[k] === 'string' && data[k].trim()) update[k] = data[k];
       }
+      if (projectId) {
+        for (const k of projectOnlyKeys) {
+          if (typeof data[k] === 'string' && data[k].trim()) update[k] = data[k];
+        }
+      } else {
+        for (const k of productOnlyKeys) {
+          if (typeof data[k] === 'string' && data[k].trim()) update[k] = data[k];
+        }
+      }
 
+      const table = projectId ? 'projects' : 'products';
       const { error: updateError } = await supabase
-        .from('products')
+        .from(table)
         .update(update)
-        .eq('id', productId);
+        .eq('id', parentValue);
 
       if (updateError) {
         setError(updateError.message);
@@ -182,8 +206,6 @@ export default function SourceManager({ productId }: SourceManagerProps) {
       }
 
       setAutofillStatus('success');
-      // Reload after a short pause so the operator sees the success state,
-      // then the parent products list re-renders with the new ICP fields.
       setTimeout(() => window.location.reload(), 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Auto-fill failed');

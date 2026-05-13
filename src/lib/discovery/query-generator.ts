@@ -42,6 +42,13 @@ export interface ProductForQueryGen {
   icp_buyer_title: string | null;
   icp_stage: string | null;
   exclusions: string | null;
+  // Project-specific (optional — present when generator is called for a project)
+  sponsor?: string | null;
+  project_type?: string | null;
+  funding_target?: string | null;
+  geography?: string | null;
+  asset_class?: string | null;
+  description?: string | null;
 }
 
 export interface KnowledgeBaseSource {
@@ -149,20 +156,25 @@ export async function generateLenderQueries(input: {
     .map(s => `[${s.source_type.toUpperCase()}: ${s.title}]\n${s.content!.slice(0, 4000)}`)
     .join('\n\n---\n\n');
 
-  const userMessage = `Generate ${linkedinCount} LinkedIn-tuned + ${braveCount} Brave-tuned queries for this product.
+  const projectBlock = input.product.sponsor || input.product.funding_target || input.product.geography || input.product.asset_class
+    ? `\nPROJECT-SPECIFIC:\nSponsor: ${input.product.sponsor || '(none)'}\nProject type: ${input.product.project_type || '(none)'}\nFunding target: ${input.product.funding_target || '(none)'}\nGeography: ${input.product.geography || '(none)'}\nAsset class: ${input.product.asset_class || '(none)'}\n`
+    : '';
 
-PRODUCT:
+  const userMessage = `Generate ${linkedinCount} LinkedIn-tuned + ${braveCount} Brave-tuned queries for this offering.
+
+OFFERING:
 Name: ${input.product.name}
-Description: ${input.product.one_sentence_description || '(none)'}
+Description: ${input.product.description || input.product.one_sentence_description || '(none)'}
 Core mechanism: ${input.product.core_mechanism || '(none)'}
-Customer/lender outcomes: ${input.product.customer_outcomes || '(none)'}
+Buyer/lender outcomes: ${input.product.customer_outcomes || '(none)'}
 ICP buyer title: ${input.product.icp_buyer_title || '(none)'}
 ICP company size: ${input.product.icp_company_size || '(none)'}
 ICP verticals: ${input.product.icp_verticals || '(none)'}
 ICP stage: ${input.product.icp_stage || '(none)'}
-Exclusions: ${input.product.exclusions || '(none)'}
+Exclusions: ${input.product.exclusions || '(none)'}${projectBlock}
+${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from offering fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries (person-targeting) and ${braveCount} brave_queries (company/deal/news) as JSON per the schema.
 
-${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from product fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries (person-targeting) and ${braveCount} brave_queries (company/deal/news) as JSON per the schema.`;
+If PROJECT-SPECIFIC details are present, weave geography + asset class + funding type into both query sets so they surface the right specific slice of lenders (e.g. for "Tasmania modular construction senior debt" the queries should mention Tasmania, modular construction, residential dev debt, etc).`;
 
   try {
     const response = await client.messages.create({

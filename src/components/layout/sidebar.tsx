@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Package, MessageSquare, Search,
-  Settings, LogOut, Zap, Send, Inbox, Workflow, Plug,
+  Settings, LogOut, Zap, Send, Inbox, Workflow, Plug, Briefcase,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
@@ -21,7 +21,7 @@ const navGroups: Array<{ label: string | null; items: Array<{ href: string; labe
   {
     label: 'Setup',
     items: [
-      { href: '/products', label: 'Products', icon: Package },
+      { href: '/projects', label: 'Projects', icon: Briefcase },
       { href: '/channels', label: 'Channels', icon: Plug },
     ],
   },

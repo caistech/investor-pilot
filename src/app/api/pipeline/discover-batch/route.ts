@@ -59,13 +59,11 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const body = await request.json().catch(() => ({}));
-  let { product_id, query_count, sources, network_tiers } = body as {
+  let { product_id, project_id, query_count, sources, network_tiers } = body as {
     product_id?: string;
+    project_id?: string;
     query_count?: number;
     sources?: DiscoverSource[];
-    // Tier priority order — leftmost runs first and dominates de-dup ties.
-    // Default ['1st', '2nd', 'cold']: 1st-degree connections always preferred
-    // because they bypass connect-request limits and earn higher reply rates.
     network_tiers?: NetworkTier[];
   };
 
@@ -80,42 +78,96 @@ export async function POST(request: Request) {
   }
   const organisation_id: string = profile.organisation_id;
 
-  // Resolve product. 'auto' or missing → most-recently-created active product.
-  if (!product_id || product_id === 'auto') {
-    const { data: firstProduct } = await db
-      .from('products')
-      .select('id')
-      .eq('organisation_id', organisation_id)
-      .eq('is_active', true)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    product_id = firstProduct?.id;
-  }
-  if (!product_id) {
-    return NextResponse.json(
-      { error: 'No active product found. Create one in /products first.' },
-      { status: 400 }
-    );
-  }
+  // Project takes precedence when both are provided. Each route below
+  // resolves 'auto' / missing to the most-recent active row of its kind.
+  let offering: {
+    id: string;
+    name: string;
+    description: string | null;
+    one_sentence_description: string | null;
+    core_mechanism: string | null;
+    customer_outcomes: string | null;
+    icp_company_size: string | null;
+    icp_verticals: string | null;
+    icp_buyer_title: string | null;
+    icp_stage: string | null;
+    exclusions: string | null;
+    sponsor: string | null;
+    project_type: string | null;
+    funding_target: string | null;
+    geography: string | null;
+    asset_class: string | null;
+  } | null = null;
+  let kbSourceQuery: { table: 'product' | 'project'; id: string } | null = null;
 
-  // Load product + knowledge base for query generation.
-  const [{ data: product }, { data: kbSources }] = await Promise.all([
-    db
+  if (project_id) {
+    if (project_id === 'auto') {
+      const { data: firstProject } = await db
+        .from('projects')
+        .select('id')
+        .eq('organisation_id', organisation_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      project_id = firstProject?.id;
+    }
+    if (!project_id) {
+      return NextResponse.json({ error: 'No active project found' }, { status: 400 });
+    }
+    const { data: project } = await db
+      .from('projects')
+      .select('id, name, description, sponsor, project_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions')
+      .eq('id', project_id)
+      .single();
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+    offering = { ...project, one_sentence_description: null };
+    kbSourceQuery = { table: 'project', id: project_id };
+  } else {
+    if (!product_id || product_id === 'auto') {
+      const { data: firstProduct } = await db
+        .from('products')
+        .select('id')
+        .eq('organisation_id', organisation_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      product_id = firstProduct?.id;
+    }
+    if (!product_id) {
+      return NextResponse.json(
+        { error: 'No active product or project found. Create one first.' },
+        { status: 400 }
+      );
+    }
+    const { data: product } = await db
       .from('products')
-      .select('name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions')
+      .select('id, name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions')
       .eq('id', product_id)
-      .single(),
-    db
-      .from('product_sources')
-      .select('title, source_type, url, content')
-      .eq('product_id', product_id)
-      .eq('processing_status', 'completed'),
-  ]);
-
-  if (!product) {
-    return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+      .single();
+    if (!product) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
+    offering = {
+      ...product,
+      description: null,
+      sponsor: null,
+      project_type: null,
+      funding_target: null,
+      geography: null,
+      asset_class: null,
+    };
+    kbSourceQuery = { table: 'product', id: product_id };
   }
+
+  const { data: kbSources } = await db
+    .from('product_sources')
+    .select('title, source_type, url, content')
+    .eq(kbSourceQuery.table === 'project' ? 'project_id' : 'product_id', kbSourceQuery.id)
+    .eq('processing_status', 'completed');
 
   // Default sources: LinkedIn if a channel is connected, Brave otherwise.
   if (!sources || sources.length === 0) {
@@ -133,15 +185,21 @@ export async function POST(request: Request) {
   // Generate queries via Claude.
   const queryGen = await generateLenderQueries({
     product: {
-      name: product.name,
-      one_sentence_description: product.one_sentence_description,
-      core_mechanism: product.core_mechanism,
-      customer_outcomes: product.customer_outcomes,
-      icp_company_size: product.icp_company_size,
-      icp_verticals: product.icp_verticals,
-      icp_buyer_title: product.icp_buyer_title,
-      icp_stage: product.icp_stage,
-      exclusions: product.exclusions,
+      name: offering.name,
+      one_sentence_description: offering.one_sentence_description,
+      description: offering.description,
+      core_mechanism: offering.core_mechanism,
+      customer_outcomes: offering.customer_outcomes,
+      icp_company_size: offering.icp_company_size,
+      icp_verticals: offering.icp_verticals,
+      icp_buyer_title: offering.icp_buyer_title,
+      icp_stage: offering.icp_stage,
+      exclusions: offering.exclusions,
+      sponsor: offering.sponsor,
+      project_type: offering.project_type,
+      funding_target: offering.funding_target,
+      geography: offering.geography,
+      asset_class: offering.asset_class,
     },
     knowledgeBase: (kbSources || []).map(s => ({
       title: s.title,
@@ -253,13 +311,17 @@ export async function POST(request: Request) {
   const uniqueCandidates = Array.from(seen.values()).slice(0, MAX_TOTAL_CANDIDATES);
 
   // Score everything in parallel batches.
-  const productContext = `Product: ${product.name}. ${product.one_sentence_description || ''}. ICP: ${product.icp_company_size || ''} companies in ${product.icp_verticals || ''}, buyer: ${product.icp_buyer_title || ''}.`;
+  const offeringDescription = offering.description || offering.one_sentence_description || '';
+  const projectMeta = offering.sponsor || offering.funding_target || offering.geography
+    ? ` Sponsor: ${offering.sponsor || '—'}. Funding: ${offering.funding_target || '—'}. Geography: ${offering.geography || '—'}. Asset class: ${offering.asset_class || '—'}.`
+    : '';
+  const productContext = `Offering: ${offering.name}. ${offeringDescription}.${projectMeta} ICP: ${offering.icp_company_size || ''} firms in ${offering.icp_verticals || ''}, buyer: ${offering.icp_buyer_title || ''}.`;
 
   const scoredResults: Awaited<ReturnType<typeof scoreAndUpsertCandidate>>[] = [];
   for (let i = 0; i < uniqueCandidates.length; i += SCORING_CONCURRENCY) {
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id!))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null))
     );
     scoredResults.push(...results);
   }

@@ -150,7 +150,8 @@ export async function scoreAndUpsertCandidate(
   candidate: ScoreCandidateInput,
   productContext: string,
   organisation_id: string,
-  product_id: string,
+  product_id: string | null,
+  project_id?: string | null,
   options?: { enrichWithBrave?: boolean },
 ): Promise<ScoreCandidateResult> {
   try {
@@ -196,6 +197,7 @@ export async function scoreAndUpsertCandidate(
     const upsertResult = await upsertPartner(db, {
       organisation_id,
       product_id,
+      project_id,
       company_name: candidate.name,
       domain: candidate.domain,
       category: scores.category || null,

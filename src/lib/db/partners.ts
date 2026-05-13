@@ -2,7 +2,8 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 
 export interface PartnerUpsertData {
   organisation_id: string;
-  product_id: string;
+  product_id?: string | null;
+  project_id?: string | null;
   company_name: string;
   domain: string;
   category?: string;

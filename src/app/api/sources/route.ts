@@ -65,13 +65,18 @@ export async function GET(request: Request) {
 
   const { searchParams } = new URL(request.url);
   const productId = searchParams.get('product_id');
-  if (!productId) return NextResponse.json({ error: 'product_id required' }, { status: 400 });
+  const projectId = searchParams.get('project_id');
+  if (!productId && !projectId) {
+    return NextResponse.json({ error: 'product_id or project_id required' }, { status: 400 });
+  }
 
-  const { data, error } = await db
+  let q = db
     .from('product_sources')
     .select('id, source_type, title, url, file_name, file_type, file_size, processing_status, error_message, created_at')
-    .eq('product_id', productId)
     .order('created_at', { ascending: false });
+  q = projectId ? q.eq('project_id', projectId) : q.eq('product_id', productId!);
+
+  const { data, error } = await q;
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
   return NextResponse.json(data);
@@ -90,12 +95,17 @@ export async function POST(request: Request) {
   if (contentType.includes('multipart/form-data')) {
     const formData = await request.formData();
     const file = formData.get('file') as File | null;
-    const productId = formData.get('product_id') as string;
+    const productId = formData.get('product_id') as string | null;
+    const projectId = formData.get('project_id') as string | null;
 
-    if (!file || !productId) return NextResponse.json({ error: 'file and product_id required' }, { status: 400 });
+    if (!file || (!productId && !projectId)) {
+      return NextResponse.json({ error: 'file and (product_id or project_id) required' }, { status: 400 });
+    }
+
+    const parentLink = projectId ? { project_id: projectId } : { product_id: productId! };
 
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      product_id: productId, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.organisation_id,
       source_type: 'file', title: file.name, file_name: file.name,
       file_type: file.type, file_size: file.size, processing_status: 'processing',
     }).select().single();
@@ -115,14 +125,18 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json();
-  const { product_id, source_type, title, url, content } = body;
-  if (!product_id) return NextResponse.json({ error: 'product_id required' }, { status: 400 });
+  const { product_id, project_id, source_type, title, url, content } = body;
+  if (!product_id && !project_id) {
+    return NextResponse.json({ error: 'product_id or project_id required' }, { status: 400 });
+  }
+
+  const parentLink = project_id ? { project_id } : { product_id };
 
   if (source_type === 'url') {
     if (!url) return NextResponse.json({ error: 'url required' }, { status: 400 });
 
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      product_id, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.organisation_id,
       source_type: 'url', title: title || url, url, processing_status: 'processing',
     }).select().single();
 
@@ -144,7 +158,7 @@ export async function POST(request: Request) {
   if (source_type === 'text') {
     if (!content) return NextResponse.json({ error: 'content required' }, { status: 400 });
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      product_id, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.organisation_id,
       source_type: 'text', title: title || 'Pasted text',
       content: content.slice(0, 50000), processing_status: 'completed',
     }).select().single();
