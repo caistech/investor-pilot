@@ -226,6 +226,7 @@ export async function scoreAndUpsertCandidate(
       status: candidate.source === 'linkedin' || candidate.source === 'sales_nav'
         ? 'contact_found'
         : 'scored',
+      source: candidate.source,
       weighted_score: weightedScore,
       confidence_score: scores.confidence_score || 'normal',
       audience_overlap_score: capDim(scores.audience_overlap_score),

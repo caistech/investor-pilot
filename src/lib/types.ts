@@ -130,6 +130,7 @@ export interface Partner {
   screened_out_reason: string | null;
   last_session_notes: string | null;
   network_distance: '1st' | '2nd' | 'cold' | null;
+  source: 'linkedin' | 'sales_nav' | 'brave' | 'manual' | null;
   last_updated_at: string;
   created_at: string;
 }

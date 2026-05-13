@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { CompanyLogo } from '@/components/company-logo';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus } from '@/lib/types';
-import { Loader2, Search, X } from 'lucide-react';
+import { Loader2, Search, X, Send } from 'lucide-react';
 
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
@@ -18,6 +18,20 @@ const FILTER_TABS = [
 
 type FilterKey = typeof FILTER_TABS[number]['key'];
 
+// Source-tier filter — combines source + network_distance into one axis
+// the operator actually thinks in. "LinkedIn 1st-degree" is meaningfully
+// different from "LinkedIn cold" because the sequence template + send
+// behaviour differs; the filter mirrors that distinction.
+const SOURCE_TABS = [
+  { key: 'all', label: 'All sources' },
+  { key: 'linkedin_1st', label: 'LinkedIn · 1st' },
+  { key: 'linkedin_2nd', label: 'LinkedIn · 2nd' },
+  { key: 'linkedin_cold', label: 'LinkedIn · cold' },
+  { key: 'brave', label: 'Brave (web)' },
+] as const;
+
+type SourceTierKey = typeof SOURCE_TABS[number]['key'];
+
 function matchesFilter(status: string, filter: FilterKey): boolean {
   if (filter === 'all') return true;
   if (filter === 'scored') return status === 'scored';
@@ -26,6 +40,27 @@ function matchesFilter(status: string, filter: FilterKey): boolean {
   if (filter === 'sent') return ['sent', 'follow_up_due'].includes(status);
   if (filter === 'replied') return ['replied', 'meeting_booked', 'qualified', 'active_partner_discussion', 'closed_won'].includes(status);
   return false;
+}
+
+function matchesSourceTier(partner: Partner, filter: SourceTierKey): boolean {
+  if (filter === 'all') return true;
+  const isLinkedIn = partner.source === 'linkedin' || partner.source === 'sales_nav';
+  if (filter === 'linkedin_1st') return isLinkedIn && partner.network_distance === '1st';
+  if (filter === 'linkedin_2nd') return isLinkedIn && partner.network_distance === '2nd';
+  if (filter === 'linkedin_cold') {
+    return isLinkedIn && (partner.network_distance === 'cold' || partner.network_distance == null);
+  }
+  if (filter === 'brave') return partner.source === 'brave';
+  return false;
+}
+
+function sourceTierFor(partner: Partner): SourceTierKey {
+  const isLinkedIn = partner.source === 'linkedin' || partner.source === 'sales_nav';
+  if (isLinkedIn && partner.network_distance === '1st') return 'linkedin_1st';
+  if (isLinkedIn && partner.network_distance === '2nd') return 'linkedin_2nd';
+  if (isLinkedIn) return 'linkedin_cold';
+  if (partner.source === 'brave') return 'brave';
+  return 'all';
 }
 
 function matchesSearch(partner: Partner, query: string): boolean {
@@ -59,6 +94,7 @@ export function PipelineTable({
   const initialTypeFilter = partnerTypes.includes('lender') ? 'lender' : 'all';
 
   const [filter, setFilter] = useState<FilterKey>('all');
+  const [sourceFilter, setSourceFilter] = useState<SourceTierKey>('all');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter);
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -66,9 +102,21 @@ export function PipelineTable({
   const [message, setMessage] = useState<string | null>(null);
   const filtered = partners
     .filter(p => matchesFilter(p.status, filter))
+    .filter(p => matchesSourceTier(p, sourceFilter))
     .filter(p => matchesSearch(p, search))
     .filter(p => typeFilter === 'all' || p.partner_type === typeFilter);
   const selectedPartners = filtered.filter(p => selected.has(p.id));
+
+  // Counts for source-tier tabs reflect ALL partners (not respecting the
+  // status filter) so the operator can see total volume per source at a
+  // glance before narrowing.
+  const sourceCounts: Record<SourceTierKey, number> = {
+    all: partners.length,
+    linkedin_1st: partners.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
+    linkedin_2nd: partners.filter(p => matchesSourceTier(p, 'linkedin_2nd')).length,
+    linkedin_cold: partners.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
+    brave: partners.filter(p => matchesSourceTier(p, 'brave')).length,
+  };
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -121,6 +169,44 @@ export function PipelineTable({
     }
   }
 
+  async function batchAssignSequences() {
+    if (selectedPartners.length === 0) return;
+    const firstDegreeCount = selectedPartners.filter(p => p.network_distance === '1st').length;
+    const otherCount = selectedPartners.length - firstDegreeCount;
+    const confirmMsg = `Assign sequences to ${selectedPartners.length} partner${selectedPartners.length === 1 ? '' : 's'}?\n\n` +
+      `  • ${firstDegreeCount} 1st-degree → warm DM sequence (3 steps over 9 days)\n` +
+      `  • ${otherCount} other → cold sequence (6 steps over 14 days, requires Brave evidence for credit signal)\n\n` +
+      `Partners already on a sequence will be skipped.`;
+    if (!confirm(confirmMsg)) return;
+
+    setLoading('assign');
+    setMessage(null);
+
+    try {
+      const res = await fetch('/api/sequences/assign-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(`Error: ${data.error}`);
+        return;
+      }
+      const s = data.summary || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
+      setMessage(
+        `${s.assigned} assigned (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored. ` +
+        `Cron will render due steps within 15 min.`,
+      );
+      setSelected(new Set());
+      setTimeout(() => window.location.reload(), 1500);
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   const counts = {
     all: partners.length,
     scored: partners.filter(p => matchesFilter(p.status, 'scored')).length,
@@ -161,7 +247,7 @@ export function PipelineTable({
       </div>
 
       {/* Status filter tabs */}
-      <div className="flex gap-1 mb-4 border-b border-dark-700 pb-2">
+      <div className="flex gap-1 mb-2 border-b border-dark-700 pb-2 flex-wrap">
         {FILTER_TABS.map(tab => (
           <button
             key={tab.key}
@@ -177,9 +263,32 @@ export function PipelineTable({
         ))}
       </div>
 
+      {/* Source filter tabs — LinkedIn 1st / 2nd / cold / Brave */}
+      <div className="flex gap-1 mb-4 flex-wrap">
+        {SOURCE_TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setSourceFilter(tab.key); setSelected(new Set()); }}
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sourceFilter === tab.key
+                ? tab.key === 'linkedin_1st'
+                  ? 'bg-corp-green-500/20 text-corp-green-400'
+                  : tab.key === 'linkedin_2nd'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : tab.key === 'brave'
+                  ? 'bg-purple-500/20 text-purple-400'
+                  : 'bg-dark-700 text-dark-200'
+                : 'text-dark-400 hover:text-white hover:bg-dark-800'
+            }`}
+          >
+            {tab.label} <span className="text-dark-500 ml-1">{sourceCounts[tab.key]}</span>
+          </button>
+        ))}
+      </div>
+
       {/* Action bar */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-dark-800 rounded-lg">
+        <div className="flex items-center gap-3 mb-4 p-3 bg-dark-800 rounded-lg flex-wrap">
           <span className="text-sm text-dark-300">{selected.size} selected</span>
           <button
             onClick={() => batchAction('enrich')}
@@ -194,6 +303,15 @@ export function PipelineTable({
             className="btn-secondary text-sm py-1 px-3"
           >
             {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Draft Selected'}
+          </button>
+          <button
+            onClick={batchAssignSequences}
+            disabled={loading !== null}
+            className="btn-primary text-sm py-1 px-3 inline-flex items-center gap-1.5"
+            title="Auto-routes: 1st-degree → warm DM sequence, others → cold sequence. Skips partners already on a sequence."
+          >
+            {loading === 'assign' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+            Assign Sequences
           </button>
           <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white ml-auto">
             Clear
@@ -250,22 +368,7 @@ export function PipelineTable({
                         </div>
                       )}
                       <span className="font-medium">{p.company_name}</span>
-                      {p.network_distance === '1st' && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-corp-green-500/15 text-corp-green-400 font-medium"
-                          title="1st-degree LinkedIn connection — warm DM template, no connect step"
-                        >
-                          1st
-                        </span>
-                      )}
-                      {p.network_distance === '2nd' && (
-                        <span
-                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium"
-                          title="2nd-degree LinkedIn connection — warm cold sequence"
-                        >
-                          2nd
-                        </span>
-                      )}
+                      <SourceBadge partner={p} />
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-dark-400 text-sm">{p.category || '—'}</td>
@@ -301,5 +404,48 @@ export function PipelineTable({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Compact source/tier badge for each row. Shows the most specific label
+ * available: 'LI 1st' (warm), 'LI 2nd', 'LI cold', or 'Brave'. Hidden
+ * when source is unknown so we don't pollute legacy rows that pre-date
+ * the source column.
+ */
+function SourceBadge({ partner }: { partner: Partner }) {
+  const tier = sourceTierFor(partner);
+  if (tier === 'all') return null;
+
+  const config: Record<Exclude<SourceTierKey, 'all'>, { label: string; cls: string; title: string }> = {
+    linkedin_1st: {
+      label: 'LI 1st',
+      cls: 'bg-corp-green-500/15 text-corp-green-400',
+      title: '1st-degree LinkedIn connection — warm DM template, no connect step',
+    },
+    linkedin_2nd: {
+      label: 'LI 2nd',
+      cls: 'bg-blue-500/15 text-blue-400',
+      title: '2nd-degree LinkedIn connection — cold sequence with credit-signal extraction',
+    },
+    linkedin_cold: {
+      label: 'LI cold',
+      cls: 'bg-dark-700 text-dark-300',
+      title: 'LinkedIn search result, not a connection — full cold sequence with connect request',
+    },
+    brave: {
+      label: 'Brave',
+      cls: 'bg-purple-500/15 text-purple-400',
+      title: 'Discovered via Brave web search — company-level row, needs enrichment for email',
+    },
+  };
+  const c = config[tier];
+  return (
+    <span
+      className={`text-[10px] px-1.5 py-0.5 rounded font-medium ${c.cls}`}
+      title={c.title}
+    >
+      {c.label}
+    </span>
   );
 }

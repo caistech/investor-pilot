@@ -30,6 +30,10 @@ export interface PartnerUpsertData {
   // Tier-prioritised discovery: '1st' = direct LinkedIn connection (warm DM
   // template, no connect step). '2nd' = mutual connection. 'cold' = no path.
   network_distance?: '1st' | '2nd' | 'cold';
+  // Which discovery engine surfaced this row. Persists 'source' from the
+  // candidate so the Prospects view can filter LinkedIn vs Brave and so
+  // sequence routing can pick the right template without inference.
+  source?: 'linkedin' | 'sales_nav' | 'brave' | 'manual';
 }
 
 export interface ContactData {
