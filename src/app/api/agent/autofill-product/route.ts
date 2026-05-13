@@ -34,16 +34,22 @@ export async function POST(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { name, description, source_url, source_text, product_id } = await request.json();
-
-  if (!name && !source_url && !source_text) {
-    return NextResponse.json({ error: 'Provide a product name, URL, or text' }, { status: 400 });
-  }
+  const payload = await request.json();
+  const { description, source_url, source_text, product_id } = payload as {
+    description?: string;
+    source_url?: string;
+    source_text?: string;
+    product_id?: string;
+  };
+  let name: string | undefined = payload?.name;
 
   // Build context from available sources
   let sourceContent = '';
+  let kbHasContent = false;
 
-  // Include existing knowledge base if product_id provided
+  // Include existing knowledge base if product_id provided. Also pull the
+  // product's existing name as the implicit seed so a "re-generate from KB"
+  // call from the SourceManager button works without resending name.
   if (product_id) {
     const { data: existingSources } = await supabase
       .from('product_sources')
@@ -57,8 +63,27 @@ export async function POST(request: Request) {
         .map((s: { title: string; content: string }) => `--- ${s.title} ---\n${s.content}`)
         .join('\n\n')
         .slice(0, 10000);
-      sourceContent += `\n\nEXISTING KNOWLEDGE BASE:\n${kbContent}`;
+      if (kbContent.trim()) {
+        sourceContent += `\n\nEXISTING KNOWLEDGE BASE:\n${kbContent}`;
+        kbHasContent = true;
+      }
     }
+
+    if (!name) {
+      const { data: existingProduct } = await supabase
+        .from('products')
+        .select('name')
+        .eq('id', product_id)
+        .single();
+      name = existingProduct?.name;
+    }
+  }
+
+  if (!name && !source_url && !source_text && !kbHasContent) {
+    return NextResponse.json(
+      { error: 'Provide a product name, URL, text, or upload sources to the Knowledge Base first' },
+      { status: 400 }
+    );
   }
 
   if (source_url) {

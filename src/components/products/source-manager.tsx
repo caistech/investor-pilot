@@ -3,9 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   Globe, FileText, Type, Upload, Loader2, Trash2,
-  CheckCircle, XCircle, FileUp, Link2, AlertTriangle,
+  CheckCircle, XCircle, FileUp, Link2, AlertTriangle, Sparkles,
 } from 'lucide-react';
 import type { ProductSource } from '@/lib/types';
+import { createClient } from '@/lib/supabase/client';
 
 interface SourceManagerProps {
   productId: string;
@@ -24,7 +25,10 @@ export default function SourceManager({ productId }: SourceManagerProps) {
   const [textInput, setTextInput] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [autofilling, setAutofilling] = useState(false);
+  const [autofillStatus, setAutofillStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const supabase = createClient();
 
   const loadSources = useCallback(async () => {
     const res = await fetch(`/api/sources?product_id=${productId}`);
@@ -133,6 +137,64 @@ export default function SourceManager({ productId }: SourceManagerProps) {
     loadSources();
   }
 
+  // Read uploaded sources, ask Claude to rewrite the product's ICP fields
+  // using them, then write the result straight back to the products row.
+  // This is the docs-first auto-fill: upload PDFs/URLs → click here → ICP
+  // fields reflect the actual material rather than a guess from the name.
+  async function autofillFromKB() {
+    setAutofilling(true);
+    setError(null);
+    setAutofillStatus('idle');
+    try {
+      const res = await fetch('/api/agent/autofill-product', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || 'Auto-fill failed');
+        setAutofillStatus('error');
+        return;
+      }
+
+      // Apply the returned profile to the product row.
+      const update: Record<string, unknown> = {};
+      const keys = [
+        'name', 'one_sentence_description', 'core_mechanism', 'customer_outcomes',
+        'icp_company_size', 'icp_stage', 'icp_verticals', 'icp_buyer_title',
+        'icp_user_title', 'icp_stack_tools', 'traction_arr', 'traction_customers',
+        'partner_types', 'exclusions',
+      ] as const;
+      for (const k of keys) {
+        if (typeof data[k] === 'string' && data[k].trim()) update[k] = data[k];
+      }
+
+      const { error: updateError } = await supabase
+        .from('products')
+        .update(update)
+        .eq('id', productId);
+
+      if (updateError) {
+        setError(updateError.message);
+        setAutofillStatus('error');
+        return;
+      }
+
+      setAutofillStatus('success');
+      // Reload after a short pause so the operator sees the success state,
+      // then the parent products list re-renders with the new ICP fields.
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Auto-fill failed');
+      setAutofillStatus('error');
+    } finally {
+      setAutofilling(false);
+    }
+  }
+
+  const completedSources = sources.filter(s => s.processing_status === 'completed').length;
+
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
@@ -226,6 +288,37 @@ export default function SourceManager({ productId }: SourceManagerProps) {
           ))}
         </div>
       ) : null}
+
+      {/* Auto-fill from KB — the docs-first action. Visible whenever sources
+          are present so the operator can re-run after each upload. */}
+      {completedSources > 0 && (
+        <div className="mb-4 p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-medium text-corp-green-400">Auto-fill ICP from these sources</p>
+              <p className="text-dark-500 text-xs mt-0.5">
+                Re-reads the {completedSources} uploaded source{completedSources > 1 ? 's' : ''} and rewrites the product&apos;s ICP fields (description, buyer title, verticals, exclusions, etc.). Run this after uploading PDFs so the AI works from the canonical material, not just the product name.
+              </p>
+            </div>
+            <button
+              onClick={autofillFromKB}
+              disabled={autofilling}
+              className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40"
+            >
+              {autofilling ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Reading sources…</>
+              ) : (
+                <><Sparkles className="w-4 h-4" /> Auto-fill from KB</>
+              )}
+            </button>
+          </div>
+          {autofillStatus === 'success' && (
+            <p className="text-corp-green-400 text-xs mt-2 flex items-center gap-1.5">
+              <CheckCircle className="w-3.5 h-3.5" /> ICP fields updated. Reloading…
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Add source buttons */}
       {!addMode && (

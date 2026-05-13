@@ -308,6 +308,15 @@ export default function ProductsPage() {
         <form onSubmit={handleSave} className="card mb-8">
           <h3 className="mb-4">{editingId ? 'Edit Product' : 'New Product Profile'}</h3>
 
+          {!filled && !editingId && (
+            <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-dark-300">
+              <p className="font-medium text-blue-400 mb-1">💡 If you have PDFs or memoranda, save now and skip auto-fill</p>
+              <p className="text-dark-400">
+                Type a name, click <span className="text-dark-200">Create Product</span>, then upload your PDFs in the Knowledge Base on the expanded card. The <span className="text-corp-green-400">Auto-fill from KB</span> button on the saved product reads those docs and writes ICP fields that reflect the actual material — way more accurate than guessing from a URL.
+              </p>
+            </div>
+          )}
+
           {/* Source mode tabs */}
           {!filled && !editingId && (
             <div className="flex gap-1 p-1 bg-dark-800 rounded-lg mb-6 w-fit">
