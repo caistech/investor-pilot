@@ -42,14 +42,21 @@ export async function POST() {
     // priority order and fall back to dumping the raw keys for diagnosis.
     const providerRaw = pickProvider(acct);
 
-    const channelType = providerRaw ? mapProviderToChannelType(providerRaw) : null;
+    if (!providerRaw) {
+      skipped.push({
+        account_id: acct.id,
+        provider: `undefined (keys: ${Object.keys(acct).join(',')})`,
+        reason: `Could not determine provider — raw account: ${JSON.stringify(acct).slice(0, 400)}`,
+      });
+      continue;
+    }
+
+    const channelType = mapProviderToChannelType(providerRaw);
     if (!channelType) {
       skipped.push({
         account_id: acct.id,
-        provider: providerRaw || `undefined (keys: ${Object.keys(acct).join(',')})`,
-        reason: providerRaw
-          ? `Provider ${providerRaw} not in our channel_type CHECK constraint (linkedin|email|calendar)`
-          : `Could not determine provider — raw account: ${JSON.stringify(acct).slice(0, 400)}`,
+        provider: providerRaw,
+        reason: `Provider ${providerRaw} not in our channel_type CHECK constraint (linkedin|email|calendar)`,
       });
       continue;
     }
