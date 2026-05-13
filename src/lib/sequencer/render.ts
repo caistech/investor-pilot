@@ -50,6 +50,10 @@ export interface RenderPartner {
   complementarity_notes: string | null;
   partner_readiness_notes: string | null;
   weighted_score: number | null;
+  // Project-scoped URLs from the Knowledge Base (product_sources where
+  // source_type='url' AND project_id matches partner.project_id). Caller
+  // fetches and passes them through so renderStep stays pure (no db).
+  project_url_refs?: string[];
 }
 
 export interface RenderedMessage {
@@ -89,7 +93,7 @@ Short context: F2K (factory2key.com.au) is placing senior debt directly into two
 Open to either facility individually or combined. Lenders pari-passu in syndicate.
 
 If a 20-minute credit conversation is useful, I can share the V10 Finance Submissions and project models. {credit_signal} suggested fit. If not relevant, completely understand.
-
+{project_urls_block}
 — {sender_name}
 {sender_role}`,
     max_chars: 2000, // LinkedIn DM ~8k char limit, we cap shorter
@@ -110,7 +114,7 @@ F2K is placing $18.7M senior debt directly with selected lenders across two Aust
 Both pari-passu, wholesale, fixed-term. Lenders can take either facility individually or both. Typical ticket band $1-5M.
 
 V10 Finance Submissions and project models available on request. If a 20-minute credit conversation is useful, reply here and I'll send a calendar link.
-
+{project_urls_block}
 — {sender_name}
 {sender_role}`,
     max_chars: 2500,
@@ -171,7 +175,7 @@ F2K Capital`,
 Pari-passu syndicate, $1-5M tickets typical. V10 Finance Submissions + credit models available.
 
 Worth a 20-min credit conversation? No expectation either way — figured you'd want first look given F2K's on your radar.
-
+{project_urls_block}
 — {sender_name}`,
     max_chars: 2000,
   },
@@ -253,12 +257,21 @@ export async function renderStep(
     signal = extracted;
   }
 
+  // Format the project URLs as a self-contained block so templates can drop
+  // {project_urls_block} on its own line. Empty when no URLs are configured
+  // for this partner's project — the surrounding newlines collapse cleanly.
+  const urls = (partner.project_url_refs || []).filter(u => u && u.trim());
+  const projectUrlsBlock = urls.length === 0
+    ? ''
+    : `\nProject details: ${urls.join(' · ')}\n`;
+
   const vars: Record<string, string> = {
     first_name: firstName,
     firm: partner.company_name,
     credit_signal: signal?.short || '',
     credit_signal_lead: signal?.lead || '',
     credit_signal_lead_short: signal?.leadShort || '',
+    project_urls_block: projectUrlsBlock,
     sender_name: SENDER_NAME,
     sender_role: SENDER_ROLE,
   };

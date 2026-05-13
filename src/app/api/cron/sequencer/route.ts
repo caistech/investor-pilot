@@ -94,7 +94,7 @@ async function runSequencer() {
           .single(),
         db
           .from('partners')
-          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score')
+          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id')
           .eq('id', step.partner_id)
           .single(),
         db
@@ -141,6 +141,14 @@ async function runSequencer() {
         continue;
       }
 
+      // Pull KB URLs scoped to this partner's project (or product if the
+      // partner predates the project model). The renderer injects them via
+      // the {project_urls_block} placeholder on first-touch templates.
+      const projectUrlRefs = await fetchProjectUrls(db, {
+        project_id: partner.project_id || null,
+        product_id: partner.product_id || null,
+      });
+
       const renderPartner: RenderPartner = {
         id: partner.id,
         company_name: partner.company_name,
@@ -150,6 +158,7 @@ async function runSequencer() {
         complementarity_notes: partner.complementarity_notes,
         partner_readiness_notes: partner.partner_readiness_notes,
         weighted_score: partner.weighted_score,
+        project_url_refs: projectUrlRefs,
       };
 
       const rendered = await renderStep(tplStep.template_key, renderPartner);
@@ -259,6 +268,41 @@ async function markStep(db: ReturnType<typeof createServiceClient>, stepId: stri
     .from('sequence_steps')
     .update({ status })
     .eq('id', stepId);
+}
+
+/**
+ * Fetch completed URL-type KB sources scoped to this partner's project (or
+ * product, for legacy rows). Returns the unique URL list, capped at 4 so a
+ * KB with many references doesn't blow LinkedIn's char limits. Returns []
+ * if the partner has no project/product linkage or no URL sources.
+ */
+async function fetchProjectUrls(
+  db: ReturnType<typeof createServiceClient>,
+  ref: { project_id: string | null; product_id: string | null },
+): Promise<string[]> {
+  if (!ref.project_id && !ref.product_id) return [];
+
+  let query = db
+    .from('product_sources')
+    .select('url')
+    .eq('source_type', 'url')
+    .eq('processing_status', 'completed')
+    .not('url', 'is', null);
+
+  if (ref.project_id) {
+    query = query.eq('project_id', ref.project_id);
+  } else if (ref.product_id) {
+    query = query.eq('product_id', ref.product_id);
+  }
+
+  const { data } = await query;
+  if (!data) return [];
+
+  const urls = data
+    .map((r: { url: string | null }) => (r.url || '').trim())
+    .filter((u: string) => u.length > 0);
+
+  return Array.from(new Set(urls)).slice(0, 4);
 }
 
 function authorized(request: Request): boolean {
