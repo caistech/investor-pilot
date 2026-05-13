@@ -37,10 +37,15 @@ export const maxDuration = 300; // 5 min, Vercel Pro limit
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 type NetworkTier = '1st' | '2nd' | 'cold';
 
-const SCORING_CONCURRENCY = 5;          // simultaneous Claude scoring calls
-const SEARCH_CONCURRENCY = 3;           // simultaneous LinkedIn/Brave queries
+// Tuned to finish reliably inside 60s (Vercel Pro default function timeout)
+// even if maxDuration=300 hasn't propagated. Bigger batches are still possible
+// via explicit { query_count, sources, network_tiers } in the request body.
+const DEFAULT_QUERY_COUNT = 5;          // was 8
+const SCORING_CONCURRENCY = 8;          // simultaneous Claude scoring calls (was 5)
+const SEARCH_CONCURRENCY = 4;           // simultaneous LinkedIn/Brave queries (was 3)
 const CANDIDATES_PER_QUERY = 10;
-const MAX_TOTAL_CANDIDATES = 80;        // hard cap so a runaway batch can't blow budget
+const MAX_TOTAL_CANDIDATES = 50;        // hard cap; was 80
+const SEARCH_TIMEOUT_MS = 15_000;       // per-search timeout — one stuck Unipile call can't kill the batch
 
 // Tier → LinkedIn network_distance filter value (per LinkedIn API convention).
 const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, 'F' | 'S' | 'O'> = {
@@ -144,7 +149,7 @@ export async function POST(request: Request) {
       url: s.url,
       content: s.content,
     })),
-    count: query_count,
+    count: query_count || DEFAULT_QUERY_COUNT,
   });
 
   if (!queryGen.ok) {
@@ -194,7 +199,7 @@ export async function POST(request: Request) {
   for (let i = 0; i < jobs.length; i += SEARCH_CONCURRENCY) {
     const batch = jobs.slice(i, i + SEARCH_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(j => fetchCandidates(j, linkedinAccountId))
+      batch.map(j => withTimeout(fetchCandidates(j, linkedinAccountId), SEARCH_TIMEOUT_MS, j))
     );
     results.forEach((r, idx) => {
       const job = batch[idx];
@@ -310,6 +315,30 @@ export async function POST(request: Request) {
     candidates_failed: scoredResults.filter(r => r.status === 'error').length,
     search_errors: errors,
     top_results: topResults,
+  });
+}
+
+/**
+ * Wrap any promise with a hard timeout. Used per-search call so a hung Unipile
+ * request can't block the entire batch's wall clock budget — a slow search
+ * gets aborted and recorded as an error, the batch continues with the others.
+ */
+function withTimeout<T>(
+  p: Promise<{ ok: true; candidates: ScoreCandidateInput[] } | { ok: false; error: string }>,
+  ms: number,
+  job: { query: string; source: DiscoverSource; tier: NetworkTier },
+): Promise<{ ok: true; candidates: ScoreCandidateInput[] } | { ok: false; error: string }> {
+  return new Promise(resolve => {
+    const timer = setTimeout(() => {
+      resolve({ ok: false, error: `Search timed out after ${ms}ms for ${job.source}/${job.tier} "${job.query}"` });
+    }, ms);
+    p.then(result => {
+      clearTimeout(timer);
+      resolve(result);
+    }).catch(err => {
+      clearTimeout(timer);
+      resolve({ ok: false, error: err instanceof Error ? err.message : String(err) });
+    });
   });
 }
 
