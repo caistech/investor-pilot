@@ -262,10 +262,35 @@ export async function createHostedAuthLink(opts: {
     }
     return { ok: true, url: json.url, expires_at: json.expires_at || '' };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error('[unipile.createHostedAuthLink] fetch failed:', msg);
-    return { ok: false, error: `Network/fetch error: ${msg}` };
+    // Node 18+ fetch wraps real errors as TypeError("fetch failed") with the
+    // actual cause attached. Unwrap chain so we see DNS / connection / TLS
+    // details instead of the opaque "fetch failed".
+    const detail = formatFetchError(err);
+    console.error('[unipile.createHostedAuthLink] %s — URL: %s', detail, `${UNIPILE_BASE_URL}/api/v1/hosted/accounts/link`);
+    return { ok: false, error: `Network/fetch error calling ${UNIPILE_BASE_URL}: ${detail}` };
   }
+}
+
+function formatFetchError(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const parts: string[] = [err.message];
+  let cause: unknown = (err as Error & { cause?: unknown }).cause;
+  let depth = 0;
+  while (cause && depth < 4) {
+    if (cause instanceof Error) {
+      const c = cause as Error & { code?: string; errno?: number; hostname?: string };
+      const bits = [c.message];
+      if (c.code) bits.push(`code=${c.code}`);
+      if (c.hostname) bits.push(`host=${c.hostname}`);
+      parts.push(bits.join(' '));
+      cause = c.cause;
+    } else {
+      parts.push(String(cause));
+      cause = undefined;
+    }
+    depth += 1;
+  }
+  return parts.join(' ← ');
 }
 
 // =============================================================================
