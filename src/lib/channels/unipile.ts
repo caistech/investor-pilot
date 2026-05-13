@@ -405,7 +405,14 @@ export async function searchLinkedInPeople(input: {
   if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
 
   try {
-    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`, {
+    // Unipile expects account_id as a URL query parameter, not in the body.
+    // Validated by spike test 3.11 (doc 08) on 2026-05-13 — request with
+    // account_id in body returns 400 with schema title "AccountIdParam"
+    // and schema path "/account_id".
+    const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
+    url.searchParams.set('account_id', input.account_id);
+
+    const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
         'X-API-KEY': UNIPILE_API_KEY,
@@ -413,7 +420,6 @@ export async function searchLinkedInPeople(input: {
         'accept': 'application/json',
       },
       body: JSON.stringify({
-        account_id: input.account_id,
         api: 'classic', // 'classic' (free) | 'sales_navigator'
         category: 'people',
         keywords: input.filters.keywords || '',
@@ -461,7 +467,11 @@ export async function searchSalesNavigator(input: {
   if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
 
   try {
-    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`, {
+    // Same as searchLinkedInPeople — account_id as query param, not body.
+    const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
+    url.searchParams.set('account_id', input.account_id);
+
+    const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
         'X-API-KEY': UNIPILE_API_KEY,
@@ -469,7 +479,6 @@ export async function searchSalesNavigator(input: {
         'accept': 'application/json',
       },
       body: JSON.stringify({
-        account_id: input.account_id,
         api: 'sales_navigator',
         category: 'people',
         keywords: input.filters.keywords || '',
