@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Search, Upload, Loader2, CheckCircle, XCircle, ArrowRight, Send, Globe2, Briefcase } from 'lucide-react';
+import { Search, Upload, Loader2, CheckCircle, XCircle, ArrowRight, Send, Globe2, Briefcase, Package } from 'lucide-react';
 import Link from 'next/link';
+import { createClient } from '@/lib/supabase/client';
 
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 
@@ -13,6 +14,11 @@ interface DiscoverResult {
   weighted_score?: number;
   source?: DiscoverSource;
   error?: string;
+}
+
+interface ProductOption {
+  id: string;
+  name: string;
 }
 
 const SOURCE_LABELS: Record<DiscoverSource, { label: string; description: string; icon: typeof Search }> = {
@@ -41,24 +47,36 @@ export default function DiscoverPage() {
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<DiscoverResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [linkedInConnected, setLinkedInConnected] = useState<boolean | null>(null);
+  const [products, setProducts] = useState<ProductOption[]>([]);
+  const [selectedProductId, setSelectedProductId] = useState<string>('');
+  const supabase = createClient();
 
-  // Detect whether a LinkedIn channel is connected so we can default sensibly.
+  // Load active products so the operator can pick which one drives discovery
+  // scoring context. Without this, the route silently uses the first product
+  // and you get nonsense for multi-product orgs.
   useEffect(() => {
     let cancelled = false;
-    fetch('/api/partners')
-      .then(() => fetch('/api/channels/sync', { method: 'GET' }).catch(() => null))
-      .catch(() => null);
-
-    // Cheap connected-check via a lightweight pull. We rely on the /channels
-    // page for the canonical view; here we just toggle the default source.
-    fetch('/api/sessions')
-      .then(r => r.json())
-      .catch(() => null)
-      .finally(() => {
-        if (!cancelled) setLinkedInConnected(true); // optimistic; user can flip manually
-      });
+    (async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('organisation_id')
+        .eq('id', user.id)
+        .single();
+      if (!profile?.organisation_id) return;
+      const { data } = await supabase
+        .from('products')
+        .select('id, name')
+        .eq('organisation_id', profile.organisation_id)
+        .eq('is_active', true)
+        .order('created_at', { ascending: false });
+      if (cancelled || !data) return;
+      setProducts(data as ProductOption[]);
+      if (data.length > 0) setSelectedProductId(data[0].id);
+    })();
     return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   function toggleSource(s: DiscoverSource) {
@@ -81,7 +99,7 @@ export default function DiscoverPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: 'auto',
+          product_id: selectedProductId || 'auto',
           organisation_id: 'auto',
           sources,
           ...(mode === 'search' ? { query } : {}),
@@ -104,13 +122,41 @@ export default function DiscoverPage() {
   }
 
   const sourceUsesQuery = sources.some(s => s === 'linkedin' || s === 'sales_nav' || s === 'brave');
-  const linkedInSelected = sources.includes('linkedin') || sources.includes('sales_nav');
 
   return (
     <div>
-      <div className="mb-8">
+      <div className="mb-6">
         <h1>Discover Prospects</h1>
         <p className="text-dark-400 mt-1">Find and score new investor prospects</p>
+      </div>
+
+      {/* Product picker — drives scoring context. Without an active product
+          discovery doesn't know what facility it's evaluating lenders for. */}
+      <div className="card mb-6">
+        <div className="flex items-start gap-3">
+          <Package className="w-5 h-5 text-corp-green-400 mt-0.5 flex-shrink-0" />
+          <div className="flex-1">
+            <h4 className="text-sm">Product / project</h4>
+            <p className="text-dark-500 text-xs mt-0.5 mb-2">
+              The product context (name, ICP fields, Knowledge Base) drives the scoring prompt — every candidate is evaluated against THIS product&apos;s ICP.
+            </p>
+            {products.length === 0 ? (
+              <p className="text-amber-400 text-xs">
+                No active products. <Link href="/products" className="underline">Create or activate one</Link> first.
+              </p>
+            ) : (
+              <select
+                value={selectedProductId}
+                onChange={e => setSelectedProductId(e.target.value)}
+                className="w-full bg-dark-800 border border-dark-700 rounded px-3 py-2 text-sm focus:border-corp-green-500 focus:outline-none"
+              >
+                {products.map(p => (
+                  <option key={p.id} value={p.id}>{p.name}</option>
+                ))}
+              </select>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* Mode toggle */}
@@ -173,11 +219,6 @@ export default function DiscoverPage() {
               );
             })}
           </div>
-          {linkedInSelected && linkedInConnected === false && (
-            <p className="text-amber-400 text-xs mt-3">
-              ⚠ No active LinkedIn channel detected. Connect one at <Link href="/channels" className="underline">Channels</Link> first, or switch to Web (Brave).
-            </p>
-          )}
         </div>
       )}
 
@@ -216,7 +257,7 @@ export default function DiscoverPage() {
 
         <button
           onClick={handleDiscover}
-          disabled={loading || (mode === 'search' ? !query.trim() || !sourceUsesQuery : !domains.trim())}
+          disabled={loading || !selectedProductId || (mode === 'search' ? !query.trim() || !sourceUsesQuery : !domains.trim())}
           className="btn-primary mt-4 flex items-center gap-2"
         >
           {loading ? (
