@@ -236,6 +236,7 @@ export default function ProductsPage() {
     candidates_unique: number;
     tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
     top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
+    search_errors?: Array<{ query: string; source: string; tier: string; error: string }>;
     error?: string;
   } | null>(null);
 
@@ -279,6 +280,7 @@ export default function ProductsPage() {
           candidates_unique: data.candidates_unique || 0,
           tier_breakdown: data.tier_breakdown,
           top_results: data.top_results || [],
+          search_errors: data.search_errors || [],
         });
       }
     } catch (err) {
@@ -642,6 +644,24 @@ export default function ProductsPage() {
                                     <li key={i} className="flex flex-col gap-0.5 pl-2 border-l border-dark-700">
                                       <code className="text-corp-green-300">{q.query}</code>
                                       <span className="text-dark-600 text-[10px]">{q.category} — {q.rationale}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+
+                            {findResult.search_errors && findResult.search_errors.length > 0 && (
+                              <details className="text-xs" open={findResult.candidates_scored === 0}>
+                                <summary className="text-red-400 cursor-pointer hover:text-red-300">
+                                  ⚠ Search errors ({findResult.search_errors.length})
+                                </summary>
+                                <ul className="mt-2 space-y-1 text-red-300">
+                                  {findResult.search_errors.map((e, i) => (
+                                    <li key={i} className="flex flex-col gap-0.5 pl-2 border-l border-red-500/30">
+                                      <span className="font-mono text-[10px] text-red-400">
+                                        {e.source} / {e.tier} — {e.query}
+                                      </span>
+                                      <code className="text-red-300 text-[10px] break-all">{e.error}</code>
                                     </li>
                                   ))}
                                 </ul>
