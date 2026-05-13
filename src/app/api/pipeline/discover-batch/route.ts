@@ -47,11 +47,15 @@ const CANDIDATES_PER_QUERY = 10;
 const MAX_TOTAL_CANDIDATES = 50;        // hard cap; was 80
 const SEARCH_TIMEOUT_MS = 15_000;       // per-search timeout — one stuck Unipile call can't kill the batch
 
-// Tier → LinkedIn network_distance filter value (per LinkedIn API convention).
-const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, 'F' | 'S' | 'O'> = {
-  '1st': 'F',
-  '2nd': 'S',
-  'cold': 'O',
+// Tier → Unipile's network_distance integer-array filter. Per the docs at
+// developer.unipile.com/docs/linkedin-search, classic search expects integers
+// [1, 2, 3] representing 1st/2nd/3rd-degree connections. 'cold' uses [3] to
+// capture 3rd-degree and further; omitting the filter altogether (no key)
+// returns all degrees which dilutes the tier breakdown.
+const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, number[]> = {
+  '1st': [1],
+  '2nd': [2],
+  'cold': [3],
 };
 
 export async function POST(request: Request) {

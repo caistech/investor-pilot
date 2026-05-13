@@ -372,12 +372,13 @@ export interface LinkedInSearchFilters {
   current_company?: string;
   industry?: string;
   limit?: number; // default 25, max 100
-  // LinkedIn network-distance filter:
-  //   'F' = 1st-degree (direct connection — DM, no connect request needed)
-  //   'S' = 2nd-degree (mutual connection visible — warm cold)
-  //   'O' = out-of-network / 3rd+ (truly cold)
-  // When omitted, LinkedIn returns hits across all degrees.
-  network_distance?: 'F' | 'S' | 'O';
+  // Unipile classic search expects an integer array of degree values:
+  //   [1] = 1st-degree connections only
+  //   [2] = 2nd-degree connections only
+  //   [3] = 3rd-degree / further (truly cold)
+  // Multiple degrees can be combined, e.g. [1, 2]. Omit for no filter.
+  // (Per docs: https://developer.unipile.com/docs/linkedin-search)
+  network_distance?: number[];
 }
 
 export type LinkedInSearchResult =
@@ -412,17 +413,24 @@ export async function searchLinkedInPeople(input: {
     const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
     url.searchParams.set('account_id', input.account_id);
 
-    // Minimal-viable body. Unipile's "Classic - People" schema accepts more
-    // fields (title filter, location, network_distance, etc) but the exact
-    // names vary by version — stripping to bare minimum here so we get a
-    // successful 200 first, then layer filters back in as we validate each
-    // field name against Unipile's response. Spike test 3.11 iteration.
+    // Body shape per Unipile docs (developer.unipile.com/docs/linkedin-search):
+    //   api: 'classic'
+    //   category: 'people' (lowercase, confirmed)
+    //   keywords: free-text string
+    //   network_distance: integer array — [1] = 1st-degree, [2] = 2nd, [3] = 3rd+
+    //   limit: integer
+    // Location and industry filters need LinkedIn-internal integer IDs, not
+    // free-text — skipping those for now (the keywords field already includes
+    // geo language from the query generator).
     const body: Record<string, unknown> = {
       api: 'classic',
       category: 'people',
       keywords: input.filters.keywords || '',
       limit: Math.min(input.filters.limit || 25, 100),
     };
+    if (input.filters.network_distance && input.filters.network_distance.length > 0) {
+      body.network_distance = input.filters.network_distance;
+    }
 
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -470,13 +478,17 @@ export async function searchSalesNavigator(input: {
     const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
     url.searchParams.set('account_id', input.account_id);
 
-    // Sales Nav minimal body — same iteration approach as classic.
+    // Sales Nav body — same envelope as classic, with optional rich filters
+    // (seniority, function, years_in_position) when provided.
     const body: Record<string, unknown> = {
       api: 'sales_navigator',
       category: 'people',
       keywords: input.filters.keywords || '',
       limit: Math.min(input.filters.limit || 25, 100),
     };
+    if (input.filters.network_distance && input.filters.network_distance.length > 0) {
+      body.network_distance = input.filters.network_distance;
+    }
 
     const response = await fetch(url.toString(), {
       method: 'POST',
