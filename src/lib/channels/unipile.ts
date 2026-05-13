@@ -193,36 +193,78 @@ export async function pauseAccount(account_id: string): Promise<boolean> {
 // OAuth — Unipile-hosted connect flow
 // =============================================================================
 
+export type CreateHostedAuthLinkResult =
+  | { ok: true; url: string; expires_at: string }
+  | { ok: false; error: string };
+
 export async function createHostedAuthLink(opts: {
   provider: 'linkedin' | 'gmail' | 'outlook';
   organisation_id: string;
   return_url: string;
-}): Promise<{ url: string; expires_at: string } | null> {
-  // Unipile provides hosted auth pages — we redirect the operator to a
-  // signed URL and they complete OAuth on Unipile's domain. On success,
-  // Unipile webhook fires and we receive the account_id to store.
+}): Promise<CreateHostedAuthLinkResult> {
+  if (!UNIPILE_API_KEY) {
+    return { ok: false, error: 'UNIPILE_API_KEY env var is not set on the server' };
+  }
+  if (!process.env.UNIPILE_BASE_URL) {
+    return {
+      ok: false,
+      error: 'UNIPILE_BASE_URL env var is not set. Each Unipile account has its own DSN (Data Source Name) URL — find yours in the Unipile dashboard (typically https://apiX.unipile.com:13XXX) and set UNIPILE_BASE_URL to that value in Vercel and locally.',
+    };
+  }
+  if (!process.env.NEXT_PUBLIC_APP_URL) {
+    return { ok: false, error: 'NEXT_PUBLIC_APP_URL env var is not set — needed for webhook notify URL' };
+  }
+
+  // Unipile hosted auth wizard expects expiresOn — give it 24h.
+  const expiresOn = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+
+  const body = {
+    type: 'create',
+    providers: [opts.provider.toUpperCase()],
+    api_url: UNIPILE_BASE_URL,
+    expiresOn,
+    success_redirect_url: opts.return_url,
+    failure_redirect_url: opts.return_url + '?error=oauth_failed',
+    notify_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/unipile/account`,
+    name: opts.organisation_id, // Unipile passes this back in the webhook
+  };
+
   try {
     const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/hosted/accounts/link`, {
       method: 'POST',
       headers: {
-        'X-API-Key': UNIPILE_API_KEY,
+        'X-API-KEY': UNIPILE_API_KEY,
         'Content-Type': 'application/json',
+        'accept': 'application/json',
       },
-      body: JSON.stringify({
-        type: 'create',
-        providers: [opts.provider.toUpperCase()],
-        api_url: UNIPILE_BASE_URL,
-        success_redirect_url: opts.return_url,
-        failure_redirect_url: opts.return_url + '?error=oauth_failed',
-        notify_url: process.env.NEXT_PUBLIC_APP_URL + '/api/webhooks/unipile/account',
-        name: opts.organisation_id, // Unipile passes this back in the webhook
-      }),
+      body: JSON.stringify(body),
     });
-    if (!response.ok) return null;
-    const json = await response.json();
-    return { url: json.url, expires_at: json.expires_at };
-  } catch {
-    return null;
+
+    const text = await response.text();
+    if (!response.ok) {
+      // Surface Unipile's actual error so we can debug.
+      console.error('[unipile.createHostedAuthLink] %d: %s', response.status, text);
+      return {
+        ok: false,
+        error: `Unipile ${response.status} ${response.statusText}: ${text.slice(0, 500)}`,
+      };
+    }
+
+    let json: { url?: string; expires_at?: string } = {};
+    try {
+      json = JSON.parse(text);
+    } catch {
+      return { ok: false, error: `Unipile returned non-JSON: ${text.slice(0, 200)}` };
+    }
+
+    if (!json.url) {
+      return { ok: false, error: `Unipile responded 200 but no url field: ${JSON.stringify(json).slice(0, 200)}` };
+    }
+    return { ok: true, url: json.url, expires_at: json.expires_at || '' };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[unipile.createHostedAuthLink] fetch failed:', msg);
+    return { ok: false, error: `Network/fetch error: ${msg}` };
   }
 }
 

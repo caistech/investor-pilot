@@ -45,8 +45,10 @@ export async function POST(request: Request) {
     return_url: returnUrl,
   });
 
-  if (!link) {
-    return NextResponse.json({ error: 'Failed to create Unipile auth link. Check UNIPILE_API_KEY.' }, { status: 500 });
+  if (!link.ok) {
+    // Pass the actual Unipile error through so the operator can diagnose
+    // (wrong DSN, expired token, missing env var, etc).
+    return NextResponse.json({ error: link.error }, { status: 502 });
   }
 
   return NextResponse.json({ url: link.url, expires_at: link.expires_at });
