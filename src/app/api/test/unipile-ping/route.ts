@@ -14,7 +14,7 @@
 
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { searchLinkedInPeople } from '@/lib/channels/unipile';
+import { searchLinkedInPeople, searchSalesNavigator } from '@/lib/channels/unipile';
 
 export const maxDuration = 30;
 
@@ -25,6 +25,7 @@ export async function GET(request: Request) {
   const url = new URL(request.url);
   const keywords = url.searchParams.get('q') || 'private credit Sydney Australian property';
   const tierParam = url.searchParams.get('tier'); // '1' / '2' / 'cold' / omit
+  const apiParam = url.searchParams.get('api') === 'sales_nav' ? 'sales_nav' : 'classic';
 
   const { data: profile } = await db
     .from('profiles')
@@ -62,16 +63,22 @@ export async function GET(request: Request) {
   // tier=cold or omitted → no network_distance filter, all degrees
 
   const started = Date.now();
-  const result = await searchLinkedInPeople({
-    account_id: channel.oauth_token_ref,
-    filters,
-  });
+  const result = apiParam === 'sales_nav'
+    ? await searchSalesNavigator({
+        account_id: channel.oauth_token_ref,
+        filters,
+      })
+    : await searchLinkedInPeople({
+        account_id: channel.oauth_token_ref,
+        filters,
+      });
   const latency_ms = Date.now() - started;
 
   if (!result.ok) {
     return NextResponse.json({
       ok: false,
       stage: 'unipile_search',
+      api: apiParam,
       keywords,
       tier: tierParam || 'all_degrees',
       latency_ms,
@@ -87,6 +94,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     ok: true,
+    api: apiParam,
     keywords,
     tier: tierParam || 'all_degrees',
     latency_ms,

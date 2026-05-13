@@ -223,11 +223,10 @@ export default function ProductsPage() {
 
   // Find Investors button state
   const [findingFor, setFindingFor] = useState<string | null>(null);
-  // Default to Sales Nav + Brave: richer SN filters dominate the ICP-matching
-  // signal, Brave catches company-level news/track-record evidence SN misses.
-  // Operator can override per-run with the chips. Classic LinkedIn ('linkedin')
-  // is the fall-back if SN subscription expires.
-  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['sales_nav', 'brave']);
+  // Default to classic LinkedIn + Brave. Sales Nav requires additional rich
+  // filters our wrapper doesn't send yet — proven returning 0 in production.
+  // Operator can opt-in once SN wrapper is validated separately.
+  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['linkedin', 'brave']);
   const [findResult, setFindResult] = useState<{
     productId: string;
     queries_used: Array<{ query: string; rationale: string; category: string }>;

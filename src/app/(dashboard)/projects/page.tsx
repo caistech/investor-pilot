@@ -204,7 +204,10 @@ export default function ProjectsPage() {
 
   // Find Investors state
   const [findingFor, setFindingFor] = useState<string | null>(null);
-  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['sales_nav', 'brave']);
+  // Default to classic LinkedIn + Brave. Sales Nav requires additional rich
+  // filters our wrapper doesn't send yet (proven returning 0 in production);
+  // operator can opt-in once SN wrapper is validated separately.
+  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['linkedin', 'brave']);
   const [findResult, setFindResult] = useState<{
     projectId: string;
     queries_used: Array<{ query: string; rationale: string; category: string; intended_source?: string }>;
