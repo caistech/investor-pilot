@@ -166,7 +166,9 @@ F2K Capital`,
   lender_v3_warm_dm_first: {
     channel: 'linkedin_dm' as const,
     subject: null,
-    body: `{first_name} — quick one. F2K is placing $18.7M senior debt directly with selected lenders across two AU property projects:
+    body: `{first_name} — {warm_opener}
+
+F2K is placing $18.7M senior debt directly with selected lenders across two AU property projects:
 
   ▸ Branscombe Estate (Claremont TAS) — $16.2M senior construction, 8.5% indicative + standard fees, ~22mo, first-mortgage. 40% anchor offtake to Homes Tasmania.
 
@@ -247,14 +249,20 @@ export async function renderStep(
   // Cold templates require a specific credit signal — generic openers tank
   // reply rates and the v3 brief explicitly forbids them. Warm templates
   // (1st-degree connections) skip this gate: the existing relationship IS
-  // the trust signal, no external evidence needed.
+  // the trust signal, no external evidence needed — but they DO get a
+  // per-recipient personalised opener so the message doesn't read like
+  // an obvious template.
   let signal: CreditSignal | null = null;
+  let warmOpener = 'quick one.'; // fallback if Claude call fails — keeps original cadence
   if (!warm) {
     const extracted = await extractCreditSignal(partner);
     if (!extracted.ok) {
       return { ok: false, reason: extracted.reason, blocker: 'no_credit_signal' };
     }
     signal = extracted;
+  } else {
+    const opener = await generateWarmOpener(partner);
+    if (opener) warmOpener = opener;
   }
 
   // Format the project URLs as a self-contained block so templates can drop
@@ -271,6 +279,7 @@ export async function renderStep(
     credit_signal: signal?.short || '',
     credit_signal_lead: signal?.lead || '',
     credit_signal_lead_short: signal?.leadShort || '',
+    warm_opener: warmOpener,
     project_urls_block: projectUrlsBlock,
     sender_name: SENDER_NAME,
     sender_role: SENDER_ROLE,
@@ -391,6 +400,76 @@ If the evidence is genuinely generic (no specific deal, sector, or quoted statem
     };
   } catch (err) {
     return { ok: false, reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}` };
+  }
+}
+
+/**
+ * Generate a one-sentence personalised opener for a warm DM. Uses the
+ * partner's role + company + headline to produce something that reads
+ * like a real person noticing what they do, not a templated mailmerge.
+ *
+ * Returns null on any failure so the caller can fall back to the
+ * default cadence ('quick one.') and not block the send.
+ */
+async function generateWarmOpener(partner: RenderPartner): Promise<string | null> {
+  const evidenceBits = [
+    partner.contact_title ? `Role/headline: ${partner.contact_title}` : null,
+    partner.company_name ? `Current company: ${partner.company_name}` : null,
+    partner.audience_overlap_notes ? `Audience/ticket fit notes: ${partner.audience_overlap_notes}` : null,
+    partner.complementarity_notes ? `Asset class notes: ${partner.complementarity_notes}` : null,
+  ].filter(Boolean);
+
+  if (evidenceBits.length === 0) return null;
+
+  const prompt = `You write conversational warm-DM openers for outreach to existing 1st-degree LinkedIn connections.
+
+Recipient evidence:
+${evidenceBits.join('\n')}
+
+Generate a ONE-SENTENCE opener that:
+- References ONE specific thing about the recipient's role, company, or focus (the most credit/property/lending-relevant signal in the evidence above)
+- Reads natural and brief — like one founder texting another, not a sales template
+- Leads into a pitch about senior debt placement for AU property development
+- Avoids cliches: NO "I hope this finds you well", NO "saw your background", NO "exciting opportunity"
+- Length: 8-20 words. Single sentence.
+- Lower case after a comma is fine. Em dashes fine.
+- Do not include the recipient's first name (that's added separately)
+- Do not include emojis or hype words
+
+Return ONLY a JSON object, no prose, no markdown:
+{
+  "opener": "<the one-sentence opener>"
+}
+
+If the evidence is too thin to anchor on something specific, return:
+{
+  "opener": "quick one."
+}
+That's the safe fallback — keeps the template's original cadence.`;
+
+  try {
+    const response = await client.messages.create({
+      model: MODEL,
+      max_tokens: 200,
+      system: prompt,
+      messages: [{ role: 'user', content: 'Generate the opener.' }],
+    });
+
+    const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) return null;
+
+    const parsed = JSON.parse(jsonMatch[0]);
+    const opener = typeof parsed.opener === 'string' ? parsed.opener.trim() : '';
+    if (!opener) return null;
+
+    // Hard length guard — if Claude went long, fall back rather than ship
+    // a paragraph-as-opener that breaks the warm cadence.
+    if (opener.length > 200) return null;
+
+    return opener;
+  } catch {
+    return null;
   }
 }
 

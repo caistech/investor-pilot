@@ -25,6 +25,7 @@ import {
   Inbox,
   Mail,
   MessageSquare,
+  Save,
   Send,
   XCircle,
 } from 'lucide-react';
@@ -93,6 +94,36 @@ export default function PartnerCommunications({ pendingApprovals, timeline }: Pr
     }
   }
 
+  async function saveEdit(stepId: string, rendered_subject: string | null, rendered_body: string): Promise<boolean> {
+    setBusyId(stepId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/approvals/${stepId}/edit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rendered_subject, rendered_body }),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Edit failed');
+        return false;
+      }
+      setPending(p => p.map(i => i.step_id === stepId
+        ? { ...i,
+            rendered_subject: json.rendered_subject,
+            rendered_body: json.rendered_body,
+            compliance_check: json.compliance_check,
+          }
+        : i));
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+      return false;
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   if (pending.length === 0 && timeline.length === 0) {
     return (
       <div className="card">
@@ -136,6 +167,7 @@ export default function PartnerCommunications({ pendingApprovals, timeline }: Pr
                   const reason = prompt('Flag this message — reason?');
                   if (reason) act(item.step_id, 'flag', { reason });
                 }}
+                onSave={(subject, body) => saveEdit(item.step_id, subject, body)}
               />
             ))}
           </div>
@@ -162,13 +194,36 @@ function PendingCard({
   onApprove,
   onSkip,
   onFlag,
+  onSave,
 }: {
   item: PendingApproval;
   busy: boolean;
   onApprove: () => void;
   onSkip: () => void;
   onFlag: () => void;
+  onSave: (subject: string | null, body: string) => Promise<boolean>;
 }) {
+  const [editing, setEditing] = useState(false);
+  const [editSubject, setEditSubject] = useState(item.rendered_subject || '');
+  const [editBody, setEditBody] = useState(item.rendered_body);
+
+  function startEdit() {
+    setEditSubject(item.rendered_subject || '');
+    setEditBody(item.rendered_body);
+    setEditing(true);
+  }
+  async function commitEdit() {
+    const ok = await onSave(
+      item.rendered_subject !== null ? editSubject : null,
+      editBody,
+    );
+    if (ok) setEditing(false);
+  }
+  function cancelEdit() {
+    setEditSubject(item.rendered_subject || '');
+    setEditBody(item.rendered_body);
+    setEditing(false);
+  }
   const Icon = item.channel.startsWith('linkedin') ? Send : Mail;
   const channelLabel =
     item.channel === 'linkedin_connect'
@@ -223,36 +278,70 @@ function PendingCard({
         </div>
       )}
 
-      {item.rendered_subject && (
-        <p className="text-xs text-dark-400 mb-1">
-          <span className="text-dark-500">Subject: </span>
-          {item.rendered_subject}
-        </p>
+      {item.rendered_subject !== null && (
+        editing ? (
+          <input
+            type="text"
+            value={editSubject}
+            onChange={e => setEditSubject(e.target.value)}
+            disabled={busy}
+            placeholder="Subject"
+            className="w-full bg-dark-800 border border-corp-green-500/40 rounded px-2 py-1 text-xs mb-2 focus:border-corp-green-500 focus:outline-none"
+          />
+        ) : (
+          <p className="text-xs text-dark-400 mb-1">
+            <span className="text-dark-500">Subject: </span>
+            {item.rendered_subject}
+          </p>
+        )
       )}
-      <pre className="text-xs whitespace-pre-wrap text-dark-200 font-sans mb-3">{item.rendered_body}</pre>
+      {editing ? (
+        <textarea
+          value={editBody}
+          onChange={e => setEditBody(e.target.value)}
+          disabled={busy}
+          rows={Math.max(6, editBody.split('\n').length + 1)}
+          className="w-full bg-dark-800 border border-corp-green-500/40 rounded p-2 text-xs text-dark-200 font-sans mb-3 focus:border-corp-green-500 focus:outline-none resize-y"
+        />
+      ) : (
+        <pre className="text-xs whitespace-pre-wrap text-dark-200 font-sans mb-3">{item.rendered_body}</pre>
+      )}
 
       <div className="flex flex-wrap items-center gap-2 justify-end">
-        <button onClick={onFlag} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
-          <Flag className="w-3.5 h-3.5" /> Flag
-        </button>
-        <button onClick={onSkip} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
-          <XCircle className="w-3.5 h-3.5" /> Skip
-        </button>
-        <button
-          disabled
-          className="btn-secondary flex items-center gap-1.5 text-xs opacity-50 cursor-not-allowed"
-          title="Edit support coming in Sprint 1 polish"
-        >
-          <Edit3 className="w-3.5 h-3.5" /> Edit
-        </button>
-        <button
-          onClick={onApprove}
-          disabled={busy || hasBlockingFlags}
-          className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-50"
-        >
-          <CheckCircle2 className="w-3.5 h-3.5" />
-          {hasBlockingFlags ? 'Blocked' : 'Approve & send'}
-        </button>
+        {editing ? (
+          <>
+            <button onClick={cancelEdit} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <XCircle className="w-3.5 h-3.5" /> Cancel
+            </button>
+            <button
+              onClick={commitEdit}
+              disabled={busy || !editBody.trim()}
+              className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-50"
+            >
+              <Save className="w-3.5 h-3.5" /> Save edit
+            </button>
+          </>
+        ) : (
+          <>
+            <button onClick={onFlag} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <Flag className="w-3.5 h-3.5" /> Flag
+            </button>
+            <button onClick={onSkip} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <XCircle className="w-3.5 h-3.5" /> Skip
+            </button>
+            <button onClick={startEdit} disabled={busy} className="btn-secondary flex items-center gap-1.5 text-xs">
+              <Edit3 className="w-3.5 h-3.5" /> Edit
+            </button>
+            <button
+              onClick={onApprove}
+              disabled={busy || hasBlockingFlags}
+              className="btn-primary flex items-center gap-1.5 text-xs disabled:opacity-50"
+            >
+              <CheckCircle2 className="w-3.5 h-3.5" />
+              {hasBlockingFlags ? 'Blocked' : 'Approve & send'}
+            </button>
+          </>
+        )}
       </div>
     </div>
   );
