@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type } from 'lucide-react';
+import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type, Power, PowerOff } from 'lucide-react';
 import type { Product } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 
@@ -212,6 +212,14 @@ export default function ProductsPage() {
     loadProducts();
   }
 
+  async function toggleActive(p: Product) {
+    await supabase
+      .from('products')
+      .update({ is_active: !p.is_active })
+      .eq('id', p.id);
+    loadProducts();
+  }
+
   function cancelForm() {
     setShowForm(false);
     setEditingId(null);
@@ -404,7 +412,11 @@ export default function ProductsPage() {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
                     <h4 className="truncate">{p.name}</h4>
-                    {p.is_active && <span className="badge-green">Active</span>}
+                    {p.is_active ? (
+                      <span className="badge-green">Active</span>
+                    ) : (
+                      <span className="badge-amber">Inactive</span>
+                    )}
                   </div>
                   <p className="text-dark-400 text-sm truncate">{p.one_sentence_description || 'No description'}</p>
                 </div>
@@ -446,6 +458,21 @@ export default function ProductsPage() {
                       className="flex items-center gap-1.5 text-sm text-dark-400 hover:text-white transition-colors"
                     >
                       <Pencil className="w-3.5 h-3.5" /> Edit
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); toggleActive(p); }}
+                      className={`flex items-center gap-1.5 text-sm transition-colors ${
+                        p.is_active
+                          ? 'text-dark-400 hover:text-amber-400'
+                          : 'text-dark-400 hover:text-corp-green-400'
+                      }`}
+                      title={p.is_active ? 'Deactivate — stops this product from being used by discover/draft' : 'Activate — make this product available to the pipeline'}
+                    >
+                      {p.is_active ? (
+                        <><PowerOff className="w-3.5 h-3.5" /> Mark Inactive</>
+                      ) : (
+                        <><Power className="w-3.5 h-3.5" /> Mark Active</>
+                      )}
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDelete(p.id); }}
