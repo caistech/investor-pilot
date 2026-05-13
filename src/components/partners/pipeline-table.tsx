@@ -68,6 +68,12 @@ function isOutOfScope(partner: Partner): boolean {
   return /out[_ -]?of[_ -]?scope/i.test(partner.category);
 }
 
+function isAlreadyTargeted(partner: Partner, inFlight: Set<string>): boolean {
+  if (CONTACTED_STATUSES.has(partner.status)) return true;
+  if (inFlight.has(partner.id)) return true;
+  return false;
+}
+
 function matchesSearch(partner: Partner, query: string): boolean {
   if (!query) return true;
   const q = query.toLowerCase();
@@ -81,15 +87,33 @@ function matchesSearch(partner: Partner, query: string): boolean {
   );
 }
 
+// Partner statuses that indicate the operator has already contacted the
+// person (first touch sent or beyond). Used by the "Hide already targeted"
+// filter so we don't accidentally double-send.
+const CONTACTED_STATUSES = new Set([
+  'sent',
+  'follow_up_due',
+  'replied',
+  'meeting_booked',
+  'qualified',
+  'active_partner_discussion',
+  'closed_won',
+  'closed_lost',
+  'disqualified',
+]);
+
 export function PipelineTable({
   partners,
   organisationId,
   productId,
+  inFlightPartnerIds = [],
 }: {
   partners: Partner[];
   organisationId: string;
   productId: string;
+  inFlightPartnerIds?: string[];
 }) {
+  const inFlightSet = new Set(inFlightPartnerIds);
   const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
 
   // Default the type filter to 'lender' when lender rows exist in the
@@ -109,6 +133,12 @@ export function PipelineTable({
   const [minScore, setMinScore] = useState<number>(0);
   const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(false);
   const [hideLowConfidence, setHideLowConfidence] = useState<boolean>(false);
+  // "Hide already targeted" = partner has been sent to (status moved past
+  // contact_found) OR has an in-flight sequence_steps row. Default ON for
+  // batch-assignment workflows so the operator doesn't accidentally
+  // double-target. Can be toggled off to see the full list including
+  // already-targeted rows.
+  const [hideTargeted, setHideTargeted] = useState<boolean>(true);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -119,7 +149,8 @@ export function PipelineTable({
     .filter(p => typeFilter === 'all' || p.partner_type === typeFilter)
     .filter(p => (p.weighted_score ?? 0) >= minScore)
     .filter(p => !excludeOutOfScope || !isOutOfScope(p))
-    .filter(p => !hideLowConfidence || p.confidence_score !== 'low-confidence');
+    .filter(p => !hideLowConfidence || p.confidence_score !== 'low-confidence')
+    .filter(p => !hideTargeted || !isAlreadyTargeted(p, inFlightSet));
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   // Counts for source-tier tabs reflect ALL partners (not respecting the
@@ -350,6 +381,18 @@ export function PipelineTable({
             className="rounded border-dark-600"
           />
           Hide low confidence
+        </label>
+        <label
+          className="flex items-center gap-1.5 text-dark-400 hover:text-dark-200 cursor-pointer"
+          title="Hide partners already contacted (status sent / replied / etc.) or with an in-flight sequence."
+        >
+          <input
+            type="checkbox"
+            checked={hideTargeted}
+            onChange={(e) => { setHideTargeted(e.target.checked); setSelected(new Set()); }}
+            className="rounded border-dark-600"
+          />
+          Hide already targeted
         </label>
         <span className="text-dark-600 ml-auto">
           {filtered.length} of {partners.length} shown
