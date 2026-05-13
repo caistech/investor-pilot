@@ -211,9 +211,10 @@ export default function ProjectsPage() {
   const [findResult, setFindResult] = useState<{
     projectId: string;
     queries_used: Array<{ query: string; rationale: string; category: string; intended_source?: string }>;
+    candidates_found: number;
+    candidates_unique: number;
     candidates_scored: number;
     candidates_failed: number;
-    candidates_unique: number;
     tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
     top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
     search_errors?: Array<{ query: string; source: string; tier: string; error: string }>;
@@ -245,9 +246,10 @@ export default function ProjectsPage() {
         setFindResult({
           projectId,
           queries_used: [],
+          candidates_found: 0,
+          candidates_unique: 0,
           candidates_scored: 0,
           candidates_failed: 0,
-          candidates_unique: 0,
           top_results: [],
           error: data.error || 'Discovery failed',
         });
@@ -255,9 +257,10 @@ export default function ProjectsPage() {
         setFindResult({
           projectId,
           queries_used: data.queries_used || [],
+          candidates_found: data.candidates_found || 0,
+          candidates_unique: data.candidates_unique || 0,
           candidates_scored: data.candidates_scored || 0,
           candidates_failed: data.candidates_failed || 0,
-          candidates_unique: data.candidates_unique || 0,
           tier_breakdown: data.tier_breakdown,
           top_results: data.top_results || [],
           search_errors: data.search_errors || [],
@@ -267,9 +270,10 @@ export default function ProjectsPage() {
       setFindResult({
         projectId,
         queries_used: [],
+        candidates_found: 0,
+        candidates_unique: 0,
         candidates_scored: 0,
         candidates_failed: 0,
-        candidates_unique: 0,
         top_results: [],
         error: err instanceof Error ? err.message : String(err),
       });
@@ -553,9 +557,21 @@ export default function ProjectsPage() {
                                 <p className="text-dark-500">Queries</p>
                                 <p className="font-mono font-bold">{findResult.queries_used.length}</p>
                               </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Raw candidates returned by Unipile + Brave before de-dupe">
+                                <p className="text-dark-500">Found</p>
+                                <p className="font-mono font-bold">{findResult.candidates_found}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Unique candidates after de-dupe — these go to Claude scoring">
+                                <p className="text-dark-500">Unique</p>
+                                <p className="font-mono font-bold">{findResult.candidates_unique}</p>
+                              </div>
                               <div className="bg-dark-900 rounded px-2 py-1.5">
                                 <p className="text-dark-500">Scored</p>
                                 <p className="font-mono font-bold text-corp-green-400">{findResult.candidates_scored}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Candidates whose Claude scoring call errored — hidden bug surface">
+                                <p className="text-dark-500">Failed</p>
+                                <p className={`font-mono font-bold ${findResult.candidates_failed > 0 ? 'text-red-400' : ''}`}>{findResult.candidates_failed}</p>
                               </div>
                               <div className="bg-dark-900 rounded px-2 py-1.5">
                                 <p className="text-dark-500">Top fit</p>
