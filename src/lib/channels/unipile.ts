@@ -412,6 +412,18 @@ export async function searchLinkedInPeople(input: {
     const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
     url.searchParams.set('account_id', input.account_id);
 
+    // Minimal-viable body. Unipile's "Classic - People" schema accepts more
+    // fields (title filter, location, network_distance, etc) but the exact
+    // names vary by version — stripping to bare minimum here so we get a
+    // successful 200 first, then layer filters back in as we validate each
+    // field name against Unipile's response. Spike test 3.11 iteration.
+    const body: Record<string, unknown> = {
+      api: 'classic',
+      category: 'people',
+      keywords: input.filters.keywords || '',
+      limit: Math.min(input.filters.limit || 25, 100),
+    };
+
     const response = await fetch(url.toString(), {
       method: 'POST',
       headers: {
@@ -419,27 +431,15 @@ export async function searchLinkedInPeople(input: {
         'Content-Type': 'application/json',
         'accept': 'application/json',
       },
-      body: JSON.stringify({
-        api: 'classic', // 'classic' (free) | 'sales_navigator'
-        category: 'people',
-        keywords: input.filters.keywords || '',
-        // Unipile maps these onto LinkedIn's filter UI parameters.
-        keywords_title: input.filters.title,
-        location: input.filters.location,
-        current_company: input.filters.current_company,
-        industry: input.filters.industry,
-        // network_distance: F=first, S=second, O=other/out-of-network
-        network_distance: input.filters.network_distance,
-        limit: Math.min(input.filters.limit || 25, 100),
-      }),
+      body: JSON.stringify(body),
     });
 
     const text = await response.text();
     if (!response.ok) {
       if (response.status === 429) {
-        return { ok: false, error: `Rate limited: ${text.slice(0, 300)}`, rate_limit_signal: true };
+        return { ok: false, error: `Rate limited: ${text.slice(0, 2500)}`, rate_limit_signal: true };
       }
-      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 300)}` };
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 2500)}` };
     }
 
     return parseLinkedInSearchResponse(text);
@@ -467,9 +467,16 @@ export async function searchSalesNavigator(input: {
   if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
 
   try {
-    // Same as searchLinkedInPeople — account_id as query param, not body.
     const url = new URL(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`);
     url.searchParams.set('account_id', input.account_id);
+
+    // Sales Nav minimal body — same iteration approach as classic.
+    const body: Record<string, unknown> = {
+      api: 'sales_navigator',
+      category: 'people',
+      keywords: input.filters.keywords || '',
+      limit: Math.min(input.filters.limit || 25, 100),
+    };
 
     const response = await fetch(url.toString(), {
       method: 'POST',
@@ -478,20 +485,7 @@ export async function searchSalesNavigator(input: {
         'Content-Type': 'application/json',
         'accept': 'application/json',
       },
-      body: JSON.stringify({
-        api: 'sales_navigator',
-        category: 'people',
-        keywords: input.filters.keywords || '',
-        keywords_title: input.filters.title,
-        location: input.filters.location,
-        current_company: input.filters.current_company,
-        industry: input.filters.industry,
-        seniority: input.filters.seniority,
-        function: input.filters.function,
-        years_in_position: input.filters.years_in_position,
-        network_distance: input.filters.network_distance,
-        limit: Math.min(input.filters.limit || 25, 100),
-      }),
+      body: JSON.stringify(body),
     });
 
     const text = await response.text();
@@ -500,9 +494,9 @@ export async function searchSalesNavigator(input: {
         return { ok: false, error: 'Connected LinkedIn account has no active Sales Navigator subscription' };
       }
       if (response.status === 429) {
-        return { ok: false, error: `Rate limited: ${text.slice(0, 300)}`, rate_limit_signal: true };
+        return { ok: false, error: `Rate limited: ${text.slice(0, 2500)}`, rate_limit_signal: true };
       }
-      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 300)}` };
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 2500)}` };
     }
 
     return parseLinkedInSearchResponse(text);
