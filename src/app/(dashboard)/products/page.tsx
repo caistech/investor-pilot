@@ -229,7 +229,8 @@ export default function ProductsPage() {
     candidates_scored: number;
     candidates_failed: number;
     candidates_unique: number;
-    top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string }>;
+    tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
+    top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
     error?: string;
   } | null>(null);
 
@@ -261,6 +262,7 @@ export default function ProductsPage() {
           candidates_scored: data.candidates_scored || 0,
           candidates_failed: data.candidates_failed || 0,
           candidates_unique: data.candidates_unique || 0,
+          tier_breakdown: data.tier_breakdown,
           top_results: data.top_results || [],
         });
       }
@@ -556,6 +558,26 @@ export default function ProductsPage() {
                                 </p>
                               </div>
                             </div>
+
+                            {findResult.tier_breakdown && (
+                              <div className="grid grid-cols-3 gap-2 text-xs">
+                                <div className="bg-corp-green-500/10 border border-corp-green-500/20 rounded px-2 py-1.5">
+                                  <p className="text-corp-green-400 text-[10px] uppercase tracking-wide">1st-degree</p>
+                                  <p className="font-mono font-bold text-corp-green-400">{findResult.tier_breakdown['1st'] || 0}</p>
+                                  <p className="text-dark-500 text-[10px]">warm DMs</p>
+                                </div>
+                                <div className="bg-blue-500/10 border border-blue-500/20 rounded px-2 py-1.5">
+                                  <p className="text-blue-400 text-[10px] uppercase tracking-wide">2nd-degree</p>
+                                  <p className="font-mono font-bold text-blue-400">{findResult.tier_breakdown['2nd'] || 0}</p>
+                                  <p className="text-dark-500 text-[10px]">warm cold</p>
+                                </div>
+                                <div className="bg-dark-700/40 border border-dark-700 rounded px-2 py-1.5">
+                                  <p className="text-dark-400 text-[10px] uppercase tracking-wide">Cold</p>
+                                  <p className="font-mono font-bold text-dark-300">{findResult.tier_breakdown.cold || 0}</p>
+                                  <p className="text-dark-500 text-[10px]">cold sequence</p>
+                                </div>
+                              </div>
+                            )}
                             {findResult.top_results.length > 0 && (
                               <Link
                                 href="/partners"

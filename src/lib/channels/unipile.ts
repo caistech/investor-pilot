@@ -372,6 +372,12 @@ export interface LinkedInSearchFilters {
   current_company?: string;
   industry?: string;
   limit?: number; // default 25, max 100
+  // LinkedIn network-distance filter:
+  //   'F' = 1st-degree (direct connection — DM, no connect request needed)
+  //   'S' = 2nd-degree (mutual connection visible — warm cold)
+  //   'O' = out-of-network / 3rd+ (truly cold)
+  // When omitted, LinkedIn returns hits across all degrees.
+  network_distance?: 'F' | 'S' | 'O';
 }
 
 export type LinkedInSearchResult =
@@ -416,6 +422,8 @@ export async function searchLinkedInPeople(input: {
         location: input.filters.location,
         current_company: input.filters.current_company,
         industry: input.filters.industry,
+        // network_distance: F=first, S=second, O=other/out-of-network
+        network_distance: input.filters.network_distance,
         limit: Math.min(input.filters.limit || 25, 100),
       }),
     });
@@ -472,6 +480,7 @@ export async function searchSalesNavigator(input: {
         seniority: input.filters.seniority,
         function: input.filters.function,
         years_in_position: input.filters.years_in_position,
+        network_distance: input.filters.network_distance,
         limit: Math.min(input.filters.limit || 25, 100),
       }),
     });

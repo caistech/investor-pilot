@@ -110,6 +110,16 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     };
   });
 
+  // Auto-pick template based on partner's network_distance. 1st-degree → warm
+  // DM template (no connect step, faster cadence). Anyone else → cold sequence.
+  // Operator can still switch manually in the dropdown if they want.
+  const networkDistance = p.network_distance;
+  const warmTemplate = (templates || []).find(t => /warm/i.test(t.name));
+  const coldTemplate = (templates || []).find(t => !/warm/i.test(t.name));
+  const recommendedTemplateId = networkDistance === '1st' && warmTemplate
+    ? warmTemplate.id
+    : (coldTemplate?.id || templates?.[0]?.id || null);
+
   return (
     <div>
       <Link href="/partners" className="flex items-center gap-2 text-dark-400 hover:text-white mb-6">
@@ -245,6 +255,8 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
             partnerId={p.id}
             templates={templates || []}
             liveSteps={liveSteps}
+            recommendedTemplateId={recommendedTemplateId}
+            networkDistance={networkDistance || null}
           />
 
 

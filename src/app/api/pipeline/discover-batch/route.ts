@@ -35,21 +35,33 @@ import { generateLenderQueries } from '@/lib/discovery/query-generator';
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
+type NetworkTier = '1st' | '2nd' | 'cold';
 
 const SCORING_CONCURRENCY = 5;          // simultaneous Claude scoring calls
 const SEARCH_CONCURRENCY = 3;           // simultaneous LinkedIn/Brave queries
 const CANDIDATES_PER_QUERY = 10;
 const MAX_TOTAL_CANDIDATES = 80;        // hard cap so a runaway batch can't blow budget
 
+// Tier → LinkedIn network_distance filter value (per LinkedIn API convention).
+const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, 'F' | 'S' | 'O'> = {
+  '1st': 'F',
+  '2nd': 'S',
+  'cold': 'O',
+};
+
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
 
   const body = await request.json().catch(() => ({}));
-  let { product_id, query_count, sources } = body as {
+  let { product_id, query_count, sources, network_tiers } = body as {
     product_id?: string;
     query_count?: number;
     sources?: DiscoverSource[];
+    // Tier priority order — leftmost runs first and dominates de-dup ties.
+    // Default ['1st', '2nd', 'cold']: 1st-degree connections always preferred
+    // because they bypass connect-request limits and earn higher reply rates.
+    network_tiers?: NetworkTier[];
   };
 
   const { data: profile } = await db
@@ -153,17 +165,31 @@ export async function POST(request: Request) {
     linkedinAccountId = channel?.oauth_token_ref || null;
   }
 
-  // For each (query × source) pair, fetch candidates. Bounded concurrency
-  // so we don't fire 30 simultaneous requests at LinkedIn / Brave.
-  const jobs: Array<{ query: string; source: DiscoverSource }> = [];
+  // Default tier order: 1st-degree priority, then 2nd, then cold.
+  // For Brave (no network concept), 'cold' covers it.
+  const tiers: NetworkTier[] = network_tiers && network_tiers.length > 0
+    ? network_tiers
+    : ['1st', '2nd', 'cold'];
+
+  // For each (query × source × tier) combo, fetch candidates. Bounded
+  // concurrency so we don't fire 30 simultaneous requests at LinkedIn/Brave.
+  const jobs: Array<{ query: string; source: DiscoverSource; tier: NetworkTier }> = [];
   for (const q of queryGen.queries) {
     for (const source of sources) {
-      jobs.push({ query: q.query, source });
+      if (source === 'brave') {
+        // Brave has no network concept — just tag results as 'cold' for tier book-keeping.
+        jobs.push({ query: q.query, source, tier: 'cold' });
+      } else {
+        // LinkedIn / Sales Nav: one search per tier the operator wants to cover.
+        for (const tier of tiers) {
+          jobs.push({ query: q.query, source, tier });
+        }
+      }
     }
   }
 
   const allCandidates: ScoreCandidateInput[] = [];
-  const errors: Array<{ query: string; source: DiscoverSource; error: string }> = [];
+  const errors: Array<{ query: string; source: DiscoverSource; tier: NetworkTier; error: string }> = [];
 
   for (let i = 0; i < jobs.length; i += SEARCH_CONCURRENCY) {
     const batch = jobs.slice(i, i + SEARCH_CONCURRENCY);
@@ -176,16 +202,20 @@ export async function POST(request: Request) {
         if (r.value.ok) {
           allCandidates.push(...r.value.candidates);
         } else {
-          errors.push({ query: job.query, source: job.source, error: r.value.error });
+          errors.push({ query: job.query, source: job.source, tier: job.tier, error: r.value.error });
         }
       } else {
-        errors.push({ query: job.query, source: job.source, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
+        errors.push({ query: job.query, source: job.source, tier: job.tier, error: r.reason instanceof Error ? r.reason.message : String(r.reason) });
       }
     });
   }
 
-  // De-dupe across queries by (linkedin_url || domain). LinkedIn-sourced
-  // wins over Brave for the same person because of pre-attached contact data.
+  // De-dup across queries by (linkedin_url || domain). Preference order:
+  //   1. LinkedIn-sourced beats Brave-sourced (pre-attached contact data)
+  //   2. Closer network tier beats further (1st > 2nd > cold)
+  // Same person found in 1st-degree search dominates a cold-search hit so the
+  // assign step picks the warm DM template.
+  const TIER_RANK: Record<NetworkTier, number> = { '1st': 0, '2nd': 1, 'cold': 2 };
   const seen = new Map<string, ScoreCandidateInput>();
   for (const c of allCandidates) {
     const key = (c.contact_linkedin || c.domain).toLowerCase();
@@ -195,8 +225,19 @@ export async function POST(request: Request) {
       seen.set(key, c);
       continue;
     }
-    // Prefer LinkedIn-sourced over Brave when duplicate.
+    // Prefer LinkedIn-sourced over Brave.
     if (existing.source === 'brave' && (c.source === 'linkedin' || c.source === 'sales_nav')) {
+      seen.set(key, c);
+      continue;
+    }
+    // Among LinkedIn-sourced duplicates, prefer the closer network tier.
+    if (
+      existing.source !== 'brave' &&
+      c.source !== 'brave' &&
+      c.network_distance &&
+      existing.network_distance &&
+      TIER_RANK[c.network_distance] < TIER_RANK[existing.network_distance]
+    ) {
       seen.set(key, c);
     }
   }
@@ -225,7 +266,16 @@ export async function POST(request: Request) {
       weighted_score: r.weighted_score,
       source: r.source,
       partner_id: r.partner_id,
+      network_distance: r.network_distance,
     }));
+
+  // Tier breakdown — operator wants to know how many warm leads vs cold.
+  const tierBreakdown: Record<NetworkTier, number> = { '1st': 0, '2nd': 0, 'cold': 0 };
+  for (const r of scoredResults) {
+    if (r.status !== 'error' && r.network_distance) {
+      tierBreakdown[r.network_distance] = (tierBreakdown[r.network_distance] || 0) + 1;
+    }
+  }
 
   await db.from('audit_events').insert({
     organisation_id,
@@ -252,6 +302,8 @@ export async function POST(request: Request) {
       category: q.expected_category,
     })),
     sources_used: sources,
+    network_tiers_used: tiers,
+    tier_breakdown: tierBreakdown,
     candidates_found: allCandidates.length,
     candidates_unique: uniqueCandidates.length,
     candidates_scored: scoredResults.filter(r => r.status !== 'error').length,
@@ -262,7 +314,7 @@ export async function POST(request: Request) {
 }
 
 async function fetchCandidates(
-  job: { query: string; source: DiscoverSource },
+  job: { query: string; source: DiscoverSource; tier: NetworkTier },
   linkedinAccountId: string | null,
 ): Promise<
   { ok: true; candidates: ScoreCandidateInput[] } | { ok: false; error: string }
@@ -271,21 +323,23 @@ async function fetchCandidates(
     if (!linkedinAccountId) {
       return { ok: false, error: `${job.source} requested but no LinkedIn channel connected` };
     }
+    const filters = {
+      keywords: job.query,
+      limit: CANDIDATES_PER_QUERY,
+      network_distance: TIER_TO_LINKEDIN_DISTANCE[job.tier],
+    };
     const result =
       job.source === 'sales_nav'
-        ? await searchSalesNavigator({
-            account_id: linkedinAccountId,
-            filters: { keywords: job.query, limit: CANDIDATES_PER_QUERY },
-          })
-        : await searchLinkedInPeople({
-            account_id: linkedinAccountId,
-            filters: { keywords: job.query, limit: CANDIDATES_PER_QUERY },
-          });
+        ? await searchSalesNavigator({ account_id: linkedinAccountId, filters })
+        : await searchLinkedInPeople({ account_id: linkedinAccountId, filters });
     if (!result.ok) return { ok: false, error: result.error };
-    return { ok: true, candidates: result.people.map(p => linkedInPersonToCandidate(p, job.source)) };
+    return {
+      ok: true,
+      candidates: result.people.map(p => linkedInPersonToCandidate(p, job.source, job.tier)),
+    };
   }
 
-  // Brave
+  // Brave — no network concept. Tag results as 'cold'.
   try {
     const searchResults = await braveWebSearch(job.query, CANDIDATES_PER_QUERY);
     const candidates = searchResults.map(r => {
@@ -295,6 +349,7 @@ async function fetchCandidates(
         domain: url.hostname.replace(/^www\./, ''),
         description: r.description,
         source: 'brave' as const,
+        network_distance: 'cold' as const,
       };
     });
     return { ok: true, candidates };
@@ -303,7 +358,11 @@ async function fetchCandidates(
   }
 }
 
-function linkedInPersonToCandidate(person: LinkedInPerson, source: DiscoverSource): ScoreCandidateInput {
+function linkedInPersonToCandidate(
+  person: LinkedInPerson,
+  source: DiscoverSource,
+  tier: NetworkTier,
+): ScoreCandidateInput {
   const domainFromCompany = person.current_company_domain
     ? person.current_company_domain
         .replace(/^https?:\/\//, '')
@@ -332,5 +391,6 @@ function linkedInPersonToCandidate(person: LinkedInPerson, source: DiscoverSourc
     contact_name: person.full_name || undefined,
     contact_title: person.headline || undefined,
     contact_linkedin: person.profile_url || undefined,
+    network_distance: tier,
   };
 }

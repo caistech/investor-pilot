@@ -23,10 +23,18 @@ interface Props {
   partnerId: string;
   templates: Template[];
   liveSteps: LiveStep[];
+  recommendedTemplateId: string | null;
+  networkDistance: string | null;
 }
 
-export default function AssignSequence({ partnerId, templates, liveSteps }: Props) {
-  const [selected, setSelected] = useState<string>(templates[0]?.id || '');
+export default function AssignSequence({
+  partnerId,
+  templates,
+  liveSteps,
+  recommendedTemplateId,
+  networkDistance,
+}: Props) {
+  const [selected, setSelected] = useState<string>(recommendedTemplateId || templates[0]?.id || '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -98,9 +106,34 @@ export default function AssignSequence({ partnerId, templates, liveSteps }: Prop
     );
   }
 
+  const recommendedName = templates.find(t => t.id === recommendedTemplateId)?.name;
+  const tierLabel = networkDistance === '1st'
+    ? '1st-degree connection'
+    : networkDistance === '2nd'
+    ? '2nd-degree (mutual)'
+    : networkDistance === 'cold'
+    ? 'cold'
+    : null;
+
   return (
     <div className="card">
       <h4 className="mb-2">Assign to sequence</h4>
+      {tierLabel && (
+        <div className="mb-2 flex items-center gap-2 text-xs">
+          <span className={`px-2 py-0.5 rounded ${
+            networkDistance === '1st'
+              ? 'bg-corp-green-500/20 text-corp-green-400'
+              : networkDistance === '2nd'
+              ? 'bg-blue-500/20 text-blue-400'
+              : 'bg-dark-700 text-dark-400'
+          }`}>
+            {tierLabel}
+          </span>
+          {recommendedName && (
+            <span className="text-dark-500">→ recommended: <span className="text-dark-300">{recommendedName}</span></span>
+          )}
+        </div>
+      )}
       <p className="text-dark-500 text-xs mb-3">
         Materialises steps as pending. The cron worker renders and queues each step for
         approval at its scheduled time.

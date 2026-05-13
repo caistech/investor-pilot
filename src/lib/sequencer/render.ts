@@ -151,7 +151,63 @@ If timing changes or a different facility size would suit better, the door is op
 F2K Capital`,
     max_chars: 800,
   },
+
+  // -------------------------------------------------------------------------
+  // Warm DM templates — 1st-degree LinkedIn connections only.
+  // No connect-request step (operator and recipient already connected). No
+  // credit_signal extraction either — the relationship itself is the signal.
+  // Counsel still needs to clear these per v3 brief Sec 5.8, but the risk
+  // profile is materially lower than cold outreach.
+  // -------------------------------------------------------------------------
+  lender_v3_warm_dm_first: {
+    channel: 'linkedin_dm' as const,
+    subject: null,
+    body: `{first_name} — quick one. F2K is placing $18.7M senior debt directly with selected lenders across two AU property projects:
+
+  ▸ Branscombe Estate (Claremont TAS) — $16.2M senior construction, 8.5% indicative + standard fees, ~22mo, first-mortgage. 40% anchor offtake to Homes Tasmania.
+
+  ▸ Seafields Estate (Geraldton WA) — $2.5M senior land, 8.0% capitalised, ~36mo, first-mortgage over 141 lots. Signed tri-party Coop Agreement Mar 2026.
+
+Pari-passu syndicate, $1-5M tickets typical. V10 Finance Submissions + credit models available.
+
+Worth a 20-min credit conversation? No expectation either way — figured you'd want first look given F2K's on your radar.
+
+— {sender_name}`,
+    max_chars: 2000,
+  },
+  lender_v3_warm_dm_fu: {
+    channel: 'linkedin_dm' as const,
+    subject: null,
+    body: `{first_name} — short follow-up. If a quick call on either F2K facility (Branscombe $16.2M senior construction TAS / Seafields $2.5M senior land WA, both first-mortgage, 8-8.5% indicative) would be useful, I can send V10 IMs over today.
+
+Otherwise no further chase.
+
+— {sender_name}`,
+    max_chars: 700,
+  },
+  lender_v3_warm_dm_final: {
+    channel: 'linkedin_dm' as const,
+    subject: null,
+    body: `{first_name} — closing the loop. If timing isn't right or not a fit for {firm} right now, completely understand — won't follow up again. Door's open if circumstances change.
+
+— {sender_name}`,
+    max_chars: 500,
+  },
 } as const;
+
+// Warm templates skip credit_signal extraction (the relationship IS the signal)
+// and rate higher on personalization_score by default. Adding a new warm key?
+// Add it here too or the renderer will fail trying to extract credit_signal
+// from a partner who likely has thin discovery evidence.
+const WARM_TEMPLATE_KEYS = new Set<string>([
+  'lender_v3_warm_dm_first',
+  'lender_v3_warm_dm_fu',
+  'lender_v3_warm_dm_final',
+]);
+
+export function isWarmTemplate(key: string): boolean {
+  return WARM_TEMPLATE_KEYS.has(key);
+}
 
 export type TemplateKey = keyof typeof TEMPLATES;
 
@@ -182,20 +238,27 @@ export async function renderStep(
     return { ok: false, reason: 'contact_name empty after trim', blocker: 'missing_contact' };
   }
 
-  // Extract a specific credit signal from discovery evidence. If we can't, we
-  // refuse to render — generic openers are the leading driver of low reply rates
-  // and the v3 brief explicitly forbids them.
-  const signal = await extractCreditSignal(partner);
-  if (!signal.ok) {
-    return { ok: false, reason: signal.reason, blocker: 'no_credit_signal' };
+  const warm = isWarmTemplate(templateKey);
+
+  // Cold templates require a specific credit signal — generic openers tank
+  // reply rates and the v3 brief explicitly forbids them. Warm templates
+  // (1st-degree connections) skip this gate: the existing relationship IS
+  // the trust signal, no external evidence needed.
+  let signal: CreditSignal | null = null;
+  if (!warm) {
+    const extracted = await extractCreditSignal(partner);
+    if (!extracted.ok) {
+      return { ok: false, reason: extracted.reason, blocker: 'no_credit_signal' };
+    }
+    signal = extracted;
   }
 
   const vars: Record<string, string> = {
     first_name: firstName,
     firm: partner.company_name,
-    credit_signal: signal.short,
-    credit_signal_lead: signal.lead,
-    credit_signal_lead_short: signal.leadShort,
+    credit_signal: signal?.short || '',
+    credit_signal_lead: signal?.lead || '',
+    credit_signal_lead_short: signal?.leadShort || '',
     sender_name: SENDER_NAME,
     sender_role: SENDER_ROLE,
   };
@@ -220,12 +283,23 @@ export async function renderStep(
     body,
     evidence_refs: {
       template_key: templateKey,
-      credit_signal: signal.short,
-      signal_specificity: signal.specificity,
+      credit_signal: signal?.short || (warm ? 'warm_relationship' : ''),
+      signal_specificity: signal?.specificity || (warm ? 'first_degree_connection' : ''),
       partner_score: partner.weighted_score,
+      warm,
     },
-    personalization_score: personalizationScore(signal.specificity, partner.weighted_score),
+    personalization_score: warm
+      ? warmPersonalizationScore(partner.weighted_score)
+      : personalizationScore(signal!.specificity, partner.weighted_score),
   };
+}
+
+// 1st-degree connections start at 8/10 — the relationship covers most of the
+// personalization gap. Boost to 10 for high-ICP-fit. Never below 7.
+function warmPersonalizationScore(partnerScore: number | null): number {
+  const base = 8;
+  const bump = partnerScore && partnerScore >= 8 ? 2 : partnerScore && partnerScore >= 6 ? 1 : 0;
+  return Math.min(10, base + bump);
 }
 
 function substitute(template: string, vars: Record<string, string>): string {

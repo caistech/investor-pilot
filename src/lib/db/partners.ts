@@ -26,6 +26,9 @@ export interface PartnerUpsertData {
   contact_name?: string;
   contact_title?: string;
   contact_linkedin?: string;
+  // Tier-prioritised discovery: '1st' = direct LinkedIn connection (warm DM
+  // template, no connect step). '2nd' = mutual connection. 'cold' = no path.
+  network_distance?: '1st' | '2nd' | 'cold';
 }
 
 export interface ContactData {

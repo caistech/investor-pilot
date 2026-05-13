@@ -244,6 +244,22 @@ export function PipelineTable({
                         </div>
                       )}
                       <span className="font-medium">{p.company_name}</span>
+                      {p.network_distance === '1st' && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-corp-green-500/15 text-corp-green-400 font-medium"
+                          title="1st-degree LinkedIn connection — warm DM template, no connect step"
+                        >
+                          1st
+                        </span>
+                      )}
+                      {p.network_distance === '2nd' && (
+                        <span
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-blue-500/15 text-blue-400 font-medium"
+                          title="2nd-degree LinkedIn connection — warm cold sequence"
+                        >
+                          2nd
+                        </span>
+                      )}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-dark-400 text-sm">{p.category || '—'}</td>

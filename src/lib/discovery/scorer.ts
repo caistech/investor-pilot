@@ -83,6 +83,7 @@ export interface ScoreCandidateInput {
   contact_name?: string;
   contact_title?: string;
   contact_linkedin?: string;
+  network_distance?: '1st' | '2nd' | 'cold';
 }
 
 export interface ScoreCandidateResult {
@@ -92,6 +93,7 @@ export interface ScoreCandidateResult {
   source: 'linkedin' | 'sales_nav' | 'brave';
   weighted_score?: number;
   partner_id?: string;
+  network_distance?: '1st' | '2nd' | 'cold';
   error?: string;
 }
 
@@ -172,6 +174,7 @@ export async function scoreAndUpsertCandidate(
       contact_name: candidate.contact_name,
       contact_title: candidate.contact_title,
       contact_linkedin: candidate.contact_linkedin,
+      network_distance: candidate.network_distance,
     });
 
     return {
@@ -181,6 +184,7 @@ export async function scoreAndUpsertCandidate(
       status: upsertResult.status,
       weighted_score: weightedScore,
       partner_id: upsertResult.partner_id,
+      network_distance: candidate.network_distance,
       error: upsertResult.error,
     };
   } catch (err) {

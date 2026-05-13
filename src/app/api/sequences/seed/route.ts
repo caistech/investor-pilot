@@ -22,6 +22,8 @@ const TEMPLATE_NAME = 'F2K senior debt — direct lender';
 const TEMPLATE_VERTICAL = 'senior_debt_au_property';
 const COMPLIANCE_MODE = 'finance_au_senior_debt';
 
+const WARM_TEMPLATE_NAME = 'F2K senior debt — warm DM (1st-degree)';
+
 const STEPS = [
   {
     step_index: 1,
@@ -67,6 +69,33 @@ const STEPS = [
   },
 ];
 
+// Warm DM 3-step sequence for 1st-degree LinkedIn connections.
+// No connect step (operator and recipient already connected). Tighter cadence
+// because warm relationships tolerate faster follow-up.
+const WARM_STEPS = [
+  {
+    step_index: 1,
+    channel: 'linkedin_dm',
+    delay_days: 0,
+    template_key: 'lender_v3_warm_dm_first',
+    description: 'Warm DM Day 0 — relationship-led, full facility specifics inline',
+  },
+  {
+    step_index: 2,
+    channel: 'linkedin_dm',
+    delay_days: 4,
+    template_key: 'lender_v3_warm_dm_fu',
+    description: 'Warm DM follow-up Day 4 — short nudge',
+  },
+  {
+    step_index: 3,
+    channel: 'linkedin_dm',
+    delay_days: 9,
+    template_key: 'lender_v3_warm_dm_final',
+    description: 'Warm DM final Day 9 — closing the loop, door open',
+  },
+];
+
 export async function POST() {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
@@ -80,34 +109,59 @@ export async function POST() {
   if (!profile?.organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
+  const organisation_id: string = profile.organisation_id;
 
+  const cold = await ensureTemplate(db, organisation_id, user!.id, {
+    name: TEMPLATE_NAME,
+    description: "Direct-to-lender outreach sequence for F2K's $18.7M senior debt syndicate. Per Senior Debt Brief v3.",
+    steps: STEPS,
+  });
+
+  const warm = await ensureTemplate(db, organisation_id, user!.id, {
+    name: WARM_TEMPLATE_NAME,
+    description:
+      "Warm DM-only sequence for operator's 1st-degree LinkedIn connections. 3 steps over 9 days. No connect-request step — recipient already accepted.",
+    steps: WARM_STEPS,
+  });
+
+  return NextResponse.json({
+    ok: true,
+    cold,
+    warm,
+  });
+}
+
+async function ensureTemplate(
+  db: Awaited<ReturnType<typeof authenticateAndGetDb>>['db'],
+  organisation_id: string,
+  user_id: string,
+  tpl: { name: string; description: string; steps: typeof STEPS },
+) {
   // Idempotency: check whether a template with this exact name already exists
-  // for this org. If so, return the existing one without modification.
-  const { data: existing } = await db
+  // for this org. If so, return it without modification.
+  const { data: existing } = await db!
     .from('sequence_templates')
     .select('id, name, vertical, compliance_mode, is_active, created_at')
-    .eq('organisation_id', profile.organisation_id)
-    .eq('name', TEMPLATE_NAME)
+    .eq('organisation_id', organisation_id)
+    .eq('name', tpl.name)
     .maybeSingle();
 
   if (existing) {
-    return NextResponse.json({
-      ok: true,
-      action: 'already_exists',
+    return {
+      action: 'already_exists' as const,
       template: existing,
-      message: 'Template already seeded for this organisation. No changes made.',
-    });
+      step_count: tpl.steps.length,
+    };
   }
 
-  const { data: inserted, error: insertError } = await db
+  const { data: inserted, error: insertError } = await db!
     .from('sequence_templates')
     .insert({
-      organisation_id: profile.organisation_id,
-      name: TEMPLATE_NAME,
+      organisation_id,
+      name: tpl.name,
       vertical: TEMPLATE_VERTICAL,
-      description:
-        'Direct-to-lender outreach sequence for F2K\'s $18.7M senior debt syndicate. Per Senior Debt Brief v3.',
-      steps: STEPS,
+      description: tpl.description,
+      steps: tpl.steps,
       compliance_mode: COMPLIANCE_MODE,
       is_active: true,
     })
@@ -115,24 +169,23 @@ export async function POST() {
     .single();
 
   if (insertError) {
-    return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return { action: 'error' as const, error: insertError.message, step_count: tpl.steps.length };
   }
 
-  await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
-    actor: `user:${user!.id}`,
+  await db!.from('audit_events').insert({
+    organisation_id,
+    actor: `user:${user_id}`,
     action: 'sequence_template.seeded',
     resource_type: 'sequence_template',
     resource_id: inserted.id,
-    payload: { name: TEMPLATE_NAME, vertical: TEMPLATE_VERTICAL, step_count: STEPS.length },
+    payload: { name: tpl.name, vertical: TEMPLATE_VERTICAL, step_count: tpl.steps.length },
   });
 
-  return NextResponse.json({
-    ok: true,
-    action: 'inserted',
+  return {
+    action: 'inserted' as const,
     template: inserted,
-    step_count: STEPS.length,
-  });
+    step_count: tpl.steps.length,
+  };
 }
 
 export async function GET() {
