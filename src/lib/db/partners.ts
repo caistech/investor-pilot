@@ -45,21 +45,23 @@ export interface DraftData {
 
 /**
  * Compute weighted score from 5 dimension scores.
- * Pure function, no API calls.
+ * Lender ICP (v3, 2026-05-13) — per Senior Debt Brief v3 Section 4.
+ * Schema field names retained from v2; semantics rewritten for lender channel.
+ * See docs/sprint-0/09-f2k-best-fit-profile-DRAFT.md.
  */
 export function computeWeightedScore(scores: {
-  audience_overlap: number;   // Advisor Reach
-  complementarity: number;    // Client Profile Fit
-  partner_readiness: number;  // Regulatory Standing
-  reachability: number;       // Geographic Relevance
-  strategic_leverage: number; // Engagement Likelihood
+  audience_overlap: number;   // Capital available + ticket fit (25%)
+  complementarity: number;    // Asset class focus: AU property dev debt (25%)
+  partner_readiness: number;  // Decision authority + cadence (15%)
+  reachability: number;       // Reachability + geographic concentration (10%)
+  strategic_leverage: number; // Track record: lent into AU property dev debt past 36mo (25%) — strongest predictor
 }): number {
   return +(
-    scores.audience_overlap * 0.3 +
+    scores.audience_overlap * 0.25 +
     scores.complementarity * 0.25 +
+    scores.strategic_leverage * 0.25 +
     scores.partner_readiness * 0.15 +
-    scores.reachability * 0.15 +
-    scores.strategic_leverage * 0.15
+    scores.reachability * 0.10
   ).toFixed(2);
 }
 

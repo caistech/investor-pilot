@@ -1,16 +1,16 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Plus, AlertCircle, Clock, Users, FileText, Zap } from 'lucide-react';
+import { Inbox, AlertCircle, Send, CheckCircle2, TrendingUp, Plug } from 'lucide-react';
 import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
 
+export const dynamic = 'force-dynamic';
+
 export default async function DashboardPage() {
   const supabase = createClient();
-
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return <div className="text-center py-20"><p className="text-dark-400">Not authenticated</p></div>;
 
-  // Org+profile auto-provisioned by dashboard layout
   const { data: profile } = await supabase
     .from('profiles')
     .select('organisation_id, full_name')
@@ -27,27 +27,42 @@ export default async function DashboardPage() {
 
   const orgId = profile.organisation_id;
 
+  // Last 7 days for funnel
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const sevenDaysAgoIso = sevenDaysAgo.toISOString();
+
   const [
     { count: totalPartners },
-    { count: contactsFound },
-    { count: draftsReady },
-    { count: activeSessions },
-    { data: recentPartners },
+    { count: activeChannels },
+    { count: queuedApprovals },
+    { count: partnersScored },
+    { count: contactsEnriched },
+    { count: messagesSent },
+    { count: meetingsBooked },
+    { count: weeklyConnectsSent },
+    { count: weeklyEmailsSent },
+    { count: weeklyReplies },
     { data: actionItems },
   ] = await Promise.all([
     supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId),
+    supabase.from('client_channels').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('status', 'active'),
+    supabase.from('sequence_steps').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('status', 'queued_for_approval'),
+    supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).gte('weighted_score', 0),
     supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).in('status', ['contact_found', 'contact_partial']),
-    supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('status', 'draft_ready'),
-    supabase.from('agent_sessions').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('status', 'active'),
-    supabase.from('partners').select('company_name, status, weighted_score, domain').eq('organisation_id', orgId).order('last_updated_at', { ascending: false }).limit(5),
-    supabase.from('partners').select('id, company_name, status, domain').eq('organisation_id', orgId).in('status', ['follow_up_due', 'contact_partial', 'draft_ready']).limit(10),
+    supabase.from('outbound_messages').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).not('sent_at', 'is', null),
+    supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).in('status', ['meeting_booked', 'qualified', 'closed_won']),
+    supabase.from('outbound_messages').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('channel', 'linkedin_connect').gte('sent_at', sevenDaysAgoIso),
+    supabase.from('outbound_messages').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('channel', 'email').gte('sent_at', sevenDaysAgoIso),
+    supabase.from('inbound_messages').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).gte('received_at', sevenDaysAgoIso),
+    supabase.from('partners').select('id, company_name, status, domain').eq('organisation_id', orgId).in('status', ['follow_up_due', 'contact_partial', 'draft_ready']).limit(8),
   ]);
 
   const stats = [
-    { label: 'Prospects Discovered', value: totalPartners || 0, icon: Users, color: 'text-corp-green-400' },
-    { label: 'Contacts Enriched', value: contactsFound || 0, icon: Zap, color: 'text-blue-400' },
-    { label: 'Drafts Ready', value: draftsReady || 0, icon: FileText, color: 'text-amber-400' },
-    { label: 'Active Sessions', value: activeSessions || 0, icon: Clock, color: 'text-purple-400' },
+    { label: 'Prospects', value: totalPartners || 0, icon: TrendingUp, color: 'text-corp-green-400', href: '/partners' },
+    { label: 'Active channels', value: activeChannels || 0, icon: Plug, color: 'text-blue-400', href: '/channels' },
+    { label: 'Pending approval', value: queuedApprovals || 0, icon: Inbox, color: 'text-amber-400', href: '/approvals' },
+    { label: 'Meetings booked', value: meetingsBooked || 0, icon: CheckCircle2, color: 'text-purple-400', href: '/partners?status=meeting_booked' },
   ];
 
   return (
@@ -57,16 +72,12 @@ export default async function DashboardPage() {
           <h1>Dashboard</h1>
           <p className="text-dark-400 mt-1">Welcome back{profile.full_name ? `, ${profile.full_name}` : ''}</p>
         </div>
-        <Link href="/sessions" className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" />
-          New Session
-        </Link>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      {/* Headline stats */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         {stats.map((stat) => (
-          <div key={stat.label} className="card">
+          <Link key={stat.label} href={stat.href} className="card-hover">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-dark-400 text-sm">{stat.label}</p>
@@ -74,14 +85,32 @@ export default async function DashboardPage() {
               </div>
               <stat.icon className={`w-8 h-8 ${stat.color} opacity-50`} />
             </div>
-          </div>
+          </Link>
         ))}
       </div>
 
-      {/* Action Items */}
+      {/* Weekly funnel */}
+      <div className="mb-8">
+        <h3 className="mb-4">This week&apos;s funnel (last 7 days)</h3>
+        <div className="card">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <FunnelStep label="LinkedIn connects" value={weeklyConnectsSent || 0} />
+            <FunnelStep label="Emails sent" value={weeklyEmailsSent || 0} />
+            <FunnelStep label="Replies received" value={weeklyReplies || 0} />
+            <FunnelStep
+              label="Reply rate"
+              value={`${weeklyReplies && (weeklyConnectsSent || weeklyEmailsSent)
+                ? Math.round((weeklyReplies / ((weeklyConnectsSent || 0) + (weeklyEmailsSent || 0))) * 100)
+                : 0}%`}
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Action items */}
       {actionItems && actionItems.length > 0 && (
         <div className="mb-8">
-          <h3 className="mb-4">Needs Attention</h3>
+          <h3 className="mb-4">Needs attention</h3>
           <div className="grid gap-3">
             {actionItems.map((item) => (
               <Link
@@ -102,49 +131,44 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Recent Partners */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <h3>Recent Prospects</h3>
-          <Link href="/partners" className="text-corp-green-400 text-sm hover:text-corp-green-300">
-            View all
+      {/* Empty state if no channels connected */}
+      {(activeChannels || 0) === 0 && (
+        <div className="card border-amber-500/30 bg-amber-500/5">
+          <div className="flex items-start gap-3">
+            <Plug className="w-6 h-6 text-amber-400 mt-1 flex-shrink-0" />
+            <div className="flex-1">
+              <h4 className="text-amber-400">No channels connected</h4>
+              <p className="text-dark-300 mt-1">
+                Connect at least one LinkedIn or email account before you can send outreach.
+              </p>
+              <Link href="/channels" className="btn-primary inline-flex items-center gap-2 mt-4">
+                <Plug className="w-4 h-4" />
+                Connect a channel
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Empty state if no prospects */}
+      {(totalPartners || 0) === 0 && (
+        <div className="card text-center py-12">
+          <p className="text-dark-400">No prospects yet. Start a discovery session.</p>
+          <Link href="/discover" className="btn-primary inline-flex items-center gap-2 mt-4">
+            <Send className="w-4 h-4" />
+            Discover prospects
           </Link>
         </div>
-        {recentPartners && recentPartners.length > 0 ? (
-          <div className="card overflow-hidden p-0">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-dark-700">
-                  <th className="text-left text-dark-400 text-sm font-medium px-6 py-3">Company</th>
-                  <th className="text-left text-dark-400 text-sm font-medium px-6 py-3">Score</th>
-                  <th className="text-left text-dark-400 text-sm font-medium px-6 py-3">Status</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recentPartners.map((p, i) => (
-                  <tr key={i} className="border-b border-dark-800 last:border-0">
-                    <td className="px-6 py-3">{p.company_name}</td>
-                    <td className="px-6 py-3">{p.weighted_score ?? '—'}</td>
-                    <td className="px-6 py-3">
-                      <span className={STATUS_COLORS[p.status as PartnerStatus]}>
-                        {p.status.replace(/_/g, ' ')}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="card text-center py-12">
-            <p className="text-dark-400">No prospects yet. Start a session to discover investor prospects.</p>
-            <Link href="/sessions" className="btn-primary inline-flex items-center gap-2 mt-4">
-              <Plus className="w-4 h-4" />
-              Start First Session
-            </Link>
-          </div>
-        )}
-      </div>
+      )}
+    </div>
+  );
+}
+
+function FunnelStep({ label, value }: { label: string; value: number | string }) {
+  return (
+    <div>
+      <p className="text-dark-400 text-sm">{label}</p>
+      <p className="text-2xl font-bold mt-1">{value}</p>
     </div>
   );
 }

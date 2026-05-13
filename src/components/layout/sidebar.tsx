@@ -4,13 +4,16 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
   LayoutDashboard, Users, Package, MessageSquare, Search,
-  Settings, LogOut, Zap, Send,
+  Settings, LogOut, Zap, Send, Inbox, Workflow, Plug,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
 const navItems = [
   { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
   { href: '/partners', label: 'Prospects', icon: Users },
+  { href: '/approvals', label: 'Approvals', icon: Inbox },
+  { href: '/sequences', label: 'Sequences', icon: Workflow },
+  { href: '/channels', label: 'Channels', icon: Plug },
   { href: '/sessions', label: 'Sessions', icon: MessageSquare },
   { href: '/outreach', label: 'Outreach', icon: Send },
   { href: '/discover', label: 'Discover', icon: Search },

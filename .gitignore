@@ -145,3 +145,7 @@ vite.config.ts.timestamp-*
 partners.xlsx
 .vercel
 .gstack/
+.env*.local
+
+# Extracted finance docs / scratch
+.tmp-f2k-docs/

@@ -19,7 +19,10 @@ const MODEL = process.env.OPENROUTER_API_KEY
   ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4-20250514')
   : (process.env.AGENT_MODEL || 'claude-sonnet-4-20250514');
 
-const SCORING_PROMPT = `You are an investor prospect scoring analyst. Given a company description from search results, score it on 5 dimensions for investor distribution potential with the product described below.
+// Lender ICP scoring prompt (v3, 2026-05-13) — per Senior Debt Brief v3 Section 4.
+// Schema field names retained from v2 (audience_overlap_score etc) to avoid migration;
+// semantics rewritten for senior-debt lender channel. See docs/sprint-0/09-f2k-best-fit-profile-DRAFT.md.
+const SCORING_PROMPT = `You are a lender prospect scoring analyst for F2K's senior debt placement. Given a person/firm description from search results, score them on 5 dimensions for fit as a direct lender into Australian property development debt facilities ($1M-$5M cheques, first-mortgage senior secured, 8-11% p.a. coupon).
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
@@ -34,16 +37,33 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "strategic_leverage_score": <1-10>,
   "strategic_leverage_notes": "<one sentence>",
   "confidence_score": "<normal or low-confidence>",
-  "category": "<prospect category>",
-  "partner_type": "<referral or integration or reseller>"
+  "category": "<lender category — e.g. single family office | multi family office | private credit fund | HNW direct lender | SMSF private debt>",
+  "partner_type": "<lender>"
 }
 
-Scoring rules:
-- ADVISOR REACH (weight 30%): Size of client base, assets under management/advice?
-- CLIENT PROFILE FIT (weight 25%): Do their clients match sophisticated/wholesale investor criteria?
-- REGULATORY STANDING (weight 15%): AFSL holder, clean regulatory record? Tier 1 (8-10): AFSL holder, compliance team. Tier 2 (5-7): authorised representative. Tier 3 (2-4): limited regulatory info. No evidence (0-1).
-- GEOGRAPHIC RELEVANCE (weight 15%): Australian market presence, state coverage?
-- ENGAGEMENT LIKELIHOOD (weight 15%): Openness to new product referrals, history of alternative investments?
+Scoring dimensions (lender ICP per Senior Debt Brief v3):
+
+- audience_overlap_score (weight 25% — CAPITAL + TICKET FIT): Does this lender write $1M-$5M cheques into private debt? 10/10 = documented $2-5M tickets regularly; capacity for $5M+. 5-7 = writes private debt but ticket size unclear or smaller. 1-4 = equity-only or institutional-scale only.
+
+- complementarity_score (weight 25% — ASSET CLASS FOCUS): Australian property + development debt specifically. 10/10 = publicly engages on AU property dev debt; recent co-invests visible. 5-7 = private debt focus but unclear if AU property. 1-4 = wrong asset class (tech VC, equities, etc).
+
+- strategic_leverage_score (weight 25% — TRACK RECORD): Has lent into ≥1 AU property dev facility in past 36 months. This is the STRONGEST predictor. 10/10 = documented public evidence (LinkedIn post, fund report, news mention) of recent AU property dev debt position. 5-7 = some AU property exposure but not specifically dev debt. 1-4 = no evidence of relevant lending history.
+
+- partner_readiness_score (weight 15% — DECISION AUTHORITY + CADENCE): Personal allocation authority; decides in weeks not months. 10/10 = FO principal / CIO / personal capital. 5-7 = senior role at small private debt vehicle. 1-4 = analyst-level or slow committee gating.
+
+- reachability_score (weight 10% — GEOGRAPHIC + LINKEDIN VISIBILITY): Sydney HIGHEST, Melbourne HIGH, Singapore HIGH, Brisbane/Perth/Hong Kong MEDIUM, other LOW. AND findable on LinkedIn with verifiable email. 10/10 = Sydney/Melb/Singapore + high LinkedIn visibility. 5-7 = right geography but thin LinkedIn presence. 1-4 = wrong geography or unreachable.
+
+REJECT (score 0-2 across the board, mark category as "out_of_scope"):
+- Retail bank credit officers
+- Mortgage brokers
+- Equity-only family offices (no debt allocation)
+- Tech / venture-focused family offices
+- Public REIT managers
+- Pure listed-equity advisors
+- Generic financial advisors placing retail client money (this is the v2 advisor channel — out of scope in v3)
+- Large institutional debt funds >$1B AUM (too big for our $2.5M-$16.2M facilities)
+- Bank-owned platforms (slow approval timelines)
+- Retail mortgage trusts and listed mortgage funds
 
 If a dimension relies more on inference than evidence, cap at 4/10 and set confidence_score to "low-confidence".`;
 
