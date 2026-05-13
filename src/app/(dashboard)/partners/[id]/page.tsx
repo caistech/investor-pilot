@@ -104,7 +104,10 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
       `)
       .eq('organisation_id', organisationId)
       .eq('partner_id', params.id)
-      .not('status', 'in', '(sent,skipped,failed,replied,opted_out,compliance_blocked)'),
+      // Include failed + compliance_blocked so the Sequence card can
+      // surface them with a Retry button. Excluding only terminal-success
+      // statuses (sent, replied, skipped, opted_out).
+      .not('status', 'in', '(sent,skipped,replied,opted_out)'),
   ]);
 
   const liveSteps = (liveStepsRaw || []).map((s: Record<string, unknown>) => {

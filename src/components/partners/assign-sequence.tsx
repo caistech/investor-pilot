@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { Send, CheckCircle2, AlertTriangle } from 'lucide-react';
+import { Send, CheckCircle2, AlertTriangle, RotateCw, XCircle } from 'lucide-react';
 
 interface Template {
   id: string;
@@ -64,6 +64,47 @@ export default function AssignSequence({
     }
   }
 
+  async function cancelSequence() {
+    if (!confirm('Cancel all non-finished steps in this sequence? Sent and replied steps are preserved.')) return;
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/sequences/cancel/${partnerId}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Failed to cancel sequence');
+        return;
+      }
+      setSuccess(`Cancelled ${json.cancelled} step${json.cancelled === 1 ? '' : 's'}.`);
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryStep(stepId: string) {
+    setBusy(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const res = await fetch(`/api/sequences/retry/${stepId}`, { method: 'POST' });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Failed to retry step');
+        return;
+      }
+      setSuccess(`Step reset to pending. The next sequencer tick will re-render it.`);
+      setTimeout(() => window.location.reload(), 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusy(false);
+    }
+  }
+
   if (liveSteps.length > 0) {
     const grouped = liveSteps.reduce<Record<string, LiveStep[]>>((acc, s) => {
       acc[s.template_name] = acc[s.template_name] || [];
@@ -72,25 +113,43 @@ export default function AssignSequence({
     }, {});
     return (
       <div className="card">
-        <h4 className="mb-2">Sequence</h4>
+        <div className="flex items-center justify-between mb-2">
+          <h4>Sequence</h4>
+        </div>
         {Object.entries(grouped).map(([name, steps]) => (
           <div key={name} className="mb-3 last:mb-0">
             <p className="text-sm font-medium">{name}</p>
-            <ul className="mt-1 space-y-1 text-xs text-dark-400">
+            <ul className="mt-1 space-y-1.5 text-xs text-dark-400">
               {steps
                 .sort((a, b) => a.step_index - b.step_index)
                 .map(s => (
-                  <li key={s.id} className="flex items-center gap-2">
-                    <span className="font-mono">#{s.step_index}</span>
-                    <span className="capitalize">{s.status.replace(/_/g, ' ')}</span>
-                    <span className="text-dark-600">
-                      {new Date(s.scheduled_for).toLocaleDateString()}
-                    </span>
-                  </li>
+                  <LiveStepRow key={s.id} step={s} busy={busy} onRetry={() => retryStep(s.id)} />
                 ))}
             </ul>
           </div>
         ))}
+
+        {error && (
+          <div className="mt-3 flex items-start gap-2 text-red-400 text-xs">
+            <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{error}</span>
+          </div>
+        )}
+        {success && (
+          <div className="mt-3 flex items-start gap-2 text-corp-green-400 text-xs">
+            <CheckCircle2 className="w-4 h-4 flex-shrink-0 mt-0.5" />
+            <span>{success}</span>
+          </div>
+        )}
+
+        <button
+          onClick={cancelSequence}
+          disabled={busy}
+          className="mt-3 w-full text-xs text-dark-400 hover:text-red-400 border border-dark-700 hover:border-red-500/40 rounded px-2 py-1.5 flex items-center justify-center gap-1.5 transition-colors"
+        >
+          <XCircle className="w-3.5 h-3.5" />
+          {busy ? 'Cancelling…' : 'Cancel sequence'}
+        </button>
       </div>
     );
   }
@@ -171,5 +230,51 @@ export default function AssignSequence({
         </div>
       )}
     </div>
+  );
+}
+
+function LiveStepRow({
+  step,
+  busy,
+  onRetry,
+}: {
+  step: LiveStep;
+  busy: boolean;
+  onRetry: () => void;
+}) {
+  const isRetryable = step.status === 'failed' || step.status === 'compliance_blocked';
+
+  let statusBadge;
+  if (step.status === 'pending') {
+    statusBadge = <span className="text-dark-500">pending</span>;
+  } else if (step.status === 'queued_for_approval') {
+    statusBadge = <span className="text-corp-green-400">queued for approval</span>;
+  } else if (step.status === 'compliance_blocked') {
+    statusBadge = <span className="text-amber-400">compliance blocked</span>;
+  } else if (step.status === 'failed') {
+    statusBadge = <span className="text-red-400">send failed</span>;
+  } else {
+    statusBadge = <span className="capitalize">{step.status.replace(/_/g, ' ')}</span>;
+  }
+
+  return (
+    <li className="flex items-center gap-2">
+      <span className="font-mono w-6">#{step.step_index}</span>
+      {statusBadge}
+      <span className="text-dark-600">
+        {new Date(step.scheduled_for).toLocaleDateString()}
+      </span>
+      {isRetryable && (
+        <button
+          onClick={onRetry}
+          disabled={busy}
+          className="ml-auto inline-flex items-center gap-1 text-[10px] text-dark-400 hover:text-corp-green-400 border border-dark-700 hover:border-corp-green-500/40 rounded px-1.5 py-0.5 transition-colors"
+          title="Reset to pending — the next sequencer tick will re-render with current code/prompts."
+        >
+          <RotateCw className="w-3 h-3" />
+          Retry
+        </button>
+      )}
+    </li>
   );
 }
