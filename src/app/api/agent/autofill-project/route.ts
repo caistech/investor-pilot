@@ -125,8 +125,18 @@ Always silently answer: "Who provides the capital this project is asking for?" �
 ⚠ GEOGRAPHY RULE FOR EXCLUSIONS — DO NOT OVER-RESTRICT BY LENDER LOCATION:
 Sydney, Melbourne, and Singapore family offices and private credit funds routinely fund regional Australian property — that is in fact the dominant pattern. NEVER write exclusions like "interstate lenders unfamiliar with [region]" or "non-WA private credit", because that excludes 80%+ of the actual ICP. Geography belongs in the project profile (where the asset sits), not in lender exclusions. Lender exclusions should be about TYPE (retail banks, mortgage brokers, equity-only funds) and SIZE (institutional debt funds >$1B AUM), not LOCATION.
 
-${name ? `PROJECT NAME: ${name}` : 'Extract the project name from the content below.'}
-${description ? `OPERATOR-PROVIDED DESCRIPTION (authoritative — do NOT contradict): ${description}` : ''}
+${name ? `CURRENT PROJECT NAME (may be stale — update if KB describes a different project): ${name}` : 'Extract the project name from the content below.'}
+${description ? `CURRENT DESCRIPTION (may be stale — rewrite if KB describes a different project): ${description}` : ''}
+
+⚠ KB IS CANONICAL — IDENTITY-OVERRIDE RULE:
+If the current name and description suggest one project (e.g. "Seafields Estate") but the Knowledge Base content predominantly describes a different one (e.g. all the docs talk about Branscombe Estate in Tasmania, with no Seafields content), TREAT THE KB AS THE SOURCE OF TRUTH and rewrite the name + description to match what the KB actually says. The operator may have swapped docs to repurpose the project record.
+
+Signals that the current name/description is stale and should be replaced:
+- Specific project / asset names in the KB don't match the current name
+- Geography in the KB contradicts the current description
+- Funding size / structure in the KB contradicts the current description
+
+When the KB clearly aligns with the current name (same project, same asset, same geography), preserve the operator's wording where it's substantive and refine where it's thin.
 ${sourceContent}
 
 Based on ALL the information above (with perspective grounded as instructed), generate accurate values. Use specific details from the source material — names of projects, sponsors, co-developers, specific rates, specific cheque sizes, specific geographies. Don't generalize. Be concise — 1-2 sentences max per field.
