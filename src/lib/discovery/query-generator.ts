@@ -90,12 +90,16 @@ You must generate TWO separate query sets, tuned to two different search engines
 LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching across keywords (EVERY word must appear in the profile or it's filtered out). KEEP LINKEDIN QUERIES TIGHT: 3-5 words max. Each extra word shrinks the result pool exponentially. Use ONE role term + ONE geography + AT MOST ONE asset-class qualifier. Best examples:
 
 ✅ GOOD (3-5 words, returns lots of hits):
-- "private credit Sydney"
-- "family office Melbourne"
-- "head of private credit Australia"
-- "investment director family office Sydney"
-- "private debt fund Melbourne"
-- "Singapore family office private credit"
+- "construction finance Singapore"
+- "private credit Hong Kong"
+- "head construction finance London"
+- "real estate debt New York"
+- "construction lending Dubai"
+- "offshore construction finance"
+- "modular construction lender"
+- "cross border construction finance"
+- "private credit Sydney" (AU secondary)
+- "family office Melbourne" (AU secondary)
 
 ❌ BAD (7+ words, returns 0 because the AND-match needs every word to appear):
 - "head of private credit Sydney residential construction debt"
@@ -103,7 +107,7 @@ LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching across keywor
 - "Singapore family office CIO Australian property credit allocator"
 - "Investment director SMSF wholesale property debt Australia"
 
-LinkedIn rule of thumb: drop modifiers like "residential", "construction", "modular", "wholesale", "alternative", "direct lending" UNLESS they replace another word. A profile's headline rarely contains 8 specific finance terms.
+LinkedIn rule of thumb: drop modifiers like "residential", "modular", "wholesale", "alternative", "direct lending" UNLESS they replace another word. A profile's headline rarely contains 8 specific finance terms. "Construction" + "finance" + geography is the sweet spot.
 
 BRAVE WEB SEARCH — searches the public web. LinkedIn blocks Brave from indexing profile pages, so person-targeting queries return ~0. Brave is great for finding COMPANIES via:
 - Fund reports / fund websites
@@ -125,10 +129,25 @@ BAD queries (do not generate):
 If the product is SENIOR DEBT (most common): bias toward "private credit fund", "direct lender", "family office private debt", "wholesale debt".
 If the product is PROJECT EQUITY: bias toward "limited partner", "co-investment", "real asset private capital".
 
-⚠ GEOGRAPHIC RULE — DO NOT OVER-NARROW TO PROJECT LOCATION:
-Even when the project asset sits in a regional location (e.g. Tasmania, regional WA, Geraldton), the capital pool is in Sydney + Melbourne + Singapore + Hong Kong. Most AU family offices and private credit funds invest interstate as a matter of routine. Generating Perth-only queries for a Geraldton project, or Tasmania-only queries for a Hobart project, will hit empty result pools.
+⚠ GEOGRAPHIC RULE — INTERNATIONAL PRIMARY, AU SECONDARY (IMPORTANT):
 
-ALWAYS include AT LEAST ONE Sydney-targeting query and AT LEAST ONE Melbourne- or Singapore-targeting query in linkedin_queries, regardless of project geography. The project's geo can feature in 1 query as "lenders familiar with [region]" — never make geo the primary discriminator across all queries.
+The F2K fund model requires capital that can hold offshore-funded modular construction-manufacturing positions. Australian lenders are too locked into the AU-domestic property-credit paradigm to underwrite this structure — they typically can't or won't take the cross-border manufacturing-finance leg.
+
+PRIMARY TARGETS (rank these highest):
+- Singapore — private credit, construction finance, family office direct lending
+- Hong Kong — same categories, especially construction-specialist funds
+- USA — NYC / Miami / SF / Houston: construction finance, real estate debt, offshore allocators
+- UK / London — construction finance, real estate credit
+- UAE / Dubai — construction-finance specialists with EM/offshore mandates
+
+SECONDARY (still include, but rank lower):
+- Sydney, Melbourne — AU family offices and private credit (cap at 1-2 queries)
+
+GENERATION RULE (NON-NEGOTIABLE):
+- Generate AT LEAST 3 international-targeting LinkedIn queries before any AU-targeting query.
+- Prefer "construction finance [geography]" or "construction lender [geography]" formulations — these surface the construction-specialist lenders who actually have the mandate to do cross-border modular deals.
+- The project asset's physical location (Tasmania, WA, etc.) NEVER dictates the lender geography. Capital comes from offshore; we're sourcing lenders, not occupants.
+- For Brave queries, lean into "cross-border construction finance", "offshore real estate debt", "modular construction lender deal" — surface fund reports, news of deals, fund websites with offshore allocations.
 
 Return ONLY a JSON object, no markdown or prose:
 {

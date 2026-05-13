@@ -60,13 +60,13 @@ Scoring dimensions (lender ICP per Senior Debt Brief v3):
 
 - audience_overlap_score (weight 25% — CAPITAL + TICKET FIT): Does this lender write $1M-$5M cheques into private debt? 10/10 = documented $2-5M tickets regularly; capacity for $5M+. 5-7 = writes private debt but ticket size unclear or smaller. 1-4 = equity-only or institutional-scale only.
 
-- complementarity_score (weight 25% — ASSET CLASS FOCUS): Australian property + development debt specifically. 10/10 = publicly engages on AU property dev debt; recent co-invests visible. 5-7 = private debt focus but unclear if AU property. 1-4 = wrong asset class (tech VC, equities, etc).
+- complementarity_score (weight 25% — ASSET CLASS FOCUS): Construction finance / property development debt, with bonus weight for modular/prefab and cross-border deal history. 10/10 = construction-finance specialist with documented offshore or cross-border deals (Singapore/HK/US/UK/UAE funds with EM construction exposure). 7-9 = construction-finance specialist without explicit cross-border evidence. 5-7 = private debt focus but unclear if construction/property. 1-4 = wrong asset class (tech VC, equities, etc).
 
-- strategic_leverage_score (weight 25% — TRACK RECORD): Has lent into ≥1 AU property dev facility in past 36 months. This is the STRONGEST predictor. 10/10 = documented public evidence (LinkedIn post, fund report, news mention) of recent AU property dev debt position. 5-7 = some AU property exposure but not specifically dev debt. 1-4 = no evidence of relevant lending history.
+- strategic_leverage_score (weight 25% — TRACK RECORD): Documented construction-finance or real-estate-debt position in past 36 months, ESPECIALLY cross-border or offshore-funded. This is the STRONGEST predictor. 10/10 = public evidence (LinkedIn post, fund report, press) of recent offshore or cross-border construction finance, or modular/prefab construction lending. 7-9 = recent AU/domestic construction-debt position. 5-7 = some real-estate exposure but not specifically construction. 1-4 = no evidence of relevant lending history.
 
-- partner_readiness_score (weight 15% — DECISION AUTHORITY + CADENCE): Personal allocation authority; decides in weeks not months. 10/10 = FO principal / CIO / personal capital. 5-7 = senior role at small private debt vehicle. 1-4 = analyst-level or slow committee gating.
+- partner_readiness_score (weight 15% — DECISION AUTHORITY + CADENCE): Personal allocation authority; decides in weeks not months. 10/10 = FO principal / CIO / personal capital / fund partner with offshore mandate flexibility. 5-7 = senior role at small private debt vehicle. 1-4 = analyst-level or slow committee gating.
 
-- reachability_score (weight 10% — GEOGRAPHIC + LINKEDIN VISIBILITY): Sydney HIGHEST, Melbourne HIGH, Singapore HIGH, Brisbane/Perth/Hong Kong MEDIUM, other LOW. AND findable on LinkedIn with verifiable email. 10/10 = Sydney/Melb/Singapore + high LinkedIn visibility. 5-7 = right geography but thin LinkedIn presence. 1-4 = wrong geography or unreachable.
+- reachability_score (weight 10% — GEOGRAPHIC + LINKEDIN VISIBILITY): Singapore / Hong Kong / NYC / London / Dubai construction-finance specialists are HIGHEST (these are F2K's primary market). Miami / SF / other US financial hubs HIGH. Sydney / Melbourne MEDIUM-HIGH (AU secondary). Brisbane / Perth / other AU MEDIUM. Other regions LOW. 10/10 = primary-market construction-finance specialist with high LinkedIn visibility. 7-9 = right region or right specialism, both not both. 5-7 = AU domestic-only with thin offshore mandate. 1-4 = wrong geography AND wrong specialism.
 
 REJECT (score 0-2 across the board, mark category as "out_of_scope"):
 - Retail bank credit officers
@@ -76,9 +76,13 @@ REJECT (score 0-2 across the board, mark category as "out_of_scope"):
 - Public REIT managers
 - Pure listed-equity advisors
 - Generic financial advisors placing retail client money (this is the v2 advisor channel — out of scope in v3)
-- Large institutional debt funds >$1B AUM (too big for our $2.5M-$16.2M facilities)
+- Pure AU-domestic property credit funds with no offshore mandate flexibility AND no construction-finance track record (the AU paradigm-locked group F2K's structure doesn't fit)
 - Bank-owned platforms (slow approval timelines)
 - Retail mortgage trusts and listed mortgage funds
+
+DO NOT REJECT (these were rejected in v2/v3 but are now in-scope for the international-primary ICP):
+- Institutional debt funds >$1B AUM IF they have a Singapore/HK/US/UK construction-specialist desk — they routinely write $5-25M tranches in cross-border deals at exactly F2K's ticket size.
+- Large family offices in Singapore/HK/Dubai that publicly engage on offshore construction or real-asset deals.
 
 If a dimension relies more on inference than evidence, cap at 4/10 and set confidence_score to "low-confidence".`;
 
