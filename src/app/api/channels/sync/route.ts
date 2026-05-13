@@ -38,19 +38,25 @@ export async function POST() {
   const skipped: Array<{ account_id: string; provider: string; reason: string }> = [];
 
   for (const acct of list.accounts) {
-    const channelType = mapProviderToChannelType(acct.provider);
+    // Unipile's account objects vary in field naming. Try the common ones in
+    // priority order and fall back to dumping the raw keys for diagnosis.
+    const providerRaw = pickProvider(acct);
+
+    const channelType = providerRaw ? mapProviderToChannelType(providerRaw) : null;
     if (!channelType) {
       skipped.push({
         account_id: acct.id,
-        provider: acct.provider,
-        reason: `Provider ${acct.provider} not in our channel_type CHECK constraint (linkedin|email|calendar)`,
+        provider: providerRaw || `undefined (keys: ${Object.keys(acct).join(',')})`,
+        reason: providerRaw
+          ? `Provider ${providerRaw} not in our channel_type CHECK constraint (linkedin|email|calendar)`
+          : `Could not determine provider — raw account: ${JSON.stringify(acct).slice(0, 400)}`,
       });
       continue;
     }
 
-    const internalProvider = mapProviderToInternal(acct.provider);
-    const identifier = acct.identifier || acct.name || acct.id;
-    const isActive = (acct.status || '').toUpperCase() === 'OK' || acct.status === undefined;
+    const internalProvider = mapProviderToInternal(providerRaw);
+    const identifier = pickIdentifier(acct);
+    const isActive = isAccountActive(acct);
 
     const { error: upsertError } = await db
       .from('client_channels')
@@ -100,19 +106,58 @@ export async function POST() {
   });
 }
 
+/**
+ * Unipile account objects have inconsistent provider-field naming depending on
+ * endpoint and version. Check the documented + observed fields in priority order:
+ *   - type            (modern Unipile API)
+ *   - provider        (what we assumed first)
+ *   - account_type
+ *   - sources[0].type (nested form sometimes used)
+ */
+function pickProvider(acct: Record<string, unknown>): string | null {
+  if (typeof acct.type === 'string' && acct.type) return acct.type;
+  if (typeof acct.provider === 'string' && acct.provider) return acct.provider;
+  if (typeof acct.account_type === 'string' && acct.account_type) return acct.account_type;
+  const sources = acct.sources as Array<{ type?: string }> | undefined;
+  if (Array.isArray(sources) && sources[0]?.type) return sources[0].type;
+  return null;
+}
+
+function pickIdentifier(acct: Record<string, unknown>): string {
+  if (typeof acct.identifier === 'string' && acct.identifier) return acct.identifier;
+  if (typeof acct.name === 'string' && acct.name) return acct.name;
+  // LinkedIn-specific: connection_params.im.username
+  const params = acct.connection_params as { im?: { username?: string }; mail?: { username?: string } } | undefined;
+  if (params?.im?.username) return params.im.username;
+  if (params?.mail?.username) return params.mail.username;
+  return String(acct.id);
+}
+
+function isAccountActive(acct: Record<string, unknown>): boolean {
+  const status = (acct.status as string | undefined)?.toUpperCase();
+  if (status === 'OK') return true;
+  if (status === 'CREDENTIALS' || status === 'DISCONNECTED' || status === 'STOPPED') return false;
+  // Some Unipile responses use sources[].status
+  const sources = acct.sources as Array<{ status?: string }> | undefined;
+  if (Array.isArray(sources) && sources.length > 0) {
+    return sources.every(s => (s.status || '').toUpperCase() === 'OK');
+  }
+  return true; // optimistic default when status is undefined
+}
+
 function mapProviderToChannelType(provider: string): 'linkedin' | 'email' | 'calendar' | null {
   const p = (provider || '').toUpperCase();
   if (p === 'LINKEDIN') return 'linkedin';
-  if (p === 'GMAIL' || p === 'OUTLOOK' || p === 'MAIL') return 'email';
+  if (p === 'GMAIL' || p === 'OUTLOOK' || p === 'MAIL' || p === 'GOOGLE' || p === 'MICROSOFT') return 'email';
   if (p === 'GOOGLE_CALENDAR' || p === 'MICROSOFT_CALENDAR') return 'calendar';
-  // WHATSAPP / INSTAGRAM / TELEGRAM / MESSENGER not in our schema yet
+  // WHATSAPP / INSTAGRAM / TELEGRAM / MESSENGER / X / TIKTOK not in our schema yet
   return null;
 }
 
 function mapProviderToInternal(provider: string): 'unipile' | 'google' | 'microsoft' | 'resend' {
   const p = (provider || '').toUpperCase();
-  if (p === 'GMAIL') return 'google';
-  if (p === 'OUTLOOK') return 'microsoft';
+  if (p === 'GMAIL' || p === 'GOOGLE' || p === 'GOOGLE_CALENDAR') return 'google';
+  if (p === 'OUTLOOK' || p === 'MICROSOFT' || p === 'MICROSOFT_CALENDAR') return 'microsoft';
   return 'unipile';
 }
 
