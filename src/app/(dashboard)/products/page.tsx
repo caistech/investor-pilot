@@ -2,7 +2,8 @@
 
 import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
-import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type, Power, PowerOff } from 'lucide-react';
+import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type, Power, PowerOff, Target } from 'lucide-react';
+import Link from 'next/link';
 import type { Product } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 
@@ -218,6 +219,64 @@ export default function ProductsPage() {
       .update({ is_active: !p.is_active })
       .eq('id', p.id);
     loadProducts();
+  }
+
+  // Find Investors button state
+  const [findingFor, setFindingFor] = useState<string | null>(null);
+  const [findResult, setFindResult] = useState<{
+    productId: string;
+    queries_used: Array<{ query: string; rationale: string; category: string }>;
+    candidates_scored: number;
+    candidates_failed: number;
+    candidates_unique: number;
+    top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string }>;
+    error?: string;
+  } | null>(null);
+
+  async function findInvestorsForProduct(productId: string) {
+    if (!confirm('This runs a multi-query discovery batch (~2-5 minutes). Score budget: up to 80 candidates. Continue?')) return;
+    setFindingFor(productId);
+    setFindResult(null);
+    try {
+      const res = await fetch('/api/pipeline/discover-batch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ product_id: productId }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFindResult({
+          productId,
+          queries_used: [],
+          candidates_scored: 0,
+          candidates_failed: 0,
+          candidates_unique: 0,
+          top_results: [],
+          error: data.error || 'Discovery batch failed',
+        });
+      } else {
+        setFindResult({
+          productId,
+          queries_used: data.queries_used || [],
+          candidates_scored: data.candidates_scored || 0,
+          candidates_failed: data.candidates_failed || 0,
+          candidates_unique: data.candidates_unique || 0,
+          top_results: data.top_results || [],
+        });
+      }
+    } catch (err) {
+      setFindResult({
+        productId,
+        queries_used: [],
+        candidates_scored: 0,
+        candidates_failed: 0,
+        candidates_unique: 0,
+        top_results: [],
+        error: err instanceof Error ? err.message : String(err),
+      });
+    } finally {
+      setFindingFor(null);
+    }
   }
 
   function cancelForm() {
@@ -452,6 +511,80 @@ export default function ProductsPage() {
                       </div>
                     ))}
                   </div>
+                  {/* Find Investors — the v3 batch discovery button */}
+                  <div className="mb-4 p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium text-corp-green-400">Find investors for this product</p>
+                        <p className="text-dark-500 text-xs mt-0.5">
+                          Generates 5-8 targeted queries from the Knowledge Base, runs them via your connected LinkedIn account (+ Brave supplement), scores everything against the lender ICP. ~2-5 min.
+                        </p>
+                      </div>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); findInvestorsForProduct(p.id); }}
+                        disabled={findingFor !== null || !p.is_active}
+                        className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40"
+                        title={!p.is_active ? 'Activate this product first' : 'Run discovery batch'}
+                      >
+                        {findingFor === p.id ? (
+                          <><Loader2 className="w-4 h-4 animate-spin" /> Finding…</>
+                        ) : (
+                          <><Target className="w-4 h-4" /> Find Investors</>
+                        )}
+                      </button>
+                    </div>
+
+                    {findResult && findResult.productId === p.id && (
+                      <div className="mt-3 pt-3 border-t border-corp-green-500/20 space-y-2">
+                        {findResult.error ? (
+                          <p className="text-red-400 text-xs">{findResult.error}</p>
+                        ) : (
+                          <>
+                            <div className="grid grid-cols-3 gap-2 text-xs">
+                              <div className="bg-dark-900 rounded px-2 py-1.5">
+                                <p className="text-dark-500">Queries</p>
+                                <p className="font-mono font-bold">{findResult.queries_used.length}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5">
+                                <p className="text-dark-500">Scored</p>
+                                <p className="font-mono font-bold text-corp-green-400">{findResult.candidates_scored}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5">
+                                <p className="text-dark-500">Top fit</p>
+                                <p className="font-mono font-bold">
+                                  {findResult.top_results[0]?.weighted_score?.toFixed(1) ?? '—'}
+                                </p>
+                              </div>
+                            </div>
+                            {findResult.top_results.length > 0 && (
+                              <Link
+                                href="/partners"
+                                className="block text-xs text-corp-green-400 hover:text-corp-green-300 underline mt-1"
+                              >
+                                View {findResult.top_results.length} top-scored prospects in Prospects →
+                              </Link>
+                            )}
+                            {findResult.queries_used.length > 0 && (
+                              <details className="text-xs">
+                                <summary className="text-dark-500 cursor-pointer hover:text-dark-300">
+                                  Queries used ({findResult.queries_used.length})
+                                </summary>
+                                <ul className="mt-2 space-y-1 text-dark-400">
+                                  {findResult.queries_used.map((q, i) => (
+                                    <li key={i} className="flex flex-col gap-0.5 pl-2 border-l border-dark-700">
+                                      <code className="text-corp-green-300">{q.query}</code>
+                                      <span className="text-dark-600 text-[10px]">{q.category} — {q.rationale}</span>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   <div className="flex gap-2 mt-4 mb-4">
                     <button
                       onClick={(e) => { e.stopPropagation(); startEdit(p); }}
