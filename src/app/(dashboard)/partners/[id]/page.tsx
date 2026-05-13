@@ -8,6 +8,10 @@ import type { Partner, PartnerStatus, SessionEvent } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
 import { DraftEditor } from '@/components/partners/draft-editor';
 import AssignSequence from '@/components/partners/assign-sequence';
+import PartnerCommunications, {
+  type PendingApproval,
+  type TimelineEvent,
+} from '@/components/partners/partner-communications';
 
 function RadarChart({ partner }: { partner: Partner }) {
   const dimensions = [
@@ -120,6 +124,104 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     ? warmTemplate.id
     : (coldTemplate?.id || templates?.[0]?.id || null);
 
+  // Communications thread — three sources merged into one timeline:
+  //   1. Pending approvals  (sequence_steps + outbound_messages)
+  //   2. Sent/failed history (outbound_messages with sent_at OR send_error)
+  //   3. Inbound replies     (inbound_messages from webhook)
+  //   4. Legacy email log    (outreach_log — pre-sequencer email sends)
+  const [
+    { data: pendingStepsRaw },
+    { data: outboundRaw },
+    { data: inboundRaw },
+    { data: legacyEmailRaw },
+  ] = await Promise.all([
+    supabase
+      .from('sequence_steps')
+      .select(`
+        id, channel, scheduled_for, outbound_message_id,
+        outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score )
+      `)
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .eq('status', 'queued_for_approval')
+      .order('scheduled_for', { ascending: true }),
+    supabase
+      .from('outbound_messages')
+      .select('id, channel, rendered_subject, rendered_body, sent_at, approved_at, send_error, channel_message_id, created_at')
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .or('sent_at.not.is.null,send_error.not.is.null')
+      .order('created_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('inbound_messages')
+      .select('id, channel, body, received_at, classification')
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .order('received_at', { ascending: false })
+      .limit(50),
+    supabase
+      .from('outreach_log')
+      .select('id, subject, body, sent_at, status, gmail_message_id, created_at')
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .order('created_at', { ascending: false })
+      .limit(50),
+  ]);
+
+  const pendingApprovals: PendingApproval[] = (pendingStepsRaw || []).map((s: any) => {
+    const msg = Array.isArray(s.outbound_messages) ? s.outbound_messages[0] : s.outbound_messages;
+    return {
+      step_id: s.id,
+      message_id: msg?.id || s.outbound_message_id,
+      channel: s.channel,
+      scheduled_for: s.scheduled_for,
+      rendered_subject: msg?.rendered_subject || null,
+      rendered_body: msg?.rendered_body || '',
+      compliance_check: msg?.compliance_check || null,
+      personalization_score: msg?.personalization_score ?? null,
+    };
+  });
+
+  const timeline: TimelineEvent[] = [
+    ...((outboundRaw || []) as Array<Record<string, unknown>>).map(o => ({
+      id: o.id as string,
+      kind: 'outbound' as const,
+      channel: o.channel as string,
+      timestamp: (o.sent_at as string) || (o.created_at as string),
+      subject: (o.rendered_subject as string) || null,
+      body: (o.rendered_body as string) || '',
+      meta: {
+        send_error: (o.send_error as string) || null,
+        channel_message_id: (o.channel_message_id as string) || null,
+        status: o.sent_at ? 'sent' : o.send_error ? 'failed' : 'queued',
+      },
+    })),
+    ...((inboundRaw || []) as Array<Record<string, unknown>>).map(i => ({
+      id: i.id as string,
+      kind: 'inbound' as const,
+      channel: i.channel as string,
+      timestamp: i.received_at as string,
+      subject: null,
+      body: (i.body as string) || '(empty body)',
+      meta: {
+        classification: (i.classification as { intent?: string; requires_human?: boolean }) || null,
+      },
+    })),
+    ...((legacyEmailRaw || []) as Array<Record<string, unknown>>).map(l => ({
+      id: l.id as string,
+      kind: 'legacy_email' as const,
+      channel: 'email',
+      timestamp: (l.sent_at as string) || (l.created_at as string),
+      subject: (l.subject as string) || null,
+      body: (l.body as string) || '',
+      meta: {
+        status: l.status as string,
+        channel_message_id: (l.gmail_message_id as string) || null,
+      },
+    })),
+  ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
   return (
     <div>
       <Link href="/partners" className="flex items-center gap-2 text-dark-400 hover:text-white mb-6">
@@ -192,7 +294,12 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
             )}
           </div>
 
-          {/* Draft Editor */}
+          {/* Unified comms — pending approvals + sent + inbound. Per-contact
+              lens; /approvals remains the compilation view across all partners. */}
+          <PartnerCommunications pendingApprovals={pendingApprovals} timeline={timeline} />
+
+          {/* Draft Editor — manual email composition path (legacy v2). Still
+              useful for one-off direct sends outside the sequencer. */}
           <DraftEditor
             partnerId={p.id}
             organisationId={organisationId}
