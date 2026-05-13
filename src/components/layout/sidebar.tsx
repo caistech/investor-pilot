@@ -8,17 +8,45 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/partners', label: 'Prospects', icon: Users },
-  { href: '/approvals', label: 'Approvals', icon: Inbox },
-  { href: '/sequences', label: 'Sequences', icon: Workflow },
-  { href: '/channels', label: 'Channels', icon: Plug },
-  { href: '/sessions', label: 'Sessions', icon: MessageSquare },
-  { href: '/outreach', label: 'Outreach', icon: Send },
-  { href: '/discover', label: 'Discover', icon: Search },
-  { href: '/products', label: 'Products', icon: Package },
-  { href: '/settings', label: 'Settings', icon: Settings },
+// Ordered by operator journey: Dashboard → setup (Products, Channels) →
+// workflow (Discover → Prospects → Approvals) → reference (Sequences,
+// Sessions, Outreach) → Settings.
+const navGroups: Array<{ label: string | null; items: Array<{ href: string; label: string; icon: typeof LayoutDashboard }> }> = [
+  {
+    label: null,
+    items: [
+      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: 'Setup',
+    items: [
+      { href: '/products', label: 'Products', icon: Package },
+      { href: '/channels', label: 'Channels', icon: Plug },
+    ],
+  },
+  {
+    label: 'Workflow',
+    items: [
+      { href: '/discover', label: 'Discover', icon: Search },
+      { href: '/partners', label: 'Prospects', icon: Users },
+      { href: '/approvals', label: 'Approvals', icon: Inbox },
+    ],
+  },
+  {
+    label: 'Reference',
+    items: [
+      { href: '/sequences', label: 'Sequences', icon: Workflow },
+      { href: '/sessions', label: 'Sessions', icon: MessageSquare },
+      { href: '/outreach', label: 'Outreach', icon: Send },
+    ],
+  },
+  {
+    label: null,
+    items: [
+      { href: '/settings', label: 'Settings', icon: Settings },
+    ],
+  },
 ];
 
 export default function Sidebar() {
@@ -40,20 +68,29 @@ export default function Sidebar() {
         <p className="text-dark-500 text-xs mt-1">by Corporate AI Solutions</p>
       </div>
 
-      <nav className="flex-1 p-4 space-y-1">
-        {navItems.map((item) => {
-          const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={isActive ? 'nav-link-active flex items-center gap-3' : 'nav-link flex items-center gap-3'}
-            >
-              <item.icon className="w-5 h-5" />
-              {item.label}
-            </Link>
-          );
-        })}
+      <nav className="flex-1 p-4 space-y-4">
+        {navGroups.map((group, gi) => (
+          <div key={gi} className="space-y-1">
+            {group.label && (
+              <p className="text-dark-600 text-[10px] uppercase tracking-wider font-medium px-3 pb-1">
+                {group.label}
+              </p>
+            )}
+            {group.items.map((item) => {
+              const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  className={isActive ? 'nav-link-active flex items-center gap-3' : 'nav-link flex items-center gap-3'}
+                >
+                  <item.icon className="w-5 h-5" />
+                  {item.label}
+                </Link>
+              );
+            })}
+          </div>
+        ))}
       </nav>
 
       <div className="p-4 border-t border-dark-700">
