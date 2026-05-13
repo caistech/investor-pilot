@@ -145,7 +145,7 @@ function ApprovalCard({
               )}
             </div>
             <p className="text-dark-500 text-sm">
-              {channelLabel} · scheduled {new Date(item.scheduled_for).toLocaleString()}
+              {channelLabel} · scheduled <span suppressHydrationWarning>{new Date(item.scheduled_for).toLocaleString()}</span>
             </p>
           </div>
         </div>

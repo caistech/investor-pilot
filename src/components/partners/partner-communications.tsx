@@ -296,7 +296,7 @@ function TimelineRow({ ev }: { ev: TimelineEvent }) {
         <span className="text-xs font-medium">
           {direction === 'in' ? 'Received' : 'Sent'} · {channelLabel}
         </span>
-        <span className="text-dark-600 text-[10px]">{new Date(ev.timestamp).toLocaleString()}</span>
+        <span className="text-dark-600 text-[10px]" suppressHydrationWarning>{new Date(ev.timestamp).toLocaleString()}</span>
         {error && <span className="badge-red text-[10px]">Send failed</span>}
         {status === 'replied' && <span className="badge-blue text-[10px]">Replied</span>}
         {status === 'bounced' && <span className="badge-red text-[10px]">Bounced</span>}

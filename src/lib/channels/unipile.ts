@@ -100,17 +100,37 @@ export async function sendLinkedInConnect(input: LinkedInConnectInput): Promise<
 }
 
 export async function sendLinkedInDm(input: LinkedInDmInput): Promise<SendResult> {
-  // TODO Sprint 1: confirm via spike (doc 08 task 3.3)
+  // Unipile uses two endpoints depending on whether a chat already exists:
+  //   - New chat (first DM)      → POST /api/v1/chats with attendees_ids + text
+  //   - Existing chat (follow-up) → POST /api/v1/chats/{chat_id}/messages
+  // For Sprint 1 we treat every send as a new chat. Unipile dedupes by
+  // attendees, so re-sending to the same recipient creates messages in the
+  // existing chat thread rather than duplicating chats.
+  //
+  // The recipient identifier MUST be a LinkedIn provider_id (URN tail),
+  // not a profile URL. We extract it from contact_linkedin which is stored
+  // either as the full LinkedIn profile URL (with ?miniProfileUrn=...) or
+  // as a public_id slug.
+
+  const recipientId = extractLinkedInProviderId(input.recipient_profile_url);
+  if (!recipientId) {
+    return {
+      ok: false,
+      error: `Could not extract LinkedIn provider_id from recipient_profile_url: ${input.recipient_profile_url.slice(0, 120)}`,
+    };
+  }
+
   try {
-    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/chats/messages`, {
+    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/chats`, {
       method: 'POST',
       headers: {
-        'X-API-Key': UNIPILE_API_KEY,
+        'X-API-KEY': UNIPILE_API_KEY,
         'Content-Type': 'application/json',
+        accept: 'application/json',
       },
       body: JSON.stringify({
         account_id: input.account_id,
-        recipient: input.recipient_profile_url,
+        attendees_ids: [recipientId],
         text: input.body,
       }),
     });
@@ -121,10 +141,56 @@ export async function sendLinkedInDm(input: LinkedInDmInput): Promise<SendResult
     }
 
     const json = await response.json();
-    return { ok: true, message_id: json.message_id || json.id };
+    // Unipile returns either a chat or a message id depending on whether the
+    // chat existed already. Capture whichever we get so the audit trail has
+    // something to link back to.
+    return { ok: true, message_id: json.message_id || json.id || json.chat_id };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+/**
+ * LinkedIn DM/connect sends require Unipile's provider_id, not a URL.
+ *
+ * Two formats are likely in our partners.contact_linkedin column depending
+ * on how the row landed:
+ *   - Full profile URL with miniProfileUrn query param (Sales-Nav/classic
+ *     search results): preferred — gives us the URN ID directly
+ *   - Plain profile URL with /in/<public_id>: fallback, requires Unipile
+ *     to resolve the public_id on its end
+ *
+ * Returns null if neither pattern matches so the caller can short-circuit
+ * with a clean error message instead of letting Unipile reject a malformed
+ * request.
+ */
+function extractLinkedInProviderId(profileOrId: string): string | null {
+  if (!profileOrId) return null;
+
+  // Already a bare URN-style ID (no slashes, no protocol)
+  if (!profileOrId.includes('/') && !profileOrId.includes('?') && profileOrId.length > 8) {
+    return profileOrId.trim();
+  }
+
+  try {
+    const url = new URL(profileOrId);
+    // Best signal: miniProfileUrn query param. LinkedIn URL-encodes it as
+    // urn%3Ali%3Afs_miniProfile%3AACoAA... — decode and pull the tail.
+    const miniUrn = url.searchParams.get('miniProfileUrn');
+    if (miniUrn) {
+      const decoded = decodeURIComponent(miniUrn);
+      const match = decoded.match(/urn:li:fs_miniProfile:(.+)/);
+      if (match && match[1]) return match[1].trim();
+    }
+    // Fallback: /in/<public_id> path segment.
+    const pathMatch = url.pathname.match(/\/in\/([^/]+)/);
+    if (pathMatch && pathMatch[1]) return pathMatch[1].trim();
+  } catch {
+    // Not a parseable URL — treat raw string as the id if it looks plausible.
+    const match = profileOrId.match(/\/in\/([^/?]+)/);
+    if (match && match[1]) return match[1].trim();
+  }
+  return null;
 }
 
 export async function sendUnipileEmail(input: EmailSendInput): Promise<SendResult> {
