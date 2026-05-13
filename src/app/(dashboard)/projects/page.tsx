@@ -218,6 +218,7 @@ export default function ProjectsPage() {
     tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
     top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
     search_errors?: Array<{ query: string; source: string; tier: string; error: string }>;
+    scoring_errors?: string[];
     error?: string;
   } | null>(null);
 
@@ -264,6 +265,7 @@ export default function ProjectsPage() {
           tier_breakdown: data.tier_breakdown,
           top_results: data.top_results || [],
           search_errors: data.search_errors || [],
+          scoring_errors: data.scoring_errors || [],
         });
       }
     } catch (err) {
@@ -629,6 +631,20 @@ export default function ProjectsPage() {
                                     <li key={i} className="flex flex-col gap-0.5 pl-2 border-l border-red-500/30">
                                       <span className="font-mono text-[10px] text-red-400">{e.source} / {e.tier} — {e.query}</span>
                                       <code className="text-red-300 text-[10px] break-all">{e.error}</code>
+                                    </li>
+                                  ))}
+                                </ul>
+                              </details>
+                            )}
+                            {findResult.scoring_errors && findResult.scoring_errors.length > 0 && (
+                              <details className="text-xs" open={findResult.candidates_failed > 0}>
+                                <summary className="text-red-400 cursor-pointer hover:text-red-300">
+                                  ⚠ Scoring errors — {findResult.candidates_failed} candidates failed Claude scoring ({findResult.scoring_errors.length} unique error{findResult.scoring_errors.length === 1 ? '' : 's'})
+                                </summary>
+                                <ul className="mt-2 space-y-1 text-red-300">
+                                  {findResult.scoring_errors.map((e, i) => (
+                                    <li key={i} className="pl-2 border-l border-red-500/30">
+                                      <code className="text-red-300 text-[10px] break-all">{e}</code>
                                     </li>
                                   ))}
                                 </ul>

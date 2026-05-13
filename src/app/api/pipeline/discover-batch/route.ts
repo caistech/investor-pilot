@@ -358,6 +358,18 @@ export async function POST(request: Request) {
     }
   }
 
+  // Sample scoring errors so the UI can surface what's actually failing.
+  // The per-candidate try/catch in scoreAndUpsertCandidate captures the
+  // exception but the count alone has been masking the actual cause
+  // (e.g. deprecated model id, OpenRouter quota, parse failure).
+  const scoringErrorSamples = Array.from(
+    new Set(
+      scoredResults
+        .filter(r => r.status === 'error' && r.error)
+        .map(r => r.error as string),
+    ),
+  ).slice(0, 5);
+
   await db.from('audit_events').insert({
     organisation_id,
     actor: `user:${user!.id}`,
@@ -393,6 +405,7 @@ export async function POST(request: Request) {
     candidates_scored: scoredResults.filter(r => r.status !== 'error').length,
     candidates_failed: scoredResults.filter(r => r.status === 'error').length,
     search_errors: errors,
+    scoring_errors: scoringErrorSamples,
     top_results: topResults,
   });
 }
