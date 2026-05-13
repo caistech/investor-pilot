@@ -1,8 +1,23 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
+import { searchLinkedInPeople, searchSalesNavigator, type LinkedInPerson } from '@/lib/channels/unipile';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
+
+type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
+
+interface DiscoveryCandidate {
+  // Common shape across all sources, then scored by Claude.
+  name: string;
+  domain: string;
+  description: string;
+  source: DiscoverSource;
+  // LinkedIn-sourced hits arrive with these already filled, no enrich needed:
+  contact_name?: string;
+  contact_title?: string;
+  contact_linkedin?: string;
+}
 
 const client = new Anthropic({
   apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
@@ -72,11 +87,22 @@ export async function POST(request: Request) {
   if (error) return error;
 
   const body = await request.json();
-  let { product_id, organisation_id, query, domains } = body as {
+  let { product_id, organisation_id, query, domains, sources, linkedin_filters } = body as {
     product_id?: string;
     organisation_id?: string;
     query?: string;
     domains?: string[];
+    sources?: DiscoverSource[]; // default: ['linkedin'] if LI channel connected, else ['brave']
+    linkedin_filters?: {
+      title?: string;
+      location?: string;
+      current_company?: string;
+      industry?: string;
+      limit?: number;
+      seniority?: string[];
+      function?: string[];
+      years_in_position?: string;
+    };
   };
 
   // Auto-resolve org and product from authenticated user if not provided
@@ -116,54 +142,155 @@ export async function POST(request: Request) {
     ? `Product: ${product.name}. ${product.one_sentence_description || ''}. ICP: ${product.icp_company_size || ''} companies in ${product.icp_verticals || ''}, buyer: ${product.icp_buyer_title || ''}.`
     : 'No product context available.';
 
-  const results: Array<{ company_name: string; domain: string; status: string; weighted_score?: number; error?: string }> = [];
+  const results: Array<{
+    company_name: string;
+    domain: string;
+    status: string;
+    weighted_score?: number;
+    source?: DiscoverSource;
+    error?: string;
+  }> = [];
 
-  // Source 1: Brave Search by query
-  let companies: Array<{ name: string; domain: string; description: string }> = [];
-
-  if (query) {
-    try {
-      const searchResults = await braveWebSearch(query, 10);
-      companies = searchResults.map(r => {
-        const url = new URL(r.url);
-        return { name: r.title.split(' - ')[0].split(' | ')[0].trim(), domain: url.hostname.replace(/^www\./, ''), description: r.description };
-      });
-      // Deduplicate by domain
-      const seen = new Set<string>();
-      companies = companies.filter(c => {
-        if (seen.has(c.domain)) return false;
-        seen.add(c.domain);
-        return true;
-      });
-    } catch (err) {
-      return NextResponse.json({ error: `Search failed: ${err instanceof Error ? err.message : String(err)}` }, { status: 500 });
-    }
+  // Resolve which sources to run. If caller didn't specify, prefer LinkedIn
+  // when a channel is connected — this is the Affluent Connections methodology
+  // primary engine; Brave is a supplement, not the default.
+  if (!sources || sources.length === 0) {
+    const { data: linkedinChannel } = await db
+      .from('client_channels')
+      .select('id')
+      .eq('organisation_id', organisation_id)
+      .eq('channel_type', 'linkedin')
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    sources = linkedinChannel ? ['linkedin'] : ['brave'];
   }
 
-  // Source 2: Seed list of domains
-  if (domains && domains.length > 0) {
-    for (const d of domains) {
-      const clean = d.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
-      if (clean && !companies.some(c => c.domain === clean)) {
-        companies.push({ name: clean, domain: clean, description: '' });
+  const candidates: DiscoveryCandidate[] = [];
+
+  // Source: LinkedIn / Sales Navigator — search runs as the operator's
+  // connected account via Unipile. Returns people directly (with profile URL),
+  // so contact_linkedin is free and contact_name/title pre-populated.
+  for (const source of sources) {
+    if (source === 'linkedin' || source === 'sales_nav') {
+      if (!query) continue; // Need a keyword query for LinkedIn search
+
+      const { data: channel } = await db
+        .from('client_channels')
+        .select('oauth_token_ref')
+        .eq('organisation_id', organisation_id)
+        .eq('channel_type', 'linkedin')
+        .eq('status', 'active')
+        .limit(1)
+        .maybeSingle();
+
+      if (!channel?.oauth_token_ref) {
+        results.push({
+          company_name: '—',
+          domain: '—',
+          status: 'error',
+          source,
+          error: `${source} requested but no active LinkedIn channel connected`,
+        });
+        continue;
+      }
+
+      const liResult =
+        source === 'sales_nav'
+          ? await searchSalesNavigator({
+              account_id: channel.oauth_token_ref,
+              filters: { keywords: query, ...(linkedin_filters || {}) },
+            })
+          : await searchLinkedInPeople({
+              account_id: channel.oauth_token_ref,
+              filters: { keywords: query, ...(linkedin_filters || {}) },
+            });
+
+      if (!liResult.ok) {
+        results.push({
+          company_name: '—',
+          domain: '—',
+          status: 'error',
+          source,
+          error: liResult.error,
+        });
+        continue;
+      }
+
+      for (const person of liResult.people) {
+        candidates.push(linkedInPersonToCandidate(person, source));
+      }
+    }
+
+    if (source === 'brave' && query) {
+      try {
+        const searchResults = await braveWebSearch(query, 10);
+        for (const r of searchResults) {
+          const url = new URL(r.url);
+          candidates.push({
+            name: r.title.split(' - ')[0].split(' | ')[0].trim(),
+            domain: url.hostname.replace(/^www\./, ''),
+            description: r.description,
+            source: 'brave',
+          });
+        }
+      } catch (err) {
+        results.push({
+          company_name: '—',
+          domain: '—',
+          status: 'error',
+          source: 'brave',
+          error: `Brave search failed: ${err instanceof Error ? err.message : String(err)}`,
+        });
       }
     }
   }
 
-  if (companies.length === 0) {
-    return NextResponse.json({ error: 'No companies found. Provide a search query or domain list.' }, { status: 400 });
+  // Source: explicit domain seed list (always honoured, regardless of sources)
+  if (domains && domains.length > 0) {
+    for (const d of domains) {
+      const clean = d.trim().replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '');
+      if (clean && !candidates.some(c => c.domain === clean)) {
+        candidates.push({ name: clean, domain: clean, description: '', source: 'brave' });
+      }
+    }
   }
 
-  // Score each company via one-shot Claude call
+  // De-dupe by (domain || profile_url). LinkedIn-sourced hits beat Brave hits
+  // for the same person because they bring contact_linkedin pre-attached.
+  const seen = new Set<string>();
+  const companies: DiscoveryCandidate[] = [];
+  for (const c of candidates) {
+    const key = (c.contact_linkedin || c.domain).toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    companies.push(c);
+  }
+
+  if (companies.length === 0) {
+    return NextResponse.json(
+      { error: 'No candidates found. Provide a search query, domain list, or connect a LinkedIn channel.' },
+      { status: 400 }
+    );
+  }
+
+  // Score each candidate via one-shot Claude call
   for (const company of companies.slice(0, 20)) {
     try {
+      // For LinkedIn-sourced hits, the person + role IS the signal — include
+      // contact_name + contact_title in the scoring context so Claude can
+      // weight authority (FO principal vs analyst) correctly.
+      const personContext = company.contact_name
+        ? `\nContact: ${company.contact_name}${company.contact_title ? ` — ${company.contact_title}` : ''}${company.contact_linkedin ? ` (${company.contact_linkedin})` : ''}`
+        : '';
+
       const response = await client.messages.create({
         model: MODEL,
         max_tokens: 500,
         system: SCORING_PROMPT,
         messages: [{
           role: 'user',
-          content: `${productContext}\n\nCompany to score: ${company.name} (${company.domain})\nDescription: ${company.description || 'No description available'}`,
+          content: `${productContext}\n\nCandidate to score: ${company.name} (${company.domain})\nSource: ${company.source}${personContext}\nDescription: ${company.description || 'No description available'}`,
         }],
       });
 
@@ -190,7 +317,11 @@ export async function POST(request: Request) {
         domain: company.domain,
         category: scores.category || null,
         partner_type: scores.partner_type || 'referral',
-        status: 'scored',
+        // LinkedIn-sourced hits land as contact_found because we have the
+        // LinkedIn URL + role already — they only need email enrichment, not
+        // contact discovery. Brave-sourced hits land as scored and require
+        // the normal enrich step.
+        status: company.source === 'linkedin' || company.source === 'sales_nav' ? 'contact_found' : 'scored',
         weighted_score: weightedScore,
         confidence_score: scores.confidence_score || 'normal',
         audience_overlap_score: scores.audience_overlap_score,
@@ -203,6 +334,10 @@ export async function POST(request: Request) {
         reachability_notes: scores.reachability_notes,
         strategic_leverage_score: scores.strategic_leverage_score,
         strategic_leverage_notes: scores.strategic_leverage_notes,
+        // Pre-populated from LinkedIn search (free; no Hunter step needed)
+        contact_name: company.contact_name,
+        contact_title: company.contact_title,
+        contact_linkedin: company.contact_linkedin,
       });
 
       results.push({
@@ -210,6 +345,7 @@ export async function POST(request: Request) {
         domain: company.domain,
         status: result.status,
         weighted_score: weightedScore,
+        source: company.source,
         error: result.error,
       });
     } catch (err) {
@@ -225,6 +361,36 @@ export async function POST(request: Request) {
   return NextResponse.json({
     discovered: results.filter(r => r.status !== 'error').length,
     errors: results.filter(r => r.status === 'error').length,
+    sources_used: sources,
     results,
   });
+}
+
+function linkedInPersonToCandidate(person: LinkedInPerson, source: DiscoverSource): DiscoveryCandidate {
+  // Best-effort domain derivation. LinkedIn doesn't always return a website
+  // field — fall back to a synthetic LinkedIn-keyed slug so the partner row
+  // still upserts uniquely. The renderer/sender uses contact_linkedin, not
+  // domain, so a synthetic value here doesn't affect outreach.
+  const domainFromCompany = person.current_company_domain
+    ? person.current_company_domain.replace(/^https?:\/\//, '').replace(/^www\./, '').replace(/\/.*$/, '')
+    : null;
+
+  const domain = domainFromCompany || (person.public_id ? `linkedin.com/in/${person.public_id}` : `linkedin-unknown-${Math.random().toString(36).slice(2, 10)}`);
+
+  const description = [
+    person.headline,
+    person.current_company ? `Current: ${person.current_company}` : null,
+    person.location ? `Location: ${person.location}` : null,
+    person.industry ? `Industry: ${person.industry}` : null,
+  ].filter(Boolean).join(' · ');
+
+  return {
+    name: person.current_company || person.full_name,
+    domain,
+    description,
+    source,
+    contact_name: person.full_name || undefined,
+    contact_title: person.headline || undefined,
+    contact_linkedin: person.profile_url || undefined,
+  };
 }

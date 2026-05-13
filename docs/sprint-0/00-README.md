@@ -34,6 +34,7 @@ This v3 README reflects which documents in this folder are operationally live vs
 | 09 | `09-f2k-best-fit-profile-DRAFT.md` | **v3** | **Live** | Operational mirror of Senior Debt Brief; defines tracks, ICP, scoring weights. |
 | 10 | `10-spv-term-sheets.md` | v2 | **Mixed** | Senior debt sections live; investor channel sections marked out of scope. |
 | 11 | `11-senior-debt-brief-v3.pdf` | v3 | **SIGNED-OFF** | Source of truth. Uwe-signed. |
+| 12 | `12-discovery-architecture.md` | v3 | **Live** | Discovery architecture — LinkedIn as primary engine, Brave as supplement. Captures Affluent Connections methodology mapping. Added 2026-05-13 after the LinkedIn-as-primary clarification. |
 
 ---
 
@@ -88,12 +89,16 @@ What changed when Uwe signed off the Senior Debt Brief v3:
 - Confirm Sec 5.5 / 5.6 / 5.7 response scripts in writing
 
 ### Audience-agnostic build (parallel to Uwe sign-off)
-- Unipile wrapper library
+- Unipile wrapper library — send (connect/DM/email) + search (LinkedIn + Sales Nav)
 - OAuth flows for LinkedIn / Gmail / Outlook
 - Channel-guard middleware (daily caps + warmup + kill switch)
 - Pre-send compliance filter framework
-- Approval queue UI shell
+- Approval queue UI shell + inline send via approve route
 - Database migration for client_channels + sequence tables + audit log
+- Multi-source discover route (LinkedIn primary, Sales Nav, Brave supplement)
+- Sequencer cron worker + per-template renderer
+- Assign-to-sequence sidebar on partner detail
+- Active/inactive toggle on products
 - Platform Trust middleware install
 
 ---

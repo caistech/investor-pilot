@@ -22,6 +22,10 @@ export interface PartnerUpsertData {
   strategic_leverage_notes?: string;
   screened_out?: boolean;
   screened_out_reason?: string;
+  // Pre-populated by LinkedIn / Sales Navigator search — Brave doesn't fill these.
+  contact_name?: string;
+  contact_title?: string;
+  contact_linkedin?: string;
 }
 
 export interface ContactData {

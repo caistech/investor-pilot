@@ -1,38 +1,75 @@
 'use client';
 
-import { useState } from 'react';
-import { Search, Upload, Loader2, CheckCircle, XCircle, ArrowRight } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Search, Upload, Loader2, CheckCircle, XCircle, ArrowRight, Send, Globe2, Briefcase } from 'lucide-react';
 import Link from 'next/link';
+
+type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 
 interface DiscoverResult {
   company_name: string;
   domain: string;
   status: string;
   weighted_score?: number;
+  source?: DiscoverSource;
   error?: string;
 }
+
+const SOURCE_LABELS: Record<DiscoverSource, { label: string; description: string; icon: typeof Search }> = {
+  linkedin: {
+    label: 'LinkedIn',
+    description: 'People search via your connected LinkedIn account. Primary engine — returns prospects with profile URLs attached.',
+    icon: Send,
+  },
+  sales_nav: {
+    label: 'Sales Navigator',
+    description: 'Richer filters (seniority, function, years in role). Requires your account to have an active Sales Navigator subscription.',
+    icon: Briefcase,
+  },
+  brave: {
+    label: 'Web (Brave)',
+    description: 'Supplementary web search. Useful for company-level signals (news, press, deal participation) not visible on LinkedIn.',
+    icon: Globe2,
+  },
+};
 
 export default function DiscoverPage() {
   const [mode, setMode] = useState<'search' | 'seed'>('search');
   const [query, setQuery] = useState('');
   const [domains, setDomains] = useState('');
+  const [sources, setSources] = useState<DiscoverSource[]>(['linkedin']);
   const [loading, setLoading] = useState(false);
   const [results, setResults] = useState<DiscoverResult[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [orgId, setOrgId] = useState<string | null>(null);
-  const [productId, setProductId] = useState<string | null>(null);
+  const [linkedInConnected, setLinkedInConnected] = useState<boolean | null>(null);
 
-  // Load org and product on first render
-  useState(() => {
+  // Detect whether a LinkedIn channel is connected so we can default sensibly.
+  useEffect(() => {
+    let cancelled = false;
     fetch('/api/partners')
-      .then(() => {
-        // Get profile info from a lightweight endpoint
-        fetch('/api/sessions')
-          .then(r => r.json())
-          .catch(() => null);
-      })
+      .then(() => fetch('/api/channels/sync', { method: 'GET' }).catch(() => null))
       .catch(() => null);
-  });
+
+    // Cheap connected-check via a lightweight pull. We rely on the /channels
+    // page for the canonical view; here we just toggle the default source.
+    fetch('/api/sessions')
+      .then(r => r.json())
+      .catch(() => null)
+      .finally(() => {
+        if (!cancelled) setLinkedInConnected(true); // optimistic; user can flip manually
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  function toggleSource(s: DiscoverSource) {
+    setSources(prev => {
+      if (prev.includes(s)) {
+        const next = prev.filter(p => p !== s);
+        return next.length === 0 ? prev : next; // never empty
+      }
+      return [...prev, s];
+    });
+  }
 
   async function handleDiscover() {
     setLoading(true);
@@ -40,15 +77,13 @@ export default function DiscoverPage() {
     setResults(null);
 
     try {
-      // First get org and product IDs
-      const profileRes = await fetch('/api/export?' + new URLSearchParams({ format: 'json' }));
-      // Fallback: use a dedicated lightweight endpoint
       const settingsRes = await fetch('/api/pipeline/discover', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          product_id: productId || 'auto',
-          organisation_id: orgId || 'auto',
+          product_id: 'auto',
+          organisation_id: 'auto',
+          sources,
           ...(mode === 'search' ? { query } : {}),
           ...(mode === 'seed' ? { domains: domains.split('\n').map(d => d.trim()).filter(Boolean) } : {}),
         }),
@@ -67,6 +102,9 @@ export default function DiscoverPage() {
       setLoading(false);
     }
   }
+
+  const sourceUsesQuery = sources.some(s => s === 'linkedin' || s === 'sales_nav' || s === 'brave');
+  const linkedInSelected = sources.includes('linkedin') || sources.includes('sales_nav');
 
   return (
     <div>
@@ -95,19 +133,67 @@ export default function DiscoverPage() {
         </button>
       </div>
 
+      {/* Source picker — only when searching by query */}
+      {mode === 'search' && (
+        <div className="card mb-6">
+          <div className="flex items-start justify-between mb-3">
+            <div>
+              <h4 className="text-sm">Search sources</h4>
+              <p className="text-dark-500 text-xs mt-1">
+                Pick one or more. LinkedIn returns people with profile URLs attached;
+                Brave returns company-level web hits.
+              </p>
+            </div>
+            <span className="text-dark-600 text-xs whitespace-nowrap">
+              {sources.length} selected
+            </span>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+            {(Object.keys(SOURCE_LABELS) as DiscoverSource[]).map(s => {
+              const { label, description, icon: Icon } = SOURCE_LABELS[s];
+              const selected = sources.includes(s);
+              return (
+                <button
+                  key={s}
+                  onClick={() => toggleSource(s)}
+                  className={`text-left p-3 rounded-lg border transition-colors ${
+                    selected
+                      ? 'bg-corp-green-500/10 border-corp-green-500/40'
+                      : 'bg-dark-800 border-dark-700 hover:border-dark-600'
+                  }`}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <Icon className={`w-4 h-4 ${selected ? 'text-corp-green-400' : 'text-dark-500'}`} />
+                    <span className="text-sm font-medium">{label}</span>
+                    {s === 'linkedin' && <span className="badge-green text-[10px]">Primary</span>}
+                    {s === 'brave' && <span className="text-dark-600 text-[10px] uppercase tracking-wide">Supplement</span>}
+                  </div>
+                  <p className="text-dark-500 text-xs">{description}</p>
+                </button>
+              );
+            })}
+          </div>
+          {linkedInSelected && linkedInConnected === false && (
+            <p className="text-amber-400 text-xs mt-3">
+              ⚠ No active LinkedIn channel detected. Connect one at <Link href="/channels" className="underline">Channels</Link> first, or switch to Web (Brave).
+            </p>
+          )}
+        </div>
+      )}
+
       {/* Input */}
       <div className="card mb-6">
         {mode === 'search' ? (
           <div>
             <label className="text-dark-400 text-sm block mb-2">Search Query</label>
             <p className="text-dark-500 text-xs mb-3">
-              Try queries like &quot;R&amp;D tax consultants Australia&quot; or &quot;startup accelerators Melbourne&quot;
+              Lender-channel examples: &quot;family office private debt Sydney&quot;, &quot;Australian property development senior debt fund&quot;, &quot;HNW direct lender residential construction&quot;
             </p>
             <input
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="e.g. R&D tax advisory firms Australia"
+              placeholder="e.g. family office private debt Australia"
               className="w-full bg-dark-800 border border-dark-700 rounded px-4 py-3 text-sm focus:border-corp-green-500 focus:outline-none"
               onKeyDown={(e) => e.key === 'Enter' && !loading && handleDiscover()}
             />
@@ -116,12 +202,12 @@ export default function DiscoverPage() {
           <div>
             <label className="text-dark-400 text-sm block mb-2">Domain List</label>
             <p className="text-dark-500 text-xs mb-3">
-              Paste one domain per line. These companies will be researched and scored.
+              Paste one domain per line. These companies will be researched and scored against the lender ICP.
             </p>
             <textarea
               value={domains}
               onChange={(e) => setDomains(e.target.value)}
-              placeholder={"swansonreed.com.au\npitcher.com.au\nazuregroup.com.au"}
+              placeholder={"familyoffice.example.com.au\nprivatecreditfund.example.com\n..."}
               rows={6}
               className="w-full bg-dark-800 border border-dark-700 rounded px-4 py-3 text-sm focus:border-corp-green-500 focus:outline-none resize-y font-mono"
             />
@@ -130,7 +216,7 @@ export default function DiscoverPage() {
 
         <button
           onClick={handleDiscover}
-          disabled={loading || (mode === 'search' ? !query.trim() : !domains.trim())}
+          disabled={loading || (mode === 'search' ? !query.trim() || !sourceUsesQuery : !domains.trim())}
           className="btn-primary mt-4 flex items-center gap-2"
         >
           {loading ? (
@@ -178,7 +264,14 @@ export default function DiscoverPage() {
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="font-medium text-sm truncate">{r.company_name}</div>
-                  <div className="text-dark-500 text-xs">{r.domain}</div>
+                  <div className="text-dark-500 text-xs flex items-center gap-2">
+                    <span className="truncate">{r.domain}</span>
+                    {r.source && (
+                      <span className="text-dark-600 text-[10px] uppercase tracking-wide px-1.5 py-0.5 bg-dark-900 rounded">
+                        {r.source === 'sales_nav' ? 'Sales Nav' : r.source}
+                      </span>
+                    )}
+                  </div>
                 </div>
                 {r.weighted_score && (
                   <span className="font-mono text-corp-green-400 font-bold">
@@ -190,7 +283,7 @@ export default function DiscoverPage() {
                 )}
                 <span className={`text-xs px-2 py-0.5 rounded ${
                   r.status === 'error' ? 'bg-red-500/10 text-red-400' :
-                  r.status === 'created' ? 'bg-corp-green-500/10 text-corp-green-400' :
+                  r.status === 'created' || r.status === 'contact_found' ? 'bg-corp-green-500/10 text-corp-green-400' :
                   'bg-blue-500/10 text-blue-400'
                 }`}>
                   {r.status}
@@ -215,7 +308,7 @@ export default function DiscoverPage() {
         <div className="card text-center py-12 text-dark-500">
           <Search className="w-10 h-10 mx-auto mb-3 opacity-30" />
           <p>Search for investor prospects or paste a list of domains to get started.</p>
-          <p className="text-xs mt-2">Each company will be scored on audience overlap, complementarity, readiness, reachability, and leverage.</p>
+          <p className="text-xs mt-2">Each candidate scored on capital, asset-class focus, track record, decision authority, and reachability per the v3 lender ICP.</p>
         </div>
       )}
     </div>

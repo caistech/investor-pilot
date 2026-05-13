@@ -335,6 +335,227 @@ function formatFetchError(err: unknown): string {
 }
 
 // =============================================================================
+// LinkedIn search (people + Sales Navigator)
+//
+// This is the PRIMARY discovery engine for InvestorPilot per the
+// Affluent Connections methodology: find prospects on LinkedIn / Sales
+// Navigator via the operator's own connected account, score them with
+// Claude, then send connection requests + DMs from the same account.
+//
+// Brave web search is a SUPPLEMENT for company-level signals
+// (news, prior deal participation) where the operator can't surface
+// people directly on LinkedIn.
+//
+// Endpoint shapes here are based on Unipile's published API docs and
+// observed account behaviour as of 2026-05-13. Exact request/response
+// fields need spike validation (doc 08 tests 3.11-3.13) before relying
+// on this in production.
+// =============================================================================
+
+export interface LinkedInPerson {
+  public_id: string;            // LinkedIn profile public id (e.g. "james-wilson-1234")
+  profile_url: string;          // Full profile URL — used as recipient_profile_url on send
+  full_name: string;
+  headline: string | null;      // Profile headline / current role one-liner
+  location: string | null;
+  current_company: string | null;
+  current_company_url: string | null;
+  current_company_domain: string | null;
+  industry: string | null;
+  raw: Record<string, unknown>; // Original Unipile payload for fields we don't normalise
+}
+
+export interface LinkedInSearchFilters {
+  keywords?: string;
+  title?: string;
+  location?: string;
+  current_company?: string;
+  industry?: string;
+  limit?: number; // default 25, max 100
+}
+
+export type LinkedInSearchResult =
+  | { ok: true; people: LinkedInPerson[]; total?: number; next_cursor?: string | null }
+  | { ok: false; error: string; rate_limit_signal?: boolean };
+
+/**
+ * Free-text LinkedIn people search via the operator's connected account.
+ *
+ * Acts as the account does, including respecting its visibility tier (1st/2nd
+ * degree connections weighted higher). Subject to LinkedIn's daily search cap
+ * — the channel-guard middleware does NOT currently rate-limit search; if the
+ * spike (doc 08 test 3.13) reveals a hard cap, gate this call before issuing.
+ *
+ * TODO Sprint 1: confirm exact endpoint and response shape via spike (doc 08
+ * task 3.11). Likely: POST /api/v1/linkedin/search with body
+ * { account_id, keywords, filters }. Response includes paginated results with
+ * profile public_id, name, headline, current_company.
+ */
+export async function searchLinkedInPeople(input: {
+  account_id: string;
+  filters: LinkedInSearchFilters;
+}): Promise<LinkedInSearchResult> {
+  if (!UNIPILE_API_KEY) return { ok: false, error: 'UNIPILE_API_KEY not set' };
+  if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
+
+  try {
+    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`, {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': UNIPILE_API_KEY,
+        'Content-Type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        account_id: input.account_id,
+        api: 'classic', // 'classic' (free) | 'sales_navigator'
+        category: 'people',
+        keywords: input.filters.keywords || '',
+        // Unipile maps these onto LinkedIn's filter UI parameters.
+        keywords_title: input.filters.title,
+        location: input.filters.location,
+        current_company: input.filters.current_company,
+        industry: input.filters.industry,
+        limit: Math.min(input.filters.limit || 25, 100),
+      }),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      if (response.status === 429) {
+        return { ok: false, error: `Rate limited: ${text.slice(0, 300)}`, rate_limit_signal: true };
+      }
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 300)}` };
+    }
+
+    return parseLinkedInSearchResponse(text);
+  } catch (err) {
+    return { ok: false, error: `Network/fetch error: ${formatFetchError(err)}` };
+  }
+}
+
+/**
+ * Sales Navigator search — richer filters (seniority, function, years in
+ * position, premium intent signals). Requires the connected LinkedIn account
+ * to have an active Sales Navigator subscription.
+ *
+ * TODO Sprint 1: confirm endpoint via spike (doc 08 task 3.12).
+ */
+export async function searchSalesNavigator(input: {
+  account_id: string;
+  filters: LinkedInSearchFilters & {
+    seniority?: string[];
+    function?: string[];
+    years_in_position?: string;
+  };
+}): Promise<LinkedInSearchResult> {
+  if (!UNIPILE_API_KEY) return { ok: false, error: 'UNIPILE_API_KEY not set' };
+  if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
+
+  try {
+    const response = await fetch(`${UNIPILE_BASE_URL}/api/v1/linkedin/search`, {
+      method: 'POST',
+      headers: {
+        'X-API-KEY': UNIPILE_API_KEY,
+        'Content-Type': 'application/json',
+        'accept': 'application/json',
+      },
+      body: JSON.stringify({
+        account_id: input.account_id,
+        api: 'sales_navigator',
+        category: 'people',
+        keywords: input.filters.keywords || '',
+        keywords_title: input.filters.title,
+        location: input.filters.location,
+        current_company: input.filters.current_company,
+        industry: input.filters.industry,
+        seniority: input.filters.seniority,
+        function: input.filters.function,
+        years_in_position: input.filters.years_in_position,
+        limit: Math.min(input.filters.limit || 25, 100),
+      }),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      if (response.status === 403 && /sales[_ -]?nav/i.test(text)) {
+        return { ok: false, error: 'Connected LinkedIn account has no active Sales Navigator subscription' };
+      }
+      if (response.status === 429) {
+        return { ok: false, error: `Rate limited: ${text.slice(0, 300)}`, rate_limit_signal: true };
+      }
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 300)}` };
+    }
+
+    return parseLinkedInSearchResponse(text);
+  } catch (err) {
+    return { ok: false, error: `Network/fetch error: ${formatFetchError(err)}` };
+  }
+}
+
+function parseLinkedInSearchResponse(text: string): LinkedInSearchResult {
+  let parsed: { items?: unknown[]; data?: unknown[]; results?: unknown[]; total?: number; cursor?: string | null };
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: `Non-JSON Unipile response: ${text.slice(0, 200)}` };
+  }
+  const rawItems = (parsed.items || parsed.data || parsed.results || []) as Array<Record<string, unknown>>;
+  const people: LinkedInPerson[] = rawItems.map(p => normaliseLinkedInPerson(p));
+  return {
+    ok: true,
+    people,
+    total: parsed.total,
+    next_cursor: parsed.cursor ?? null,
+  };
+}
+
+function normaliseLinkedInPerson(p: Record<string, unknown>): LinkedInPerson {
+  // Unipile / LinkedIn response shape varies. Pull the common fields safely.
+  const public_id =
+    pickString(p, 'public_id') ||
+    pickString(p, 'public_identifier') ||
+    pickString(p, 'id') ||
+    '';
+
+  const profile_url =
+    pickString(p, 'public_profile_url') ||
+    pickString(p, 'profile_url') ||
+    (public_id ? `https://www.linkedin.com/in/${public_id}` : '');
+
+  const full_name =
+    pickString(p, 'name') ||
+    pickString(p, 'full_name') ||
+    [pickString(p, 'first_name'), pickString(p, 'last_name')].filter(Boolean).join(' ').trim();
+
+  const currentCompanyObj =
+    (p.current_company as Record<string, unknown> | undefined) ||
+    (Array.isArray(p.experiences) ? (p.experiences[0] as Record<string, unknown>) : undefined);
+
+  const current_company = currentCompanyObj ? pickString(currentCompanyObj, 'name') : null;
+  const current_company_url = currentCompanyObj ? pickString(currentCompanyObj, 'url') : null;
+  const current_company_domain = currentCompanyObj ? pickString(currentCompanyObj, 'website') : null;
+
+  return {
+    public_id,
+    profile_url,
+    full_name,
+    headline: pickString(p, 'headline') || pickString(p, 'title'),
+    location: pickString(p, 'location') || pickString(p, 'location_name'),
+    current_company,
+    current_company_url,
+    current_company_domain,
+    industry: pickString(p, 'industry'),
+    raw: p,
+  };
+}
+
+function pickString(obj: Record<string, unknown>, key: string): string | null {
+  const v = obj[key];
+  return typeof v === 'string' && v.trim() ? v : null;
+}
+
+// =============================================================================
 // Internals
 // =============================================================================
 

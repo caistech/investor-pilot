@@ -4,6 +4,7 @@
 
 **Owner:** Dennis
 **Status:** Spec ready to execute.
+**Updated 2026-05-13:** Tests 3.11-3.13 added for LinkedIn search (the primary discovery engine — see doc 12 for architectural rationale).
 
 ---
 
@@ -147,6 +148,38 @@ Notes: _____________________
 
 Notes: _____________________
 
+### Test 3.11 — LinkedIn people search (PRIMARY discovery engine)
+
+Added 2026-05-13 after the LinkedIn-as-primary-engine clarification — see doc 12 for architectural rationale.
+
+- [ ] Call Unipile's LinkedIn search endpoint with `api: 'classic', category: 'people'` and a keyword query (e.g. "family office private debt Sydney").
+- [ ] Capture: full request shape used, full response shape, observed field names for `public_id`, `profile_url`, `full_name`, `headline`, `location`, `current_company`.
+- [ ] Confirm `searchLinkedInPeople` in `src/lib/channels/unipile.ts` normalises the response correctly (compare to the `normaliseLinkedInPerson` field map).
+- [ ] If field names differ, document the actual shape and update the normaliser.
+- **PASS:** Endpoint returns ≥10 results matching the query; profile URLs are valid; latency <5 seconds.
+- **FAIL:** Endpoint 404s, returns 0 results for an obviously-populated query, or response shape diverges enough that the normaliser produces empty hits.
+
+Notes: _____________________
+
+### Test 3.12 — Sales Navigator search
+
+- [ ] If connected LinkedIn account has Sales Navigator, call the search endpoint with `api: 'sales_navigator'` plus a `seniority` filter.
+- [ ] Capture: how the seniority / function / years-in-position filters map onto Unipile's request body.
+- [ ] If no Sales Nav subscription, confirm endpoint returns a 403 with a recognisable error string (the wrapper assumes `/sales[_ -]?nav/i` matches).
+- **PASS:** Filtered query returns higher-quality results than the classic API on the same keywords; subscription error is detectable.
+- **FAIL:** Sales Nav endpoint missing entirely, or no way to distinguish "no SN" from "general 403".
+
+Notes: _____________________
+
+### Test 3.13 — Search rate-limit behaviour
+
+- [ ] Issue 50 LinkedIn search calls in rapid succession from the same connected account.
+- [ ] Document: at what request number does latency spike, 429 appear, or LinkedIn return fewer/empty results?
+- [ ] Is there a per-day search cap distinct from the send cap?
+- **CRITICAL FINDING:** This determines whether channel-guard needs a separate search cap. Currently channel-guard only gates sends. If a daily search cap exists, add a `search_count` + `search_cap_reset_at` field to `client_channels` and gate before each search.
+
+Notes (verbatim of what happens): _____________________
+
 ---
 
 ## 4. Decision matrix
@@ -165,17 +198,24 @@ Score each test pass / fail / conditional. Use:
 | 3.8 Pause / resume | | | |
 | 3.9 Calendar | | | |
 | 3.10 Support response | | | |
+| 3.11 LinkedIn people search | | | |
+| 3.12 Sales Navigator search | | | |
+| 3.13 Search rate-limit | | | |
 
 ### Pass criteria for commit
 
-- [ ] Tests 3.1, 3.2, 3.3, 3.4, 3.5 all PASS (the critical Phase 1 paths)
-- [ ] Test 3.6 produces clear, documentable cap behavior (PASS or workable CONDITIONAL)
+- [ ] Tests 3.1, 3.2, 3.3, 3.4, 3.5 all PASS (the critical Phase 1 send paths)
+- [ ] **Test 3.11 PASSes** (LinkedIn people search — this is the primary discovery engine; without it the whole methodology is blocked)
+- [ ] Test 3.6 produces clear, documentable send-cap behavior (PASS or workable CONDITIONAL)
+- [ ] Test 3.13 produces clear, documentable search-cap behavior (PASS or workable CONDITIONAL)
 - [ ] Test 3.8 PASSes (kill-switch viable)
 - [ ] At least one of 3.7 or 3.10 PASSes (we can detect account problems)
+- [ ] Test 3.12 PASS or CONDITIONAL (Sales Nav nice-to-have, not blocking)
 
 ### Fail criteria → abort
 
 - Test 3.1 or 3.3 (the core LinkedIn send) FAILs
+- **Test 3.11 FAILs** (LinkedIn people search) — discovery cannot fall back to Brave-only without surrendering the methodology
 - Test 3.6 reveals Unipile silently violates LinkedIn caps (we cannot trust the vendor)
 - Test 3.8 FAILs (no kill switch)
 
