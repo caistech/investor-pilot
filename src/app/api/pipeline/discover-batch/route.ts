@@ -176,16 +176,19 @@ export async function POST(request: Request) {
     ? network_tiers
     : ['1st', '2nd', 'cold'];
 
-  // For each (query × source × tier) combo, fetch candidates. Bounded
-  // concurrency so we don't fire 30 simultaneous requests at LinkedIn/Brave.
+  // Two distinct query sets — LinkedIn gets person-targeting queries, Brave
+  // gets company/deal/news queries. Same engine search shapes that match each
+  // platform's actual indexing strengths.
   const jobs: Array<{ query: string; source: DiscoverSource; tier: NetworkTier }> = [];
-  for (const q of queryGen.queries) {
-    for (const source of sources) {
-      if (source === 'brave') {
-        // Brave has no network concept — just tag results as 'cold' for tier book-keeping.
+  for (const source of sources) {
+    if (source === 'brave') {
+      // Brave has no network concept — always tag results as 'cold'.
+      for (const q of queryGen.brave_queries) {
         jobs.push({ query: q.query, source, tier: 'cold' });
-      } else {
-        // LinkedIn / Sales Nav: one search per tier the operator wants to cover.
+      }
+    } else {
+      // LinkedIn / Sales Nav: one search per tier the operator wants to cover.
+      for (const q of queryGen.linkedin_queries) {
         for (const tier of tiers) {
           jobs.push({ query: q.query, source, tier });
         }
@@ -289,7 +292,8 @@ export async function POST(request: Request) {
     resource_type: 'product',
     resource_id: product_id,
     payload: {
-      queries_used: queryGen.queries.length,
+      linkedin_query_count: queryGen.linkedin_queries.length,
+      brave_query_count: queryGen.brave_queries.length,
       sources,
       candidates_found: allCandidates.length,
       candidates_unique: uniqueCandidates.length,
@@ -298,14 +302,16 @@ export async function POST(request: Request) {
     },
   });
 
+  // Flatten both sets for the UI — same shape as before but tagged by intended source.
+  const queriesUsed = [
+    ...queryGen.linkedin_queries.map(q => ({ query: q.query, rationale: q.rationale, category: q.expected_category, intended_source: 'linkedin' as const })),
+    ...queryGen.brave_queries.map(q => ({ query: q.query, rationale: q.rationale, category: q.expected_category, intended_source: 'brave' as const })),
+  ];
+
   return NextResponse.json({
     ok: true,
     product_summary: queryGen.product_summary,
-    queries_used: queryGen.queries.map(q => ({
-      query: q.query,
-      rationale: q.rationale,
-      category: q.expected_category,
-    })),
+    queries_used: queriesUsed,
     sources_used: sources,
     network_tiers_used: tiers,
     tier_breakdown: tierBreakdown,

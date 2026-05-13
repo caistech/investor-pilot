@@ -12,6 +12,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
+import { braveWebSearch } from '@/lib/agent/brave-tools';
 
 const client = new Anthropic({
   apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
@@ -98,6 +99,44 @@ export interface ScoreCandidateResult {
 }
 
 /**
+ * Brave evidence enrichment for LinkedIn-sourced candidates.
+ *
+ * LinkedIn gives us name + headline + current company but no deal history.
+ * Brave can surface fund reports / press / news mentioning the company —
+ * which is the strongest predictor for the v3 strategic_leverage score
+ * (track record of AU property dev debt participation).
+ *
+ * Returns a short evidence block to inject into the Claude scoring prompt.
+ * Cheap: one Brave call per LinkedIn-sourced candidate (~3 results × top 200
+ * chars each). Brave-sourced candidates skip this — they already arrived
+ * with web context.
+ */
+export async function enrichCandidateWithBrave(candidate: ScoreCandidateInput): Promise<string> {
+  if (candidate.source !== 'linkedin' && candidate.source !== 'sales_nav') return '';
+
+  // Best signal we have for company name on a LinkedIn hit: candidate.name
+  // (we set it to current_company in the linkedInPersonToCandidate normaliser).
+  const company = candidate.name?.trim();
+  if (!company || company.length < 3) return '';
+
+  // Bias the query toward credit/debt/lending signals — the v3 strategic
+  // leverage dimension specifically.
+  const query = `"${company}" Australia (property OR real estate) (private credit OR debt OR lending OR fund)`;
+
+  try {
+    const results = await braveWebSearch(query, 3);
+    if (!results.length) return '';
+    const block = results
+      .slice(0, 3)
+      .map(r => `- ${r.title.slice(0, 120)}: ${r.description.slice(0, 200)}`)
+      .join('\n');
+    return `\n\nWEB EVIDENCE for ${company} (Brave search):\n${block}`;
+  } catch {
+    return '';
+  }
+}
+
+/**
  * Run the Claude scoring one-shot for one candidate, then upsert as a partner
  * row. Idempotent on (organisation_id, domain) — re-running discovery on the
  * same candidate updates the row rather than duplicating it.
@@ -112,11 +151,16 @@ export async function scoreAndUpsertCandidate(
   productContext: string,
   organisation_id: string,
   product_id: string,
+  options?: { enrichWithBrave?: boolean },
 ): Promise<ScoreCandidateResult> {
   try {
     const personContext = candidate.contact_name
       ? `\nContact: ${candidate.contact_name}${candidate.contact_title ? ` — ${candidate.contact_title}` : ''}${candidate.contact_linkedin ? ` (${candidate.contact_linkedin})` : ''}`
       : '';
+
+    // Brave-enrich LinkedIn hits with company-level deal/fund/news signal
+    // before scoring. Big lift on strategic_leverage_score accuracy.
+    const enrichment = options?.enrichWithBrave === false ? '' : await enrichCandidateWithBrave(candidate);
 
     const response = await client.messages.create({
       model: MODEL,
@@ -124,7 +168,7 @@ export async function scoreAndUpsertCandidate(
       system: SCORING_PROMPT,
       messages: [{
         role: 'user',
-        content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}`,
+        content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
       }],
     });
 

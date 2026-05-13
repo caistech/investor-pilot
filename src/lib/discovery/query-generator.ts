@@ -52,15 +52,23 @@ export interface KnowledgeBaseSource {
 }
 
 export interface GeneratedQuery {
-  query: string;          // Free-text search string usable in LinkedIn + Brave
-  rationale: string;      // One-line why this query surfaces a relevant slice
-  expected_category: string; // Which lender bucket this query targets, e.g. "Sydney family office"
+  query: string;
+  rationale: string;
+  expected_category: string;
 }
 
 export interface QueryGenerationResult {
   ok: true;
-  queries: GeneratedQuery[];
-  product_summary: string; // Claude's interpretation of what the product is — for debugging
+  // LinkedIn / Sales Navigator: person-targeting queries (roles, titles,
+  // geographies). LinkedIn indexes profiles, so we search for "investment
+  // director family office Melbourne" not "private credit fund deals 2024".
+  linkedin_queries: GeneratedQuery[];
+  // Brave web: deal/fund/news language. LinkedIn blocks Brave from indexing
+  // profile pages, so person-targeting queries return ~0 on Brave. We instead
+  // search for company-level signal: fund reports, press releases, news of
+  // recent deals.
+  brave_queries: GeneratedQuery[];
+  product_summary: string;
 }
 
 export interface QueryGenerationError {
@@ -70,47 +78,69 @@ export interface QueryGenerationError {
 
 const SYSTEM_PROMPT = `You generate lender search queries for InvestorPilot — a multi-channel outreach platform for placing senior debt and equity into real-asset investment vehicles.
 
-Given a product (what is being funded) and any uploaded knowledge base context (investment memoranda, term sheets, project overviews), generate N specific search queries that would surface the RIGHT KIND of capital provider to fund it.
+You must generate TWO separate query sets, tuned to two different search engines:
 
-Queries must be USABLE on both LinkedIn people search and Brave web search. Examples of good queries:
-- "family office Sydney private debt Australian property"
-- "private credit fund $5M tickets Australian real estate development"
-- "HNW direct lender modular construction Tasmania"
-- "Singapore family office Australian property credit allocator"
-- "Melbourne wholesale property credit principal"
+LINKEDIN / SALES NAVIGATOR — searches PROFILES of individuals. Best for finding the right person to talk to (FO principal, CIO, head of private credit). Use:
+- Person/role/title language: "family office principal", "head of private credit", "investment director"
+- Geography: "Sydney", "Melbourne", "Singapore", "Brisbane", "Hong Kong"
+- Sub-asset-class hint: "private debt", "direct lending", "real estate credit"
+- Cheque-size language: "$5M tickets", "wholesale"
+Good examples:
+- "family office principal Sydney private debt Australian property"
+- "head of private credit Melbourne investment director"
+- "Singapore family office CIO Australian property credit allocator"
+- "Investment director SMSF wholesale property debt Australia"
 
-Examples of BAD queries (too vague, will surface noise):
-- "investor"
-- "Australian finance"
-- "real estate funding"
+BRAVE WEB SEARCH — searches the public web. LinkedIn blocks Brave from indexing profile pages, so person-targeting queries return ~0. Brave is great for finding COMPANIES via:
+- Fund reports / fund websites
+- News mentions of deal participation
+- Press releases / industry publications
+- Company websites
+Good examples:
+- "Australian property private credit fund 2024 OR 2025"
+- "private debt allocator Australian residential development deal"
+- "family office direct lending Australian property news"
+- "wholesale property credit transaction Australia recent"
+- "Australian residential development senior debt placement"
 
-Guidelines:
-- Each query targets a SPECIFIC slice of the capital market (a geography + role + asset class signal)
-- Vary geography, role/seniority, sub-asset-class, and explicit cheque-size language across queries
-- If the product is senior debt: bias toward "private credit fund", "direct lender", "family office private debt"
-- If the product is project equity: bias toward "limited partner", "co-investment", "real asset private capital"
-- AVOID queries that would surface retail banks, mortgage brokers, equity-only family offices (the v3 lender ICP rejects these — generating queries that surface them wastes the scoring budget)
-- AVOID queries that mention forbidden phrases ("guarantee", "risk-free", "tokenisation") — even at the discovery layer
+BAD queries (do not generate):
+- "investor", "Australian finance", "real estate funding" (too vague)
+- "tokenisation", "crypto", "RWA", "guarantee", "risk-free" (forbidden per v3)
+- Queries surfacing retail banks, mortgage brokers, equity-only family offices, listed REITs (v3 ICP rejects these)
+
+If the product is SENIOR DEBT (most common): bias toward "private credit fund", "direct lender", "family office private debt", "wholesale debt".
+If the product is PROJECT EQUITY: bias toward "limited partner", "co-investment", "real asset private capital".
 
 Return ONLY a JSON object, no markdown or prose:
 {
   "product_summary": "<2-3 sentence summary of what you understood the product to be>",
-  "queries": [
+  "linkedin_queries": [
     {
-      "query": "<search string, 4-10 words>",
-      "rationale": "<one sentence on why this surfaces relevant capital>",
-      "expected_category": "<lender bucket, e.g. 'Sydney family office' | 'Melbourne private credit fund' | 'Singapore HNW principal'>"
+      "query": "<person-targeting search string, 4-10 words>",
+      "rationale": "<one sentence on why this surfaces the right people>",
+      "expected_category": "<who this targets, e.g. 'Sydney family office principal'>"
     },
-    ...
+    ...N_LINKEDIN total
+  ],
+  "brave_queries": [
+    {
+      "query": "<company/deal/news search string, 4-10 words>",
+      "rationale": "<one sentence on why this surfaces relevant company-level signal>",
+      "expected_category": "<what this targets, e.g. 'Recent AU private debt deals'>"
+    },
+    ...N_BRAVE total
   ]
 }`;
 
 export async function generateLenderQueries(input: {
   product: ProductForQueryGen;
   knowledgeBase: KnowledgeBaseSource[];
-  count?: number; // default 8
+  // Total queries split across LinkedIn (60%) + Brave (40%). Default 5 = 3 LI + 2 Brave.
+  count?: number;
 }): Promise<QueryGenerationResult | QueryGenerationError> {
-  const count = Math.min(Math.max(input.count || 8, 3), 15);
+  const total = Math.min(Math.max(input.count || 5, 3), 15);
+  const linkedinCount = Math.max(1, Math.ceil(total * 0.6));
+  const braveCount = Math.max(1, total - linkedinCount);
 
   // Build a compact product context string. Keep knowledge base extracts
   // capped so we stay under the model's context budget without summarising.
@@ -119,7 +149,7 @@ export async function generateLenderQueries(input: {
     .map(s => `[${s.source_type.toUpperCase()}: ${s.title}]\n${s.content!.slice(0, 4000)}`)
     .join('\n\n---\n\n');
 
-  const userMessage = `Generate ${count} lender search queries for this product.
+  const userMessage = `Generate ${linkedinCount} LinkedIn-tuned + ${braveCount} Brave-tuned queries for this product.
 
 PRODUCT:
 Name: ${input.product.name}
@@ -132,7 +162,7 @@ ICP verticals: ${input.product.icp_verticals || '(none)'}
 ICP stage: ${input.product.icp_stage || '(none)'}
 Exclusions: ${input.product.exclusions || '(none)'}
 
-${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from product fields alone)\n\n'}Return exactly ${count} queries as JSON per the schema.`;
+${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from product fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries (person-targeting) and ${braveCount} brave_queries (company/deal/news) as JSON per the schema.`;
 
   try {
     const response = await client.messages.create({
@@ -149,24 +179,31 @@ ${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLED
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
-    const queries: GeneratedQuery[] = Array.isArray(parsed.queries)
-      ? parsed.queries
-          .filter((q: unknown): q is { query: string; rationale: string; expected_category: string } =>
-            typeof q === 'object' && q !== null && typeof (q as { query?: unknown }).query === 'string' && (q as { query: string }).query.trim().length > 0
-          )
-          .slice(0, count)
-      : [];
 
-    if (queries.length === 0) {
+    const liQueries = pickQueryArray(parsed.linkedin_queries).slice(0, linkedinCount);
+    const braveQueries = pickQueryArray(parsed.brave_queries).slice(0, braveCount);
+
+    if (liQueries.length === 0 && braveQueries.length === 0) {
       return { ok: false, error: 'LLM returned no usable queries' };
     }
 
     return {
       ok: true,
-      queries,
+      linkedin_queries: liQueries,
+      brave_queries: braveQueries,
       product_summary: typeof parsed.product_summary === 'string' ? parsed.product_summary : '',
     };
   } catch (err) {
     return { ok: false, error: err instanceof Error ? err.message : String(err) };
   }
+}
+
+function pickQueryArray(raw: unknown): GeneratedQuery[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter(
+    (q: unknown): q is GeneratedQuery =>
+      typeof q === 'object' && q !== null &&
+      typeof (q as { query?: unknown }).query === 'string' &&
+      (q as { query: string }).query.trim().length > 0
+  );
 }
