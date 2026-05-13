@@ -63,6 +63,11 @@ function sourceTierFor(partner: Partner): SourceTierKey {
   return 'all';
 }
 
+function isOutOfScope(partner: Partner): boolean {
+  if (!partner.category) return false;
+  return /out[_ -]?of[_ -]?scope/i.test(partner.category);
+}
+
 function matchesSearch(partner: Partner, query: string): boolean {
   if (!query) return true;
   const q = query.toLowerCase();
@@ -97,6 +102,13 @@ export function PipelineTable({
   const [sourceFilter, setSourceFilter] = useState<SourceTierKey>('all');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter);
+  // Quality filters — compose with status / source / type. Defaults are
+  // conservative so the operator sees the full list on first load and
+  // explicitly opts into trimming. Min score 0 = no floor; toggles default
+  // off so historical data isn't hidden.
+  const [minScore, setMinScore] = useState<number>(0);
+  const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(false);
+  const [hideLowConfidence, setHideLowConfidence] = useState<boolean>(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
@@ -104,7 +116,10 @@ export function PipelineTable({
     .filter(p => matchesFilter(p.status, filter))
     .filter(p => matchesSourceTier(p, sourceFilter))
     .filter(p => matchesSearch(p, search))
-    .filter(p => typeFilter === 'all' || p.partner_type === typeFilter);
+    .filter(p => typeFilter === 'all' || p.partner_type === typeFilter)
+    .filter(p => (p.weighted_score ?? 0) >= minScore)
+    .filter(p => !excludeOutOfScope || !isOutOfScope(p))
+    .filter(p => !hideLowConfidence || p.confidence_score !== 'low-confidence');
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   // Counts for source-tier tabs reflect ALL partners (not respecting the
@@ -264,7 +279,7 @@ export function PipelineTable({
       </div>
 
       {/* Source filter tabs — LinkedIn 1st / 2nd / cold / Brave */}
-      <div className="flex gap-1 mb-4 flex-wrap">
+      <div className="flex gap-1 mb-2 flex-wrap">
         {SOURCE_TABS.map(tab => (
           <button
             key={tab.key}
@@ -284,6 +299,61 @@ export function PipelineTable({
             {tab.label} <span className="text-dark-500 ml-1">{sourceCounts[tab.key]}</span>
           </button>
         ))}
+      </div>
+
+      {/* Quality filters — min score, exclude out-of-scope, hide low conf.
+          Compose with everything above; batch actions fire on the
+          intersection. Layout deliberately compact so it doesn't dominate
+          the page above the table. */}
+      <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
+        <label className="flex items-center gap-1.5 text-dark-400">
+          <span>Min score</span>
+          <input
+            type="number"
+            min={0}
+            max={10}
+            step={0.5}
+            value={minScore}
+            onChange={(e) => {
+              const next = parseFloat(e.target.value);
+              setMinScore(Number.isFinite(next) ? Math.max(0, Math.min(10, next)) : 0);
+              setSelected(new Set());
+            }}
+            className="w-14 bg-dark-800 border border-dark-700 rounded px-1.5 py-0.5 text-xs text-dark-200 focus:border-corp-green-500 focus:outline-none"
+            title="Hide partners with weighted_score below this threshold. 0 = show everything."
+          />
+          {minScore > 0 && (
+            <button
+              type="button"
+              onClick={() => { setMinScore(0); setSelected(new Set()); }}
+              className="text-dark-600 hover:text-dark-300"
+              title="Reset to 0"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
+        </label>
+        <label className="flex items-center gap-1.5 text-dark-400 hover:text-dark-200 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={excludeOutOfScope}
+            onChange={(e) => { setExcludeOutOfScope(e.target.checked); setSelected(new Set()); }}
+            className="rounded border-dark-600"
+          />
+          Exclude out-of-scope
+        </label>
+        <label className="flex items-center gap-1.5 text-dark-400 hover:text-dark-200 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={hideLowConfidence}
+            onChange={(e) => { setHideLowConfidence(e.target.checked); setSelected(new Set()); }}
+            className="rounded border-dark-600"
+          />
+          Hide low confidence
+        </label>
+        <span className="text-dark-600 ml-auto">
+          {filtered.length} of {partners.length} shown
+        </span>
       </div>
 
       {/* Action bar */}
