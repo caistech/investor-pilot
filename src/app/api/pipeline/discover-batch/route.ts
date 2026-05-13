@@ -49,15 +49,16 @@ const CANDIDATES_PER_QUERY = 5;         // was 10 — fewer hits per query keeps
 const MAX_TOTAL_CANDIDATES = 40;        // was 50
 const SEARCH_TIMEOUT_MS = 12_000;       // per-search timeout — one stuck Unipile call can't kill the batch
 
-// Tier → Unipile's network_distance integer-array filter. Per the docs at
-// developer.unipile.com/docs/linkedin-search, classic search expects integers
-// [1, 2, 3] representing 1st/2nd/3rd-degree connections. 'cold' uses [3] to
-// capture 3rd-degree and further; omitting the filter altogether (no key)
-// returns all degrees which dilutes the tier breakdown.
-const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, number[]> = {
+// Tier → Unipile network_distance integer-array filter, or undefined to omit.
+// '1st' / '2nd' filter to specific degrees. 'cold' omits the filter entirely
+// because LinkedIn's degree 3 means "exact 3rd-degree only" (not 3rd+), and
+// most cold prospects are 4th+ or out-of-network. Without the filter Unipile
+// returns anyone matching keywords regardless of degree — exactly what we
+// want for cold tier.
+const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, number[] | undefined> = {
   '1st': [1],
   '2nd': [2],
-  'cold': [3],
+  'cold': undefined,
 };
 
 export async function POST(request: Request) {
@@ -430,11 +431,12 @@ async function fetchCandidates(
     if (!linkedinAccountId) {
       return { ok: false, error: `${job.source} requested but no LinkedIn channel connected` };
     }
-    const filters = {
+    const distance = TIER_TO_LINKEDIN_DISTANCE[job.tier];
+    const filters: { keywords: string; limit: number; network_distance?: number[] } = {
       keywords: job.query,
       limit: CANDIDATES_PER_QUERY,
-      network_distance: TIER_TO_LINKEDIN_DISTANCE[job.tier],
     };
+    if (distance) filters.network_distance = distance;
     const result =
       job.source === 'sales_nav'
         ? await searchSalesNavigator({ account_id: linkedinAccountId, filters })

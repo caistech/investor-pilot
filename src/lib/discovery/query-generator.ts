@@ -118,6 +118,11 @@ BAD queries (do not generate):
 If the product is SENIOR DEBT (most common): bias toward "private credit fund", "direct lender", "family office private debt", "wholesale debt".
 If the product is PROJECT EQUITY: bias toward "limited partner", "co-investment", "real asset private capital".
 
+⚠ GEOGRAPHIC RULE — DO NOT OVER-NARROW TO PROJECT LOCATION:
+Even when the project asset sits in a regional location (e.g. Tasmania, regional WA, Geraldton), the capital pool is in Sydney + Melbourne + Singapore + Hong Kong. Most AU family offices and private credit funds invest interstate as a matter of routine. Generating Perth-only queries for a Geraldton project, or Tasmania-only queries for a Hobart project, will hit empty result pools.
+
+ALWAYS include AT LEAST ONE Sydney-targeting query and AT LEAST ONE Melbourne- or Singapore-targeting query in linkedin_queries, regardless of project geography. The project's geo can feature in 1 query as "lenders familiar with [region]" — never make geo the primary discriminator across all queries.
+
 Return ONLY a JSON object, no markdown or prose:
 {
   "product_summary": "<2-3 sentence summary of what you understood the product to be>",

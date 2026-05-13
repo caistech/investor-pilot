@@ -122,6 +122,9 @@ The description should describe THIS PROJECT (what's being funded, by whom, at w
 
 Always silently answer: "Who provides the capital this project is asking for?" — that answer is the ICP. The sponsor, the borrower, the developer, the contractors are NEVER the ICP.
 
+⚠ GEOGRAPHY RULE FOR EXCLUSIONS — DO NOT OVER-RESTRICT BY LENDER LOCATION:
+Sydney, Melbourne, and Singapore family offices and private credit funds routinely fund regional Australian property — that is in fact the dominant pattern. NEVER write exclusions like "interstate lenders unfamiliar with [region]" or "non-WA private credit", because that excludes 80%+ of the actual ICP. Geography belongs in the project profile (where the asset sits), not in lender exclusions. Lender exclusions should be about TYPE (retail banks, mortgage brokers, equity-only funds) and SIZE (institutional debt funds >$1B AUM), not LOCATION.
+
 ${name ? `PROJECT NAME: ${name}` : 'Extract the project name from the content below.'}
 ${description ? `OPERATOR-PROVIDED DESCRIPTION (authoritative — do NOT contradict): ${description}` : ''}
 ${sourceContent}
