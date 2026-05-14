@@ -5,10 +5,14 @@
  * profile-fetch endpoint directly via fetch (no wrapper) so we can discover
  * the exact response shape before writing typed code against it.
  *
- * Inputs (either is acceptable — provider_id takes precedence):
+ * Inputs (precedence top-to-bottom — first match wins):
  *   ?provider_id=<LinkedIn URN tail or public_id>
  *   ?partner_id=<uuid in this org's partners table — looks up contact_linkedin
  *                and extracts the provider_id from it>
+ *   ?find=1st|2nd|cold — auto-picks the most recent LinkedIn-sourced partner
+ *                in this org at that network tier and probes it. Lets us
+ *                check whether Unipile's profile/posts endpoints behave
+ *                differently across tiers without manually hunting uuids.
  *
  * Returns:
  *   - HTTP status from Unipile
@@ -46,6 +50,7 @@ export async function GET(request: Request) {
 
   const url = new URL(request.url);
   const partnerIdParam = url.searchParams.get('partner_id');
+  const findParam = url.searchParams.get('find'); // '1st' | '2nd' | 'cold'
   let providerId = url.searchParams.get('provider_id');
 
   const { data: profile } = await db
@@ -58,19 +63,26 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: false, stage: 'profile', error: 'No organisation linked to user' }, { status: 400 });
   }
 
-  // Resolve provider_id from partner_id when not given directly.
-  let resolvedFromPartner: { partner_id: string; contact_linkedin: string | null } | null = null;
+  // Resolve provider_id from partner_id OR find=<tier> when not given directly.
+  // Precedence: provider_id > partner_id > find.
+  let resolvedFromPartner: { partner_id: string; company_name: string | null; network_distance: string | null; contact_linkedin: string | null } | null = null;
+
   if (!providerId && partnerIdParam) {
     const { data: partner } = await db
       .from('partners')
-      .select('id, contact_linkedin')
+      .select('id, company_name, network_distance, contact_linkedin')
       .eq('id', partnerIdParam)
       .eq('organisation_id', profile.organisation_id)
       .maybeSingle();
     if (!partner) {
       return NextResponse.json({ ok: false, stage: 'partner_lookup', error: 'Partner not found in your org' }, { status: 404 });
     }
-    resolvedFromPartner = { partner_id: partner.id as string, contact_linkedin: (partner.contact_linkedin as string) || null };
+    resolvedFromPartner = {
+      partner_id: partner.id as string,
+      company_name: (partner.company_name as string) || null,
+      network_distance: (partner.network_distance as string) || null,
+      contact_linkedin: (partner.contact_linkedin as string) || null,
+    };
     if (!partner.contact_linkedin) {
       return NextResponse.json({
         ok: false,
@@ -88,13 +100,56 @@ export async function GET(request: Request) {
         resolved: resolvedFromPartner,
       }, { status: 400 });
     }
+  } else if (!providerId && findParam) {
+    if (!['1st', '2nd', 'cold'].includes(findParam)) {
+      return NextResponse.json({
+        ok: false,
+        stage: 'input',
+        error: `find must be one of: 1st, 2nd, cold (got "${findParam}")`,
+      }, { status: 400 });
+    }
+    // Pick the most recent LinkedIn-sourced partner at this tier with a usable
+    // contact_linkedin. Brave-sourced rows have no LinkedIn URL by definition,
+    // so we constrain to source = linkedin OR sales_nav.
+    const { data: partner } = await db
+      .from('partners')
+      .select('id, company_name, network_distance, contact_linkedin, source, last_updated_at')
+      .eq('organisation_id', profile.organisation_id)
+      .eq('network_distance', findParam)
+      .in('source', ['linkedin', 'sales_nav'])
+      .not('contact_linkedin', 'is', null)
+      .order('last_updated_at', { ascending: false, nullsFirst: false })
+      .limit(1)
+      .maybeSingle();
+    if (!partner) {
+      return NextResponse.json({
+        ok: false,
+        stage: 'find',
+        error: `No LinkedIn-sourced partner found at tier "${findParam}" with a contact_linkedin in your org`,
+      }, { status: 404 });
+    }
+    resolvedFromPartner = {
+      partner_id: partner.id as string,
+      company_name: (partner.company_name as string) || null,
+      network_distance: (partner.network_distance as string) || null,
+      contact_linkedin: (partner.contact_linkedin as string) || null,
+    };
+    providerId = extractLinkedInProviderId(partner.contact_linkedin as string);
+    if (!providerId) {
+      return NextResponse.json({
+        ok: false,
+        stage: 'find',
+        error: `Auto-picked partner has unparsable contact_linkedin: ${(partner.contact_linkedin as string).slice(0, 120)}`,
+        resolved: resolvedFromPartner,
+      }, { status: 400 });
+    }
   }
 
   if (!providerId) {
     return NextResponse.json({
       ok: false,
       stage: 'input',
-      error: 'Pass either ?provider_id=<id> or ?partner_id=<uuid>',
+      error: 'Pass one of: ?provider_id=<id>, ?partner_id=<uuid>, ?find=1st|2nd|cold',
     }, { status: 400 });
   }
 
