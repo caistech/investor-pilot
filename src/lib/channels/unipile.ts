@@ -164,7 +164,7 @@ export async function sendLinkedInDm(input: LinkedInDmInput): Promise<SendResult
  * with a clean error message instead of letting Unipile reject a malformed
  * request.
  */
-function extractLinkedInProviderId(profileOrId: string): string | null {
+export function extractLinkedInProviderId(profileOrId: string): string | null {
   if (!profileOrId) return null;
 
   // Already a bare URN-style ID (no slashes, no protocol)
