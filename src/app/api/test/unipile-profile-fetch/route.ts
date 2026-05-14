@@ -201,6 +201,99 @@ export async function GET(request: Request) {
   // server logs if needed.
   const raw_excerpt = text.length > 6000 ? text.slice(0, 6000) + '\n…[truncated]' : text;
 
+  // Second probe — posts/activity endpoint. The basic profile endpoint above
+  // returned no about/experience/posts, so the depth signals we need for
+  // warm openers ("saw your post on X") must come from a separate endpoint
+  // if Unipile exposes one. Trying the documented pattern
+  // `GET /users/{id}/posts?account_id=...`. Failure here is informational, not
+  // fatal — fall through and report the status so the caller knows whether
+  // posts are reachable at all.
+  const postsUrl = new URL(`${UNIPILE_BASE_URL}/api/v1/users/${encodeURIComponent(providerId)}/posts`);
+  postsUrl.searchParams.set('account_id', channel.oauth_token_ref as string);
+  postsUrl.searchParams.set('limit', '5');
+
+  const postsStarted = Date.now();
+  let postsResponse: Response | null = null;
+  let postsFetchError: string | null = null;
+  try {
+    postsResponse = await fetch(postsUrl.toString(), {
+      method: 'GET',
+      headers: { 'X-API-KEY': UNIPILE_API_KEY, accept: 'application/json' },
+    });
+  } catch (err) {
+    postsFetchError = err instanceof Error ? err.message : String(err);
+  }
+  const postsLatencyMs = Date.now() - postsStarted;
+
+  let postsEndpoint: Record<string, unknown> = {
+    url_path: `/api/v1/users/${providerId}/posts`,
+    latency_ms: postsLatencyMs,
+  };
+
+  if (postsFetchError) {
+    postsEndpoint = { ...postsEndpoint, ok: false, stage: 'fetch', error: postsFetchError };
+  } else if (postsResponse) {
+    const postsText = await postsResponse.text();
+    if (!postsResponse.ok) {
+      postsEndpoint = {
+        ...postsEndpoint,
+        ok: false,
+        http_status: postsResponse.status,
+        error: `Unipile ${postsResponse.status}: ${postsText.slice(0, 800)}`,
+      };
+    } else {
+      let postsParsed: Record<string, unknown> | unknown[] | null = null;
+      try {
+        postsParsed = JSON.parse(postsText);
+      } catch {
+        postsEndpoint = {
+          ...postsEndpoint,
+          ok: false,
+          http_status: postsResponse.status,
+          stage: 'parse',
+          raw_excerpt: postsText.slice(0, 1500),
+          error: 'Non-JSON response',
+        };
+      }
+      if (postsParsed) {
+        // Posts endpoints in Unipile typically return either an array directly
+        // or an object with items/data/results/posts holding the array. Surface
+        // whichever it is so we know what to consume.
+        const items: unknown[] = Array.isArray(postsParsed)
+          ? postsParsed
+          : ((postsParsed as Record<string, unknown>).items as unknown[]) ||
+            ((postsParsed as Record<string, unknown>).data as unknown[]) ||
+            ((postsParsed as Record<string, unknown>).results as unknown[]) ||
+            ((postsParsed as Record<string, unknown>).posts as unknown[]) ||
+            [];
+        const firstPost = items[0] && typeof items[0] === 'object' ? (items[0] as Record<string, unknown>) : null;
+        postsEndpoint = {
+          ...postsEndpoint,
+          ok: true,
+          http_status: postsResponse.status,
+          envelope_keys: !Array.isArray(postsParsed)
+            ? Object.keys(postsParsed as Record<string, unknown>).sort()
+            : ['<array root>'],
+          item_count: items.length,
+          first_post_keys: firstPost ? Object.keys(firstPost).sort() : [],
+          first_post_has_text: firstPost
+            ? hasNonEmpty(firstPost, ['text', 'body', 'content', 'commentary', 'description'])
+            : false,
+          first_post_text_length: firstPost
+            ? pickFirstStringLength(firstPost, ['text', 'body', 'content', 'commentary', 'description'])
+            : 0,
+          first_post_has_date: firstPost
+            ? hasNonEmpty(firstPost, ['created_at', 'date', 'published_at', 'posted_at', 'timestamp'])
+            : false,
+          first_post_has_type: firstPost
+            ? hasNonEmpty(firstPost, ['type', 'post_type', 'activity_type'])
+            : false,
+          raw_excerpt: postsText.length > 4000 ? postsText.slice(0, 4000) + '\n…[truncated]' : postsText,
+        };
+      }
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     http_status: response.status,
@@ -214,6 +307,7 @@ export async function GET(request: Request) {
     },
     shape,
     raw_excerpt,
+    posts_endpoint: postsEndpoint,
   });
 }
 
