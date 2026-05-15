@@ -211,6 +211,63 @@ export async function POST(request: Request) {
     sources = linkedinChannel ? ['linkedin'] : ['brave'];
   }
 
+  // Resolve tier list now (was previously computed below queryGen, but we
+  // need it for the discovery_runs insert too).
+  const tiers: NetworkTier[] = network_tiers && network_tiers.length > 0
+    ? network_tiers
+    : ['1st', '2nd', 'cold'];
+
+  // Insert the discovery_runs row up front (migration 010). Gives every
+  // downstream upsert a stable anchor for tracing "which run surfaced
+  // this prospect?". Status starts as 'running'; finalised on success
+  // or marked 'failed' on the early-return paths below.
+  const { data: runRow, error: runInsertError } = await db
+    .from('discovery_runs')
+    .insert({
+      organisation_id,
+      project_id: project_id || null,
+      product_id: product_id || null,
+      triggered_by: user!.id,
+      sources,
+      network_tiers: tiers,
+      enrich_with_brave: enrichWithBrave,
+      query_count: query_count || DEFAULT_QUERY_COUNT,
+      status: 'running',
+    })
+    .select('id')
+    .single();
+
+  if (runInsertError || !runRow) {
+    log('run_insert_failed', { error: runInsertError?.message });
+    return NextResponse.json(
+      { error: `Failed to record discovery run: ${runInsertError?.message || 'unknown'}` },
+      { status: 500 },
+    );
+  }
+
+  const runId: string = runRow.id as string;
+  // Operator-visible short code — first 6 hex chars of the run UUID.
+  // Lower-cased for consistency, "DR-" prefixed for scannability.
+  const runCode = `DR-${runId.replace(/-/g, '').slice(0, 6).toLowerCase()}`;
+  log('run_started', { run_id: runId, run_code: runCode });
+
+  // Helper — marks the discovery_runs row with final state before any
+  // early-return path. Safe to call multiple times; idempotent in effect.
+  const finaliseRun = async (
+    status: 'completed' | 'failed',
+    fields: Record<string, unknown>,
+  ) => {
+    await db
+      .from('discovery_runs')
+      .update({
+        status,
+        wall_time_ms: ms(),
+        completed_at: new Date().toISOString(),
+        ...fields,
+      })
+      .eq('id', runId);
+  };
+
   // Generate queries via Claude.
   const queryGen = await generateLenderQueries({
     product: {
@@ -241,6 +298,7 @@ export async function POST(request: Request) {
 
   if (!queryGen.ok) {
     log('query_gen_failed', { error: queryGen.error });
+    await finaliseRun('failed', { search_errors: [{ stage: 'query_gen', error: queryGen.error }] });
     return NextResponse.json({ error: `Query generation failed: ${queryGen.error}` }, { status: 502 });
   }
   log('query_gen_done', {
@@ -262,11 +320,7 @@ export async function POST(request: Request) {
     linkedinAccountId = channel?.oauth_token_ref || null;
   }
 
-  // Default tier order: 1st-degree priority, then 2nd, then cold.
-  // For Brave (no network concept), 'cold' covers it.
-  const tiers: NetworkTier[] = network_tiers && network_tiers.length > 0
-    ? network_tiers
-    : ['1st', '2nd', 'cold'];
+  // `tiers` was resolved above (so we could record it on the discovery_runs row).
 
   // Two distinct query sets — LinkedIn gets person-targeting queries, Brave
   // gets company/deal/news queries. Same engine search shapes that match each
@@ -362,7 +416,7 @@ export async function POST(request: Request) {
     const batchStart = Date.now();
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null, { enrichWithBrave }))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId }))
     );
     scoredResults.push(...results);
     log('scoring_batch_done', {
@@ -430,13 +484,28 @@ export async function POST(request: Request) {
     ...queryGen.brave_queries.map(q => ({ query: q.query, rationale: q.rationale, category: q.expected_category, intended_source: 'brave' as const })),
   ];
 
+  const candidatesScored = scoredResults.filter(r => r.status !== 'error').length;
+  const candidatesFailed = scoredResults.filter(r => r.status === 'error').length;
+
   log('done', {
-    candidates_scored: scoredResults.filter(r => r.status !== 'error').length,
-    candidates_failed: scoredResults.filter(r => r.status === 'error').length,
+    candidates_scored: candidatesScored,
+    candidates_failed: candidatesFailed,
+  });
+
+  await finaliseRun('completed', {
+    candidates_found: allCandidates.length,
+    candidates_unique: uniqueCandidates.length,
+    candidates_scored: candidatesScored,
+    candidates_failed: candidatesFailed,
+    queries_used: queriesUsed,
+    search_errors: errors,
+    scoring_errors: scoringErrorSamples,
   });
 
   return NextResponse.json({
     ok: true,
+    run_id: runId,
+    run_code: runCode,
     product_summary: queryGen.product_summary,
     queries_used: queriesUsed,
     sources_used: sources,
@@ -444,8 +513,8 @@ export async function POST(request: Request) {
     tier_breakdown: tierBreakdown,
     candidates_found: allCandidates.length,
     candidates_unique: uniqueCandidates.length,
-    candidates_scored: scoredResults.filter(r => r.status !== 'error').length,
-    candidates_failed: scoredResults.filter(r => r.status === 'error').length,
+    candidates_scored: candidatesScored,
+    candidates_failed: candidatesFailed,
     search_errors: errors,
     scoring_errors: scoringErrorSamples,
     top_results: topResults,

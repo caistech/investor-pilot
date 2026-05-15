@@ -76,10 +76,31 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     .single();
 
   if (!partner) notFound();
-  const p = partner as Partner;
+  const p = partner as Partner & { first_seen_in_run_id?: string | null };
 
   const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
   const organisationId = profile?.organisation_id || '';
+
+  // If the partner was discovered after migration 010, pull the originating
+  // run so the sidebar can show "Discovered in DR-xxxxxx · timestamp · sources".
+  // Legacy rows (first_seen_in_run_id NULL) skip this entirely.
+  interface DiscoveryRunSummary {
+    run_code: string;
+    created_at: string;
+    sources: string[] | null;
+    network_tiers: string[] | null;
+    query_count: number | null;
+    queries_used: unknown;
+  }
+  let discoveryRun: DiscoveryRunSummary | null = null;
+  if (p.first_seen_in_run_id) {
+    const { data: runRow } = await supabase
+      .from('discovery_runs')
+      .select('run_code, created_at, sources, network_tiers, query_count, queries_used')
+      .eq('id', p.first_seen_in_run_id)
+      .maybeSingle();
+    discoveryRun = (runRow as DiscoveryRunSummary | null) || null;
+  }
 
   const { data: events } = await supabase
     .from('session_events')
@@ -374,6 +395,38 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
             networkDistance={networkDistance || null}
           />
 
+          {discoveryRun && (
+            <div className="card">
+              <h4 className="mb-2">Discovered in</h4>
+              <div className="space-y-1 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-blue-300">{discoveryRun.run_code}</span>
+                  <span className="text-dark-500">·</span>
+                  <span className="text-dark-400">{formatDateTime(discoveryRun.created_at)}</span>
+                </div>
+                <div className="text-dark-500 text-xs">
+                  {(discoveryRun.sources || []).join(', ') || 'unknown'} ·{' '}
+                  {(discoveryRun.network_tiers || []).join(', ') || 'all tiers'} ·{' '}
+                  {discoveryRun.query_count ?? '?'} queries
+                </div>
+                {Array.isArray(discoveryRun.queries_used) && discoveryRun.queries_used.length > 0 && (
+                  <details className="text-xs mt-2">
+                    <summary className="text-dark-400 cursor-pointer hover:text-white">
+                      Show queries
+                    </summary>
+                    <ul className="mt-2 space-y-1 text-dark-500">
+                      {(discoveryRun.queries_used as Array<{ query?: string; intended_source?: string }>).map((q, i) => (
+                        <li key={i}>
+                          <span className="text-dark-400">{q.intended_source || '—'}:</span>{' '}
+                          <span className="font-mono">{q.query || ''}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </details>
+                )}
+              </div>
+            </div>
+          )}
 
           {p.partnership_motion && (
             <div className="card">

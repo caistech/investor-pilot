@@ -162,7 +162,7 @@ export async function scoreAndUpsertCandidate(
   organisation_id: string,
   product_id: string | null,
   project_id?: string | null,
-  options?: { enrichWithBrave?: boolean },
+  options?: { enrichWithBrave?: boolean; runId?: string | null },
 ): Promise<ScoreCandidateResult> {
   try {
     const personContext = candidate.contact_name
@@ -268,6 +268,7 @@ export async function scoreAndUpsertCandidate(
       contact_title: candidate.contact_title,
       contact_linkedin: candidate.contact_linkedin,
       network_distance: candidate.network_distance,
+      first_seen_in_run_id: options?.runId || null,
     });
 
     return {

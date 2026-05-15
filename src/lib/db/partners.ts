@@ -34,6 +34,10 @@ export interface PartnerUpsertData {
   // candidate so the Prospects view can filter LinkedIn vs Brave and so
   // sequence routing can pick the right template without inference.
   source?: 'linkedin' | 'sales_nav' | 'brave' | 'manual';
+  // The discovery_runs row that first surfaced this partner. Set on
+  // INSERT only — re-discoveries in later runs preserve the origin.
+  // See migration 010.
+  first_seen_in_run_id?: string | null;
 }
 
 export interface ContactData {
@@ -80,6 +84,9 @@ export function computeWeightedScore(scores: {
 /**
  * Upsert a partner by domain within an organisation.
  * Returns { status: 'created' | 'updated' | 'error', partner_id?, error? }
+ *
+ * first_seen_in_run_id is set on INSERT only. On UPDATE we strip it from the
+ * payload so the partner's origin run survives re-discovery in later runs.
  */
 export async function upsertPartner(
   db: SupabaseClient,
@@ -92,16 +99,17 @@ export async function upsertPartner(
     .eq('domain', data.domain)
     .single();
 
-  const row = {
-    ...data,
-    last_updated_at: new Date().toISOString(),
-  };
-
   if (existing) {
+    // Strip first_seen_in_run_id on UPDATE — re-discovery must not overwrite
+    // the partner's origin run. Origin is set once at INSERT.
+    const { first_seen_in_run_id, ...rest } = data;
+    void first_seen_in_run_id;
+    const row = { ...rest, last_updated_at: new Date().toISOString() };
     const { error } = await db.from('partners').update(row).eq('id', existing.id);
     if (error) return { status: 'error', error: error.message };
     return { status: 'updated', partner_id: existing.id };
   } else {
+    const row = { ...data, last_updated_at: new Date().toISOString() };
     const { data: inserted, error } = await db.from('partners').insert(row).select('id').single();
     if (error) return { status: 'error', error: error.message };
     return { status: 'created', partner_id: inserted?.id };
