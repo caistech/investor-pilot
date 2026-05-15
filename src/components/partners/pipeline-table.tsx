@@ -68,6 +68,31 @@ function isOutOfScope(partner: Partner): boolean {
   return /out[_ -]?of[_ -]?scope/i.test(partner.category);
 }
 
+/**
+ * Source-aware primary identifier for the Prospect column.
+ *
+ * LinkedIn-sourced rows are PEOPLE — the contact name is the primary
+ * identifier; the firm (if different) appears as a small subtitle.
+ *
+ * Brave-sourced rows are COMPANIES — the firm is primary; any known
+ * contact appears as the subtitle.
+ *
+ * Unknown source falls back to company_name so legacy rows still render
+ * something useful.
+ */
+function getProspectDisplay(p: Partner): { primary: string; subtitle: string | null } {
+  const isLinkedIn = p.source === 'linkedin' || p.source === 'sales_nav';
+  if (isLinkedIn) {
+    const primary = p.contact_name || p.company_name;
+    const firm = p.contact_name && p.company_name !== p.contact_name ? p.company_name : null;
+    return { primary, subtitle: firm };
+  }
+  return {
+    primary: p.company_name,
+    subtitle: p.contact_name || null,
+  };
+}
+
 function isAlreadyTargeted(partner: Partner, inFlight: Set<string>): boolean {
   if (CONTACTED_STATUSES.has(partner.status)) return true;
   if (inFlight.has(partner.id)) return true;
@@ -453,10 +478,10 @@ export function PipelineTable({
                     className="rounded border-dark-600"
                   />
                 </th>
-                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Company</th>
-                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Category</th>
+                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Prospect</th>
+                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Role / Category</th>
                 <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Score</th>
-                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Contact</th>
+                <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Reachability</th>
                 <th className="text-left text-dark-400 text-sm font-medium px-4 py-3">Status</th>
               </tr>
             </thead>
@@ -472,16 +497,35 @@ export function PipelineTable({
                     />
                   </td>
                   <td className="px-4 py-3">
-                    <Link href={`/partners/${p.id}`} className="flex items-center gap-3 hover:text-corp-green-400">
-                      {p.domain ? (
-                        <CompanyLogo domain={p.domain} companyName={p.company_name} size={24} />
-                      ) : (
-                        <div className="w-6 h-6 bg-dark-700 rounded flex items-center justify-center text-xs font-bold">
-                          {p.company_name[0]}
-                        </div>
-                      )}
-                      <span className="font-medium">{p.company_name}</span>
-                      <SourceBadge partner={p} />
+                    <Link href={`/partners/${p.id}`} className="flex items-start gap-3 hover:text-corp-green-400">
+                      {(() => {
+                        const isLinkedIn = p.source === 'linkedin' || p.source === 'sales_nav';
+                        const display = getProspectDisplay(p);
+                        // LinkedIn rows: person initial avatar (the firm logo would
+                        // be misleading since their domain is the LinkedIn URL slug).
+                        // Brave rows: real CompanyLogo, falling back to firm initial.
+                        const avatarChar = (display.primary[0] || '?').toUpperCase();
+                        return (
+                          <>
+                            {isLinkedIn || !p.domain || /\//.test(p.domain) ? (
+                              <div className="w-6 h-6 bg-dark-700 rounded flex items-center justify-center text-xs font-bold flex-shrink-0">
+                                {avatarChar}
+                              </div>
+                            ) : (
+                              <CompanyLogo domain={p.domain} companyName={p.company_name} size={24} />
+                            )}
+                            <div className="min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <span className="font-medium truncate">{display.primary}</span>
+                                <SourceBadge partner={p} />
+                              </div>
+                              {display.subtitle && (
+                                <div className="text-dark-500 text-xs truncate mt-0.5">{display.subtitle}</div>
+                              )}
+                            </div>
+                          </>
+                        );
+                      })()}
                     </Link>
                   </td>
                   <td className="px-4 py-3 text-dark-400 text-sm">{p.category || '—'}</td>
@@ -492,14 +536,25 @@ export function PipelineTable({
                     )}
                   </td>
                   <td className="px-4 py-3 text-sm">
-                    {p.contact_name ? (
-                      <div>
-                        <div>{p.contact_name}</div>
-                        <div className="text-dark-500">{p.contact_email || 'no email'}</div>
-                      </div>
-                    ) : (
-                      <span className="text-dark-500">—</span>
-                    )}
+                    {(() => {
+                      const hasEmail = !!p.contact_email;
+                      const hasLinkedIn = !!p.contact_linkedin;
+                      if (!hasEmail && !hasLinkedIn) {
+                        return <span className="text-dark-600">no contact</span>;
+                      }
+                      return (
+                        <div className="space-y-0.5">
+                          {hasEmail && (
+                            <div className="text-dark-300 truncate" title={p.contact_email || ''}>
+                              {p.contact_email}
+                            </div>
+                          )}
+                          {hasLinkedIn && (
+                            <div className="text-dark-500 text-xs">LinkedIn ↗</div>
+                          )}
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td className="px-4 py-3">
                     <span className={STATUS_COLORS[p.status as PartnerStatus]}>

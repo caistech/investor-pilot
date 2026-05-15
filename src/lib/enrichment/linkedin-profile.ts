@@ -24,6 +24,7 @@ import {
   getLinkedInPosts,
   type LinkedInPost,
 } from '@/lib/channels/unipile';
+import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 
 export interface EnrichmentResult {
   status: 'success' | 'partial' | 'failed' | 'unavailable';
@@ -40,9 +41,13 @@ export async function enrichPartnerFromLinkedIn(
     id: string;
     contact_linkedin: string | null;
     contact_email: string | null;
+    contact_name: string | null;
+    contact_title: string | null;
+    company_name: string;
     network_distance: '1st' | '2nd' | 'cold' | null;
   },
   accountId: string,
+  options?: { profileOnly?: boolean },
 ): Promise<EnrichmentResult> {
   if (!partner.contact_linkedin) {
     await db.from('partners').update({
@@ -76,16 +81,23 @@ export async function enrichPartnerFromLinkedIn(
   }
 
   // Profile + posts in parallel — independent endpoints, ~1-2s each.
+  // profileOnly mode (used at discovery time) skips posts to keep the
+  // discover-batch wall time under Vercel's 60s edge ceiling. Posts are
+  // re-fetched at assign-batch time when they're actually needed for
+  // warm-DM personalization.
+  const profileOnly = options?.profileOnly === true;
   const [profileResult, postsResult] = await Promise.all([
     getLinkedInProfile({ account_id: accountId, provider_id: providerId }),
-    getLinkedInPosts({ account_id: accountId, provider_id: providerId, limit: 5 }),
+    profileOnly
+      ? Promise.resolve({ ok: false as const, error: 'profileOnly mode' })
+      : getLinkedInPosts({ account_id: accountId, provider_id: providerId, limit: 5 }),
   ]);
 
   // If both failed, treat as failed. If one succeeded, partial. Both succeed = success.
   const profileOk = profileResult.ok;
   const postsOk = postsResult.ok;
 
-  if (!profileOk && !postsOk) {
+  if (!profileOk && !postsOk && !profileOnly) {
     await db.from('partners').update({
       evidence_enriched_at: new Date().toISOString(),
       evidence_enrichment_status: 'failed',
@@ -100,12 +112,36 @@ export async function enrichPartnerFromLinkedIn(
     };
   }
 
-  // Build the column payload from whatever succeeded.
+  // profileOnly failure: profile fetch failed and we never even tried posts.
+  if (profileOnly && !profileOk) {
+    await db.from('partners').update({
+      evidence_enriched_at: new Date().toISOString(),
+      evidence_enrichment_status: 'failed',
+      evidence_enrichment_source: 'linkedin',
+    }).eq('id', partner.id);
+    return {
+      status: 'failed',
+      message: `Profile fetch failed (profileOnly mode): ${!profileOk ? profileResult.error : 'ok'}`,
+      profile_fetched: false,
+      posts_fetched_count: 0,
+      email_backfilled: false,
+    };
+  }
+
+  // Build the column payload from whatever succeeded. In profileOnly mode
+  // we intentionally don't set evidence_enriched_at so the row will be
+  // re-enriched (with posts) at assign-batch time — discovery-time
+  // enrichment is a fast first pass for the Prospects view, not the
+  // final personalization-ready state.
   const payload: Record<string, unknown> = {
-    evidence_enriched_at: new Date().toISOString(),
     evidence_enrichment_source: 'linkedin',
-    evidence_enrichment_status: (profileOk && postsOk) ? 'success' : 'partial',
+    evidence_enrichment_status: profileOnly
+      ? 'partial'
+      : (profileOk && postsOk) ? 'success' : 'partial',
   };
+  if (!profileOnly) {
+    payload.evidence_enriched_at = new Date().toISOString();
+  }
 
   let emailBackfilled = false;
 
@@ -121,6 +157,33 @@ export async function enrichPartnerFromLinkedIn(
       is_influencer: p.is_influencer,
       is_open_profile: p.is_open_profile,
     };
+
+    // Backfill contact_title from the freshly-fetched headline. Unipile's
+    // search response (used at discovery time) returns abbreviated or empty
+    // headlines for cold/3rd-degree connections; the profile endpoint
+    // returns the full thing. Always overwrite — fresh data is always
+    // better than stale search-time data.
+    if (p.headline && p.headline !== partner.contact_title) {
+      payload.contact_title = p.headline;
+    }
+
+    // Backfill company_name when the current value is a stale fallback —
+    // (a) literally equal to the person's name (the discover-batch
+    //     person-as-company bug),
+    // (b) the "Unknown firm (X)" placeholder from migration 012, or
+    // (c) empty.
+    // AND the freshly-fetched headline yields a parseable firm. Otherwise
+    // leave company_name alone so we don't silently overwrite a good value.
+    const freshFirm = extractCompanyFromHeadline(p.headline);
+    if (freshFirm) {
+      const looksLikeFallback =
+        !partner.company_name ||
+        partner.company_name === partner.contact_name ||
+        /^Unknown firm \(.*\)$/i.test(partner.company_name);
+      if (looksLikeFallback) {
+        payload.company_name = freshFirm;
+      }
+    }
 
     // Auto-backfill contact_email for 1st-degree connections that don't have
     // one yet. Unipile only returns the email for connections (is_relationship

@@ -32,6 +32,9 @@ import {
 } from '@/lib/channels/unipile';
 import { scoreAndUpsertCandidate, type ScoreCandidateInput } from '@/lib/discovery/scorer';
 import { generateLenderQueries } from '@/lib/discovery/query-generator';
+import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
+import { getLinkedInProfile } from '@/lib/channels/unipile';
+import { enrichPartnersBatch, type OrchestratorPartner } from '@/lib/enrichment/orchestrator';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -490,9 +493,51 @@ export async function POST(request: Request) {
   const candidatesScored = scoredResults.filter(r => r.status !== 'error').length;
   const candidatesFailed = scoredResults.filter(r => r.status === 'error').length;
 
+  // Profile-only enrichment for LinkedIn-sourced scored candidates. Backfills
+  // contact_title + company_name from the freshly-fetched profile headline
+  // (search-time data is sparse for cold connections) so the Prospects view
+  // shows real firms instead of "Unknown firm (Person)" placeholders.
+  // Skips posts fetch — that runs at assign-batch time when actually needed
+  // for warm-DM personalization. 8-wide concurrency keeps the wall-time
+  // addition under ~10s for a 20-candidate batch.
+  let profileEnrichmentOutcomes: Awaited<ReturnType<typeof enrichPartnersBatch>> = [];
+  if (linkedinAccountId) {
+    const linkedinPartnerIds = scoredResults
+      .filter(r => r.status !== 'error' && r.partner_id && (r.source === 'linkedin' || r.source === 'sales_nav'))
+      .map(r => r.partner_id as string);
+
+    if (linkedinPartnerIds.length > 0) {
+      const { data: rowsToEnrich } = await db
+        .from('partners')
+        .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, source, evidence_enriched_at')
+        .in('id', linkedinPartnerIds);
+      const orchestratorRows: OrchestratorPartner[] = (rowsToEnrich || []).map(p => ({
+        id: p.id as string,
+        company_name: p.company_name as string,
+        contact_name: (p.contact_name as string) || null,
+        contact_title: (p.contact_title as string) || null,
+        contact_email: (p.contact_email as string) || null,
+        contact_linkedin: (p.contact_linkedin as string) || null,
+        source: (p.source as OrchestratorPartner['source']) || null,
+        network_distance: (p.network_distance as OrchestratorPartner['network_distance']) || null,
+        // Pass through whatever's in DB so the orchestrator's idempotency
+        // check works — partners that completed full enrichment in a
+        // prior assign-batch pass should be skipped here.
+        evidence_enriched_at: (p.evidence_enriched_at as string) || null,
+      }));
+      profileEnrichmentOutcomes = await enrichPartnersBatch(db, orchestratorRows, linkedinAccountId, 8, { profileOnly: true });
+      log('profile_enrichment_done', {
+        attempted: profileEnrichmentOutcomes.length,
+        success: profileEnrichmentOutcomes.filter(o => o.status === 'success' || o.status === 'partial').length,
+        failed: profileEnrichmentOutcomes.filter(o => o.status === 'failed').length,
+      });
+    }
+  }
+
   log('done', {
     candidates_scored: candidatesScored,
     candidates_failed: candidatesFailed,
+    profile_enriched: profileEnrichmentOutcomes.filter(o => o.status === 'partial' || o.status === 'success').length,
   });
 
   await finaliseRun('completed', {
@@ -644,28 +689,5 @@ function linkedInPersonToCandidate(
   };
 }
 
-/**
- * Extract a firm name from a LinkedIn-style headline. Returns null when the
- * pattern doesn't match, so the caller can fall through to the next option.
- *
- * Common LinkedIn headline patterns:
- *   "Managing Director at Versobuild Pte Ltd"   → "Versobuild Pte Ltd"
- *   "Senior Infrastructure Finance Specialist - World Bank" → "World Bank"
- *   "CIO @ Capital Group"                       → "Capital Group"
- *   "Investment Director | Pacific Vista"        → "Pacific Vista"
- *
- * Conservative — only matches the four delimiters above with surrounding
- * whitespace. Random punctuation (commas, etc.) returns null rather than
- * mis-splitting on dots/quotes.
- */
-function extractCompanyFromHeadline(headline: string | null): string | null {
-  if (!headline) return null;
-  const match = headline.match(/(?:\s+at\s+|\s+@\s+|\s+-\s+|\s+\|\s+)(.+)$/i);
-  if (!match) return null;
-  const candidate = match[1].trim();
-  // Reject obvious non-companies — single-word adjectives, location names
-  // in parens, anything under 2 chars. Heuristic, not exhaustive.
-  if (candidate.length < 2 || candidate.length > 120) return null;
-  // Strip trailing role suffixes after a "/" or "," that some users append.
-  return candidate.replace(/\s*[/,].*$/, '').trim() || null;
-}
+// extractCompanyFromHeadline moved to src/lib/discovery/headline.ts so the
+// enrichment orchestrator and the migration's data backfill can share it.

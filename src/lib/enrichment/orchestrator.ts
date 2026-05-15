@@ -26,6 +26,7 @@ export interface OrchestratorPartner {
   id: string;
   company_name: string;
   contact_name: string | null;
+  contact_title: string | null;
   contact_email: string | null;
   contact_linkedin: string | null;
   source: 'linkedin' | 'sales_nav' | 'brave' | 'manual' | null;
@@ -43,9 +44,12 @@ export async function enrichPartner(
   db: SupabaseClient,
   partner: OrchestratorPartner,
   linkedinAccountId: string | null,
+  options?: { profileOnly?: boolean },
 ): Promise<OrchestratorOutcome> {
-  // Skip if already enriched. Idempotency lets the caller fan out across
-  // partners without checking — re-running the orchestrator is free.
+  // Skip if already enriched — UNLESS we're in profileOnly mode and the row
+  // hasn't completed full enrichment yet. (profileOnly leaves
+  // evidence_enriched_at NULL specifically so the assign-batch pass can
+  // come back and add posts; if both fields are set, we're truly done.)
   if (partner.evidence_enriched_at) {
     return {
       partner_id: partner.id,
@@ -62,7 +66,7 @@ export async function enrichPartner(
   const source = partner.source;
 
   if ((source === 'linkedin' || source === 'sales_nav') && linkedinAccountId) {
-    const result = await enrichPartnerFromLinkedIn(db, partner, linkedinAccountId);
+    const result = await enrichPartnerFromLinkedIn(db, partner, linkedinAccountId, options);
     return {
       partner_id: partner.id,
       partner_name: partner.company_name,
@@ -110,12 +114,13 @@ export async function enrichPartnersBatch(
   partners: OrchestratorPartner[],
   linkedinAccountId: string | null,
   concurrency = 4,
+  options?: { profileOnly?: boolean },
 ): Promise<OrchestratorOutcome[]> {
   const results: OrchestratorOutcome[] = [];
   for (let i = 0; i < partners.length; i += concurrency) {
     const slice = partners.slice(i, i + concurrency);
     const batch = await Promise.all(
-      slice.map(p => enrichPartner(db, p, linkedinAccountId)),
+      slice.map(p => enrichPartner(db, p, linkedinAccountId, options)),
     );
     results.push(...batch);
   }

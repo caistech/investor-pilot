@@ -141,7 +141,7 @@ export async function POST(request: Request) {
   // bypasses RLS).
   const { data: partners } = await db
     .from('partners')
-    .select('id, company_name, contact_name, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at')
+    .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at')
     .in('id', partnerIds)
     .eq('organisation_id', orgId);
 
@@ -160,6 +160,7 @@ export async function POST(request: Request) {
       id: p.id as string,
       company_name: p.company_name as string,
       contact_name: (p.contact_name as string) || null,
+      contact_title: (p.contact_title as string) || null,
       contact_email: (p.contact_email as string) || null,
       contact_linkedin: (p.contact_linkedin as string) || null,
       source: (p.source as OrchestratorPartner['source']) || null,
