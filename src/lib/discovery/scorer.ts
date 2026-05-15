@@ -228,6 +228,18 @@ export async function scoreAndUpsertCandidate(
       strategic_leverage: capDim(scores.strategic_leverage_score),
     });
 
+    // Whitelist partner_type against the DB CHECK constraint (migration 008).
+    // Claude occasionally returns descriptors like "mortgage_broker" when
+    // scoring out-of-scope candidates — the prompt template uses
+    // "<lender>" as a placeholder hint, but the model sometimes substitutes
+    // its own category label. Anything outside the allowed set silently
+    // failed the upsert, losing ~45% of scored candidates. Default to
+    // 'lender' for this v3 pipeline (callers are sourcing for lender
+    // outreach); out_of_scope rows still get capped to score≤2 elsewhere.
+    const ALLOWED_PARTNER_TYPES = new Set(['referral', 'integration', 'reseller', 'combination', 'lender']);
+    const rawPartnerType = typeof scores.partner_type === 'string' ? scores.partner_type.toLowerCase().trim() : '';
+    const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : 'lender';
+
     const upsertResult = await upsertPartner(db, {
       organisation_id,
       product_id,
@@ -235,7 +247,7 @@ export async function scoreAndUpsertCandidate(
       company_name: candidate.name,
       domain: candidate.domain,
       category: scores.category || null,
-      partner_type: scores.partner_type || 'referral',
+      partner_type: partnerType,
       status: candidate.source === 'linkedin' || candidate.source === 'sales_nav'
         ? 'contact_found'
         : 'scored',
