@@ -21,6 +21,7 @@
  *     top_results: [{ company_name, weighted_score, source, partner_id }, ...] }
  */
 
+import { randomUUID } from 'crypto';
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
@@ -221,9 +222,17 @@ export async function POST(request: Request) {
   // downstream upsert a stable anchor for tracing "which run surfaced
   // this prospect?". Status starts as 'running'; finalised on success
   // or marked 'failed' on the early-return paths below.
-  const { data: runRow, error: runInsertError } = await db
+  //
+  // We generate the UUID client-side so run_code (derived from id) can be
+  // set in the same INSERT — migration 010 has run_code NOT NULL.
+  const runId = randomUUID();
+  const runCode = `DR-${runId.replace(/-/g, '').slice(0, 6).toLowerCase()}`;
+
+  const { error: runInsertError } = await db
     .from('discovery_runs')
     .insert({
+      id: runId,
+      run_code: runCode,
       organisation_id,
       project_id: project_id || null,
       product_id: product_id || null,
@@ -233,22 +242,16 @@ export async function POST(request: Request) {
       enrich_with_brave: enrichWithBrave,
       query_count: query_count || DEFAULT_QUERY_COUNT,
       status: 'running',
-    })
-    .select('id')
-    .single();
+    });
 
-  if (runInsertError || !runRow) {
-    log('run_insert_failed', { error: runInsertError?.message });
+  if (runInsertError) {
+    log('run_insert_failed', { error: runInsertError.message });
     return NextResponse.json(
-      { error: `Failed to record discovery run: ${runInsertError?.message || 'unknown'}` },
+      { error: `Failed to record discovery run: ${runInsertError.message}` },
       { status: 500 },
     );
   }
 
-  const runId: string = runRow.id as string;
-  // Operator-visible short code — first 6 hex chars of the run UUID.
-  // Lower-cased for consistency, "DR-" prefixed for scannability.
-  const runCode = `DR-${runId.replace(/-/g, '').slice(0, 6).toLowerCase()}`;
   log('run_started', { run_id: runId, run_code: runCode });
 
   // Helper — marks the discovery_runs row with final state before any
