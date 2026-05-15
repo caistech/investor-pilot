@@ -297,6 +297,12 @@ async function rerenderOneStep(
       enrichment_status: enrichmentStatus,
       personalization_score: rendered.personalization_score,
       compliance_blocked: compliance.blocked,
+      // Debug fields — first 250 chars of rendered body + the actual flags
+      // so we can verify the rerender produced new content without having to
+      // hard-refresh the Approvals page.
+      _body_preview: rendered.body.slice(0, 250),
+      _flag_matches: compliance.flags.map(f => f.match),
+      _flag_count: compliance.flags.length,
     };
   } catch (err) {
     return {
