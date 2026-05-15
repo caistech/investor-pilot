@@ -60,9 +60,13 @@ export async function POST(request: Request) {
   if (body.partner_ids && body.partner_ids.length > 0) {
     query = query.in('id', body.partner_ids);
   } else {
-    // No explicit IDs — find rows that need profile-only backfill (no
-    // evidence_enriched_at set, regardless of partial vs unstarted).
-    query = query.is('evidence_enriched_at', null);
+    // No explicit IDs — find rows that have never been touched by the
+    // orchestrator. Filter on evidence_enrichment_status IS NULL (not
+    // evidence_enriched_at) so profile-only-enriched rows (status =
+    // 'partial', enriched_at intentionally NULL so assign-batch can come
+    // back and add posts) are skipped on subsequent runs. Without this
+    // the endpoint re-hits the same 50 rows every call.
+    query = query.is('evidence_enrichment_status', null);
   }
 
   const limit = Math.min(body.limit ?? DEFAULT_LIMIT, 100);

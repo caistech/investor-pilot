@@ -168,18 +168,24 @@ export async function enrichPartnerFromLinkedIn(
     }
 
     // Backfill company_name when the current value is a stale fallback —
-    // (a) literally equal to the person's name (the discover-batch
-    //     person-as-company bug),
-    // (b) the "Unknown firm (X)" placeholder from migration 012, or
-    // (c) empty.
-    // AND the freshly-fetched headline yields a parseable firm. Otherwise
-    // leave company_name alone so we don't silently overwrite a good value.
+    // (a) literally equal to the person's name (discover-batch person-as-
+    //     company bug),
+    // (b) the "Unknown firm (X)" placeholder from migration 012,
+    // (c) empty/null,
+    // (d) literally "LinkedIn" — Unipile's search returns this as a
+    //     generic fallback when the actual employer is unknown,
+    // (e) shaped like a headline (contains "|" / " - " / " at ") — those
+    //     are LinkedIn headlines that got stored as company_name by an
+    //     earlier search pass.
+    // Otherwise leave company_name alone so a good value isn't overwritten.
     const freshFirm = extractCompanyFromHeadline(p.headline);
     if (freshFirm) {
       const looksLikeFallback =
         !partner.company_name ||
         partner.company_name === partner.contact_name ||
-        /^Unknown firm \(.*\)$/i.test(partner.company_name);
+        /^Unknown firm \(.*\)$/i.test(partner.company_name) ||
+        partner.company_name.toLowerCase() === 'linkedin' ||
+        /\s+(at|@|\||-)\s+/i.test(partner.company_name);
       if (looksLikeFallback) {
         payload.company_name = freshFirm;
       }
