@@ -34,7 +34,6 @@ import { scoreAndUpsertCandidate, type ScoreCandidateInput } from '@/lib/discove
 import { generateLenderQueries } from '@/lib/discovery/query-generator';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
-import { enrichPartnersBatch, type OrchestratorPartner } from '@/lib/enrichment/orchestrator';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
@@ -54,15 +53,24 @@ type NetworkTier = '1st' | '2nd' | 'cold';
 // our discover was returning zero from Brave — too few queries, too few
 // results per query. Current numbers target ~45-55s wall time with much
 // more inventory surfaced.
-const DEFAULT_QUERY_COUNT = 6;                  // was 3 — bumped to surface more
+// Wall-time budget audit (revised 2026-05-15 evening):
+//   Searches: 6 queries × 3 tiers (LinkedIn) + 3 Brave = ~21 jobs
+//     → 4-wide concurrency × ~5-12s each = 25-35s
+//   Scoring: up to 20 candidates × ~4s / 8 concurrent = ~10-15s
+//   Hunter (Brave only, top 8 by score): ~5s × 8/4 = ~10s
+//   Total target: ~50-60s. Stays under Vercel's 60s client-edge timeout.
+// LinkedIn profile-only enrichment moved to a separate operator-triggered
+// endpoint (was costing another ~10s here and pushed total over).
+const DEFAULT_QUERY_COUNT = 6;                  // 3 LinkedIn + 3 Brave (50/50 split)
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
 const CANDIDATES_PER_QUERY = 5;                 // LinkedIn — kept tight
 const BRAVE_CANDIDATES_PER_QUERY = 10;          // Brave — 2x LinkedIn since web search returns more diverse hits
-const MAX_TOTAL_CANDIDATES = 40;                // was 20 — re-broadened; scoring concurrency + timeouts still keep wall time bounded
+const MAX_TOTAL_CANDIDATES = 20;                // reverted from 40 — keeps scoring batch bounded
 const SEARCH_TIMEOUT_MS = 12_000;               // per-search timeout — one stuck Unipile call can't kill the batch
-const HUNTER_CONCURRENCY = 4;                   // post-discovery Hunter enrich for Brave-sourced rows
-const HUNTER_TIMEOUT_MS = 8_000;                // per-call Hunter timeout
+const HUNTER_AT_DISCOVERY_CAP = 8;              // cap on Brave-sourced rows we'll Hunter-enrich at discovery; rest defer to operator-triggered enrich
+const HUNTER_CONCURRENCY = 4;
+const HUNTER_TIMEOUT_MS = 8_000;
 
 // Tier → Unipile network_distance integer-array filter, or undefined to omit.
 // '1st' / '2nd' filter to specific degrees. 'cold' omits the filter entirely
@@ -499,60 +507,25 @@ export async function POST(request: Request) {
   const candidatesScored = scoredResults.filter(r => r.status !== 'error').length;
   const candidatesFailed = scoredResults.filter(r => r.status === 'error').length;
 
-  // Profile-only enrichment for LinkedIn-sourced scored candidates. Backfills
-  // contact_title + company_name from the freshly-fetched profile headline
-  // (search-time data is sparse for cold connections) so the Prospects view
-  // shows real firms instead of "Unknown firm (Person)" placeholders.
-  // Skips posts fetch — that runs at assign-batch time when actually needed
-  // for warm-DM personalization. 8-wide concurrency keeps the wall-time
-  // addition under ~10s for a 20-candidate batch.
-  let profileEnrichmentOutcomes: Awaited<ReturnType<typeof enrichPartnersBatch>> = [];
-  if (linkedinAccountId) {
-    const linkedinPartnerIds = scoredResults
-      .filter(r => r.status !== 'error' && r.partner_id && (r.source === 'linkedin' || r.source === 'sales_nav'))
-      .map(r => r.partner_id as string);
+  // LinkedIn profile-only enrichment at discovery REMOVED (was costing ~10s
+  // and pushed total wall time over the 60s edge ceiling). Operator can
+  // trigger it any time via POST /api/admin/refresh-enrichment, and the
+  // assign-batch flow runs full (profile+posts) enrichment automatically
+  // when sequencing — that's when the rich data actually matters.
+  const profileEnrichmentOutcomes: Array<{ status: string }> = [];
 
-    if (linkedinPartnerIds.length > 0) {
-      const { data: rowsToEnrich } = await db
-        .from('partners')
-        .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, source, evidence_enriched_at')
-        .in('id', linkedinPartnerIds);
-      const orchestratorRows: OrchestratorPartner[] = (rowsToEnrich || []).map(p => ({
-        id: p.id as string,
-        company_name: p.company_name as string,
-        contact_name: (p.contact_name as string) || null,
-        contact_title: (p.contact_title as string) || null,
-        contact_email: (p.contact_email as string) || null,
-        contact_linkedin: (p.contact_linkedin as string) || null,
-        source: (p.source as OrchestratorPartner['source']) || null,
-        network_distance: (p.network_distance as OrchestratorPartner['network_distance']) || null,
-        // Pass through whatever's in DB so the orchestrator's idempotency
-        // check works — partners that completed full enrichment in a
-        // prior assign-batch pass should be skipped here.
-        evidence_enriched_at: (p.evidence_enriched_at as string) || null,
-      }));
-      profileEnrichmentOutcomes = await enrichPartnersBatch(db, orchestratorRows, linkedinAccountId, 8, { profileOnly: true });
-      log('profile_enrichment_done', {
-        attempted: profileEnrichmentOutcomes.length,
-        success: profileEnrichmentOutcomes.filter(o => o.status === 'success' || o.status === 'partial').length,
-        failed: profileEnrichmentOutcomes.filter(o => o.status === 'failed').length,
-      });
-    }
-  }
-
-  // Auto-Hunter for Brave-sourced candidates. Brave returns COMPANIES, not
-  // people — until we attach a real decision-maker contact + email, those
-  // rows can't be sequenced. Hunter domain-search on the real company
-  // domain returns 1-3 verified emails per firm. The enrich route's
-  // pseudo-domain guard isn't relevant here since Brave domains are real
-  // company hostnames (not "linkedin.com/in/...").
-  let hunterEnrichmentOutcomes: Array<{ partner_id: string; status: string; email?: string | null }> = [];
-  const braveScoredRows = scoredResults.filter(
-    r => r.status !== 'error' && r.partner_id && r.source === 'brave',
-  );
+  // Auto-Hunter for Brave-sourced candidates — top N by score only. Brave
+  // returns COMPANIES, not people; Hunter attaches a verified decision-maker
+  // email per firm. Capped at HUNTER_AT_DISCOVERY_CAP to bound wall time
+  // (~5s/call × 8 / 4-wide = ~10s); lower-scored Brave rows can be
+  // operator-triggered via /api/admin/refresh-enrichment later.
+  const hunterEnrichmentOutcomes: Array<{ partner_id: string; status: string; email?: string | null }> = [];
+  const braveScoredRows = scoredResults
+    .filter(r => r.status !== 'error' && r.partner_id && r.source === 'brave' && typeof r.weighted_score === 'number')
+    .sort((a, b) => (b.weighted_score || 0) - (a.weighted_score || 0))
+    .slice(0, HUNTER_AT_DISCOVERY_CAP);
   if (braveScoredRows.length > 0) {
     log('hunter_enrichment_start', { count: braveScoredRows.length });
-    // Re-fetch partners we just upserted so we have current domain + email state.
     const ids = braveScoredRows.map(r => r.partner_id as string);
     const { data: braveRows } = await db
       .from('partners')
@@ -566,10 +539,16 @@ export async function POST(request: Request) {
       const batch = await Promise.all(
         slice.map(async (p) => {
           try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), HUNTER_TIMEOUT_MS);
-            const result = await hunterDomainSearch(p.domain as string);
-            clearTimeout(timer);
+            // Race Hunter against a hard timeout. hunterDomainSearch doesn't
+            // accept a signal yet, so we use Promise.race — slow calls just
+            // get abandoned (their socket leak gets cleaned up at function
+            // exit) rather than blocking the rest of the batch.
+            const result = await Promise.race([
+              hunterDomainSearch(p.domain as string),
+              new Promise<null>((_, reject) =>
+                setTimeout(() => reject(new Error('hunter timeout')), HUNTER_TIMEOUT_MS),
+              ),
+            ]);
             if (!result?.emails?.length) {
               return { partner_id: p.id as string, status: 'no_emails', email: null };
             }
