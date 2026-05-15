@@ -14,7 +14,11 @@ interface BraveSearchResponse {
   };
 }
 
-export async function braveWebSearch(query: string, count = 10): Promise<BraveSearchResult[]> {
+export async function braveWebSearch(
+  query: string,
+  count = 10,
+  signal?: AbortSignal,
+): Promise<BraveSearchResult[]> {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY || process.env.BRAVE_API_KEY;
   if (!apiKey) throw new Error('BRAVE_SEARCH_API_KEY not configured');
 
@@ -31,6 +35,7 @@ export async function braveWebSearch(query: string, count = 10): Promise<BraveSe
       'Accept-Encoding': 'gzip',
       'X-Subscription-Token': apiKey,
     },
+    signal,
   });
 
   if (!res.ok) {

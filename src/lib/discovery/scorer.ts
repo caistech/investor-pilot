@@ -127,15 +127,21 @@ export async function enrichCandidateWithBrave(candidate: ScoreCandidateInput): 
   // leverage dimension specifically.
   const query = `"${company}" Australia (property OR real estate) (private credit OR debt OR lending OR fund)`;
 
+  // Hard 6s timeout — Brave latency went from ~2-3s to ~8s on 2026-05-15,
+  // which blew past Vercel's 60s edge timeout when multiplied across 40
+  // candidates. Better to drop slow enrichment than hang the whole batch.
   try {
-    const results = await braveWebSearch(query, 3);
+    const results = await braveWebSearch(query, 3, AbortSignal.timeout(6000));
     if (!results.length) return '';
     const block = results
       .slice(0, 3)
       .map(r => `- ${r.title.slice(0, 120)}: ${r.description.slice(0, 200)}`)
       .join('\n');
     return `\n\nWEB EVIDENCE for ${company} (Brave search):\n${block}`;
-  } catch {
+  } catch (err) {
+    if (err instanceof Error && err.name === 'TimeoutError') {
+      console.warn(`[scorer] Brave enrichment timeout for ${company} after 6s`);
+    }
     return '';
   }
 }
@@ -169,15 +175,22 @@ export async function scoreAndUpsertCandidate(
     // signal quality matters; skip for fast runs.
     const enrichment = options?.enrichWithBrave === true ? await enrichCandidateWithBrave(candidate) : '';
 
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 500,
-      system: SCORING_PROMPT,
-      messages: [{
-        role: 'user',
-        content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
-      }],
-    });
+    // Hard 8s timeout — without this, a slow OpenRouter call (or hung HTTP
+    // socket) can hold the route past Vercel's edge gateway budget and the
+    // browser sees "Failed to fetch" with no status. Better to drop the
+    // slow candidate than block the whole batch.
+    const response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 500,
+        system: SCORING_PROMPT,
+        messages: [{
+          role: 'user',
+          content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
+        }],
+      },
+      { signal: AbortSignal.timeout(8000) },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);

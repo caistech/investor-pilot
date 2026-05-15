@@ -42,11 +42,16 @@ type NetworkTier = '1st' | '2nd' | 'cold';
 //
 // maxDuration is also forced to 300s via vercel.json (the `functions` config
 // doesn't rely on the export being parsed at deploy time).
-const DEFAULT_QUERY_COUNT = 5;
+// Defaults tightened on 2026-05-15 after Brave latency degraded ~3x (from
+// ~2-3s to ~8s per call), which pushed total wall time past Vercel's 60s
+// edge gateway budget. Browsers were getting "Failed to fetch" because the
+// function had no response bytes to send before the client connection dropped.
+// New numbers target a ~30-40s wall time even with degraded externals.
+const DEFAULT_QUERY_COUNT = 3;          // was 5 — cuts search calls by ~40%
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
 const CANDIDATES_PER_QUERY = 5;         // was 10 — fewer hits per query keeps the scoring budget tight
-const MAX_TOTAL_CANDIDATES = 40;        // was 50
+const MAX_TOTAL_CANDIDATES = 20;        // was 40 — halves scoring wall time
 const SEARCH_TIMEOUT_MS = 12_000;       // per-search timeout — one stuck Unipile call can't kill the batch
 
 // Tier → Unipile network_distance integer-array filter, or undefined to omit.
@@ -62,6 +67,16 @@ const TIER_TO_LINKEDIN_DISTANCE: Record<NetworkTier, number[] | undefined> = {
 };
 
 export async function POST(request: Request) {
+  // Phase timing — added 2026-05-15 to make Vercel logs useful when batch
+  // discovery hangs. Each phase logs elapsed ms from request start, so if
+  // a future regression appears we can see immediately which phase is slow.
+  const t0 = Date.now();
+  const ms = () => Date.now() - t0;
+  const log = (phase: string, extra?: Record<string, unknown>) =>
+    console.log(`[discover-batch] ${ms()}ms ${phase}${extra ? ' ' + JSON.stringify(extra) : ''}`);
+
+  log('start');
+
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
 
@@ -73,13 +88,13 @@ export async function POST(request: Request) {
     sources?: DiscoverSource[];
     network_tiers?: NetworkTier[];
   };
-  // Default TRUE — per-candidate Brave enrichment surfaces fund reports,
-  // press, and named-deal evidence that the cold-sequence credit-signal
-  // extraction needs. Without it, every cold first-touch DM gets blocked
-  // by the compliance gate ("Credit signal extraction returned generic").
-  // Callers can opt out via { enrich_with_brave: false } for fast smoke
-  // tests where signal quality doesn't matter.
-  const enrichWithBrave: boolean = body?.enrich_with_brave !== false;
+  // Default FALSE as of 2026-05-15 — Brave latency degraded ~3x and
+  // per-candidate enrichment was pushing total wall time past Vercel's
+  // 60s edge budget, causing "Failed to fetch" client-side. Callers can
+  // explicitly opt in via { enrich_with_brave: true } when signal
+  // quality matters more than batch speed. Previously default-true (see
+  // commit 5d4443d) but had to revert when the latency regressed.
+  const enrichWithBrave: boolean = body?.enrich_with_brave === true;
 
   const { data: profile } = await db
     .from('profiles')
@@ -225,8 +240,13 @@ export async function POST(request: Request) {
   });
 
   if (!queryGen.ok) {
+    log('query_gen_failed', { error: queryGen.error });
     return NextResponse.json({ error: `Query generation failed: ${queryGen.error}` }, { status: 502 });
   }
+  log('query_gen_done', {
+    linkedin_queries: queryGen.linkedin_queries.length,
+    brave_queries: queryGen.brave_queries.length,
+  });
 
   // Look up the Unipile account_id once if any LinkedIn-flavoured source is selected.
   let linkedinAccountId: string | null = null;
@@ -324,6 +344,12 @@ export async function POST(request: Request) {
 
   const uniqueCandidates = Array.from(seen.values()).slice(0, MAX_TOTAL_CANDIDATES);
 
+  log('searches_done', {
+    candidates_found: allCandidates.length,
+    candidates_unique: uniqueCandidates.length,
+    search_errors: errors.length,
+  });
+
   // Score everything in parallel batches.
   const offeringDescription = offering.description || offering.one_sentence_description || '';
   const projectMeta = offering.sponsor || offering.funding_target || offering.geography
@@ -333,11 +359,19 @@ export async function POST(request: Request) {
 
   const scoredResults: Awaited<ReturnType<typeof scoreAndUpsertCandidate>>[] = [];
   for (let i = 0; i < uniqueCandidates.length; i += SCORING_CONCURRENCY) {
+    const batchStart = Date.now();
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
       batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null, { enrichWithBrave }))
     );
     scoredResults.push(...results);
+    log('scoring_batch_done', {
+      batch_index: i / SCORING_CONCURRENCY,
+      batch_size: batch.length,
+      batch_ms: Date.now() - batchStart,
+      ok: results.filter(r => r.status !== 'error').length,
+      errors: results.filter(r => r.status === 'error').length,
+    });
   }
 
   // Top-N by weighted score for the UI preview.
@@ -395,6 +429,11 @@ export async function POST(request: Request) {
     ...queryGen.linkedin_queries.map(q => ({ query: q.query, rationale: q.rationale, category: q.expected_category, intended_source: 'linkedin' as const })),
     ...queryGen.brave_queries.map(q => ({ query: q.query, rationale: q.rationale, category: q.expected_category, intended_source: 'brave' as const })),
   ];
+
+  log('done', {
+    candidates_scored: scoredResults.filter(r => r.status !== 'error').length,
+    candidates_failed: scoredResults.filter(r => r.status === 'error').length,
+  });
 
   return NextResponse.json({
     ok: true,
