@@ -159,6 +159,9 @@ async function rerenderOneStep(
   enrichment_status?: string;
   personalization_score?: number;
   compliance_blocked?: boolean;
+  _body_preview?: string;
+  _flag_matches?: string[];
+  _flag_count?: number;
 }> {
   try {
     // 1. Run enrichment first so the re-render sees fresh data.
