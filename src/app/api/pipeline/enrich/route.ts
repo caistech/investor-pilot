@@ -54,6 +54,30 @@ export async function POST(request: Request) {
           };
         }
 
+        // GUARD: LinkedIn-sourced rows with no real company domain land here
+        // with domain="linkedin.com/in/<public_id>". Hunter silently strips
+        // the path and searches linkedin.com itself, returning the top-
+        // confidence LinkedIn-employee email (e.g. rnella@linkedin.com) for
+        // EVERY such partner — visible contamination in the Prospects view.
+        // For these rows, the email-discovery path is LinkedIn deep-read
+        // (migration 011 enrichment, 1st-degree only) or manual research,
+        // not Hunter. Skip and mark unresolved so the UI shows "no email"
+        // instead of incorrect data.
+        if (/^linkedin\.com\//i.test(partner.domain) || partner.domain.includes('/')) {
+          await db.from('partners').update({
+            email_status: 'unresolved',
+            contact_source: 'skipped_linkedin_pseudo_domain',
+            last_updated_at: new Date().toISOString(),
+          }).eq('id', partner.id);
+          return {
+            partner_id: partner.id,
+            company_name: partner.company_name,
+            domain: partner.domain,
+            status: 'unresolved' as const,
+            error: 'LinkedIn pseudo-domain; use LinkedIn deep-read enrichment instead of Hunter',
+          };
+        }
+
         try {
           // Try domain search first (doesn't need a name)
           const domainResult = await hunterDomainSearch(partner.domain);

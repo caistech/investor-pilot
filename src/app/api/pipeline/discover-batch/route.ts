@@ -619,8 +619,21 @@ function linkedInPersonToCandidate(
     .filter(Boolean)
     .join(' · ');
 
+  // Company-name resolution priority:
+  //   1. Unipile current_company (most reliable when present)
+  //   2. Parse from headline — LinkedIn headlines usually follow patterns like
+  //      "Title at Firm" / "Title - Firm" / "Title @ Firm". Extracted firm is
+  //      truthier than falling back to the person's own name.
+  //   3. Last resort: person's name (kept so the row isn't completely opaque,
+  //      but the Prospects UI now knows to render this as a person-not-firm).
+  // Prior version always fell through to person.full_name when current_company
+  // was null, which caused the "Steve Mercieca shown as a Company" bug visible
+  // on 2026-05-15 — 60+ LinkedIn-cold rows had their company set to the
+  // person's name.
+  const companyName = person.current_company || extractCompanyFromHeadline(person.headline) || person.full_name;
+
   return {
-    name: person.current_company || person.full_name,
+    name: companyName,
     domain,
     description,
     source,
@@ -629,4 +642,30 @@ function linkedInPersonToCandidate(
     contact_linkedin: person.profile_url || undefined,
     network_distance: tier,
   };
+}
+
+/**
+ * Extract a firm name from a LinkedIn-style headline. Returns null when the
+ * pattern doesn't match, so the caller can fall through to the next option.
+ *
+ * Common LinkedIn headline patterns:
+ *   "Managing Director at Versobuild Pte Ltd"   → "Versobuild Pte Ltd"
+ *   "Senior Infrastructure Finance Specialist - World Bank" → "World Bank"
+ *   "CIO @ Capital Group"                       → "Capital Group"
+ *   "Investment Director | Pacific Vista"        → "Pacific Vista"
+ *
+ * Conservative — only matches the four delimiters above with surrounding
+ * whitespace. Random punctuation (commas, etc.) returns null rather than
+ * mis-splitting on dots/quotes.
+ */
+function extractCompanyFromHeadline(headline: string | null): string | null {
+  if (!headline) return null;
+  const match = headline.match(/(?:\s+at\s+|\s+@\s+|\s+-\s+|\s+\|\s+)(.+)$/i);
+  if (!match) return null;
+  const candidate = match[1].trim();
+  // Reject obvious non-companies — single-word adjectives, location names
+  // in parens, anything under 2 chars. Heuristic, not exhaustive.
+  if (candidate.length < 2 || candidate.length > 120) return null;
+  // Strip trailing role suffixes after a "/" or "," that some users append.
+  return candidate.replace(/\s*[/,].*$/, '').trim() || null;
 }
