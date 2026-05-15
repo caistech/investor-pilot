@@ -94,7 +94,7 @@ async function runSequencer() {
           .single(),
         db
           .from('partners')
-          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id')
+          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id, profile_recent_posts, profile_connected_at, profile_shared_connections_count, profile_engagement_flags, firm_recent_news, firm_named_deals')
           .eq('id', step.partner_id)
           .single(),
         db
@@ -159,6 +159,12 @@ async function runSequencer() {
         partner_readiness_notes: partner.partner_readiness_notes,
         weighted_score: partner.weighted_score,
         project_url_refs: projectUrlRefs,
+        profile_recent_posts: partner.profile_recent_posts,
+        profile_connected_at: partner.profile_connected_at,
+        profile_shared_connections_count: partner.profile_shared_connections_count,
+        profile_engagement_flags: partner.profile_engagement_flags,
+        firm_recent_news: partner.firm_recent_news,
+        firm_named_deals: partner.firm_named_deals,
       };
 
       const rendered = await renderStep(tplStep.template_key, renderPartner);

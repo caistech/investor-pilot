@@ -54,6 +54,23 @@ export interface RenderPartner {
   // source_type='url' AND project_id matches partner.project_id). Caller
   // fetches and passes them through so renderStep stays pure (no db).
   project_url_refs?: string[];
+
+  // Enrichment evidence — populated by orchestrator at assign-batch time
+  // (migration 011 + src/lib/enrichment/). All optional; renderer degrades
+  // gracefully when null. See render.ts buildEvidenceBundle() for how this
+  // gets formatted into the LLM prompts.
+  profile_recent_posts?: Array<{
+    text: string;
+    parsed_datetime: string | null;
+    is_repost: boolean;
+    author_name: string | null;
+    repost_content_text: string | null;
+  }> | null;
+  profile_connected_at?: string | null;
+  profile_shared_connections_count?: number | null;
+  profile_engagement_flags?: { is_creator?: boolean; is_premium?: boolean } | null;
+  firm_recent_news?: Array<{ title: string; snippet: string }> | null;
+  firm_named_deals?: Array<{ title: string; snippet: string }> | null;
 }
 
 export interface RenderedMessage {
@@ -342,13 +359,51 @@ interface CreditSignalError {
 }
 
 async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal | CreditSignalError> {
-  const evidence = [
+  // Evidence priority (high → low):
+  //   1. Recent LinkedIn posts (real human voice, dated, specific)
+  //   2. Brave firm-enrichment (named deals, recent news — credit signal direct)
+  //   3. Scoring-time notes (inference from initial SERP)
+  //
+  // We pass all three to the LLM in this order so the model can pick the
+  // strongest signal. Without enrichment (legacy rows) the prompt degrades
+  // gracefully to scoring notes alone — same behaviour as pre-migration 011.
+  const evidenceParts: string[] = [];
+
+  const usablePosts = (partner.profile_recent_posts || []).filter(p => {
+    const txt = (p.text || p.repost_content_text || '').trim();
+    return txt.length >= 40;
+  }).slice(0, 3);
+  if (usablePosts.length > 0) {
+    evidenceParts.push('LINKEDIN POSTS (recent, most credit-relevant first):');
+    usablePosts.forEach((p, i) => {
+      const txt = (p.is_repost && p.repost_content_text ? p.repost_content_text : p.text).slice(0, 500);
+      const when = p.parsed_datetime ? new Date(p.parsed_datetime).toISOString().slice(0, 10) : '?';
+      evidenceParts.push(`  [${when}, ${p.is_repost ? 'repost' : 'own'}] ${txt}`);
+    });
+  }
+
+  const firmNews = partner.firm_recent_news || [];
+  const firmDeals = partner.firm_named_deals || [];
+  if (firmDeals.length > 0) {
+    evidenceParts.push('FIRM NAMED DEALS (Brave search — credit-signal evidence):');
+    firmDeals.slice(0, 3).forEach(d => evidenceParts.push(`  - ${d.title}: ${d.snippet}`));
+  }
+  if (firmNews.length > 0) {
+    evidenceParts.push('FIRM RECENT NEWS (Brave search):');
+    firmNews.slice(0, 3).forEach(d => evidenceParts.push(`  - ${d.title}: ${d.snippet}`));
+  }
+
+  const scoringNotes = [
     partner.audience_overlap_notes,
     partner.complementarity_notes,
     partner.partner_readiness_notes,
-  ]
-    .filter(Boolean)
-    .join('\n');
+  ].filter(Boolean).join('\n');
+  if (scoringNotes) {
+    evidenceParts.push('SCORING NOTES (initial classifier — secondary):');
+    evidenceParts.push(scoringNotes);
+  }
+
+  const evidence = evidenceParts.join('\n');
 
   if (!evidence.trim()) {
     return { ok: false, reason: 'No discovery evidence on partner — re-run discovery before sequencing' };
@@ -412,12 +467,50 @@ If the evidence is genuinely generic (no specific deal, sector, or quoted statem
  * default cadence ('quick one.') and not block the send.
  */
 async function generateWarmOpener(partner: RenderPartner): Promise<string | null> {
-  const evidenceBits = [
-    partner.contact_title ? `Role/headline: ${partner.contact_title}` : null,
-    partner.company_name ? `Current company: ${partner.company_name}` : null,
-    partner.audience_overlap_notes ? `Audience/ticket fit notes: ${partner.audience_overlap_notes}` : null,
-    partner.complementarity_notes ? `Asset class notes: ${partner.complementarity_notes}` : null,
-  ].filter(Boolean);
+  // Build evidence in priority order: recent posts (highest signal — real
+  // human voice) → connection metadata (warm relationship cue) → role/firm
+  // (fallback). The LLM is instructed to pick the strongest available
+  // anchor; ordering here biases its choice toward post references when
+  // available since those generate the most personalised openers.
+  const evidenceBits: string[] = [];
+
+  // Recent posts — top 2 most relevant. Use post text or repost text,
+  // whichever is non-empty. Limit length to keep the prompt tight.
+  const posts = partner.profile_recent_posts || [];
+  const usablePosts = posts.filter(p => {
+    const txt = (p.text || p.repost_content_text || '').trim();
+    return txt.length >= 40;
+  }).slice(0, 2);
+  if (usablePosts.length > 0) {
+    evidenceBits.push('Recent LinkedIn posts (most recent first — REFERENCE THESE PREFERENTIALLY):');
+    usablePosts.forEach((p, i) => {
+      const effectiveText = (p.is_repost && p.repost_content_text)
+        ? p.repost_content_text
+        : p.text;
+      const trimmed = effectiveText.trim().slice(0, 400);
+      const kind = p.is_repost ? `reposted from ${p.author_name || 'someone'}` : 'posted themselves';
+      const when = p.parsed_datetime ? formatRelativeDate(new Date(p.parsed_datetime)) : 'recently';
+      evidenceBits.push(`  Post ${i + 1} (${kind}, ${when}): "${trimmed}"`);
+    });
+  }
+
+  // Connection metadata — useful even without posts.
+  if (partner.profile_connected_at) {
+    const connectedDate = new Date(partner.profile_connected_at);
+    const years = (Date.now() - connectedDate.getTime()) / (365 * 24 * 60 * 60 * 1000);
+    if (years >= 0.5) {
+      evidenceBits.push(`Connected ${years >= 1 ? Math.floor(years) + ' years' : 'months'} ago`);
+    }
+  }
+  if (partner.profile_shared_connections_count && partner.profile_shared_connections_count >= 5) {
+    evidenceBits.push(`Mutual connections: ${partner.profile_shared_connections_count}`);
+  }
+
+  // Role / firm — fallback when posts aren't available.
+  if (partner.contact_title) evidenceBits.push(`Role/headline: ${partner.contact_title}`);
+  if (partner.company_name) evidenceBits.push(`Current company: ${partner.company_name}`);
+  if (partner.audience_overlap_notes) evidenceBits.push(`Audience/ticket fit notes: ${partner.audience_overlap_notes}`);
+  if (partner.complementarity_notes) evidenceBits.push(`Asset class notes: ${partner.complementarity_notes}`);
 
   if (evidenceBits.length === 0) return null;
 
@@ -427,14 +520,16 @@ Recipient evidence:
 ${evidenceBits.join('\n')}
 
 Generate a ONE-SENTENCE opener that:
-- References ONE specific thing about the recipient's role, company, or focus (the most credit/property/lending-relevant signal in the evidence above)
-- Reads natural and brief — like one founder texting another, not a sales template
-- Leads into a pitch about senior debt placement for AU property development
-- Avoids cliches: NO "I hope this finds you well", NO "saw your background", NO "exciting opportunity"
-- Length: 8-20 words. Single sentence.
+- PREFER referencing a specific recent post (if any provided). Quote a concrete detail — what they posted about, what they reposted — not just "saw your post". E.g. "saw your repost of the Versowood glulam project — adjacent to what F2K's running in TAS".
+- If no usable post evidence, reference role/company/connection-time instead.
+- Reads natural and brief — like one founder texting another, not a sales template.
+- Leads into a pitch about senior debt placement for AU property development.
+- Avoids cliches: NO "I hope this finds you well", NO generic "saw your background", NO "exciting opportunity".
+- Length: 8-25 words. Single sentence. (Slightly longer allowance when quoting a post.)
 - Lower case after a comma is fine. Em dashes fine.
-- Do not include the recipient's first name (that's added separately)
-- Do not include emojis or hype words
+- Do not include the recipient's first name (that's added separately).
+- Do not include emojis or hype words.
+- If post quoted, paraphrase concretely — don't say "your post about X" without naming the X.
 
 Return ONLY a JSON object, no prose, no markdown:
 {
@@ -471,6 +566,22 @@ That's the safe fallback — keeps the template's original cadence.`;
   } catch {
     return null;
   }
+}
+
+/**
+ * Format a date as a relative phrase suitable for inclusion in a warm-DM
+ * opener prompt. Used to let the LLM say "last week", "two months ago"
+ * etc. instead of bare timestamps. Kept simple — anything beyond a year
+ * is treated as just "a while back" since precise old dates rarely add
+ * value to outreach openers.
+ */
+function formatRelativeDate(date: Date): string {
+  const days = (Date.now() - date.getTime()) / (24 * 60 * 60 * 1000);
+  if (days < 7) return 'last week';
+  if (days < 30) return 'a few weeks ago';
+  if (days < 90) return `${Math.floor(days / 30)} months ago`;
+  if (days < 365) return `${Math.floor(days / 30)} months ago`;
+  return 'a while back';
 }
 
 function personalizationScore(

@@ -31,6 +31,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { templateChannel } from '@/lib/sequencer/render';
+import { enrichPartnersBatch, type OrchestratorPartner } from '@/lib/enrichment/orchestrator';
 
 interface TemplateStep {
   step_index: number;
@@ -56,6 +57,17 @@ const TERMINAL_STATUSES = new Set([
 ]);
 
 const MAX_BATCH_SIZE = 100;
+
+// ICP-score gate. Partners below this threshold or flagged as out_of_scope
+// during discovery should not be queued for outreach — the warm-DM template
+// has been firing on 1st-degree connections regardless of fit, dumping
+// low-score contacts into the Approvals queue (see session 2026-05-15 audit
+// of 13 stuck approvals, all scoring 1.1-2.0/10).
+//
+// Threshold = 4.0: out-of-scope are score-capped at 2.0 by the scorer, and
+// legitimate-but-mediocre fits land in the 3-4 band — we'd rather let those
+// through with a warning than drop them.
+const MIN_ICP_SCORE = 4.0;
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -129,11 +141,48 @@ export async function POST(request: Request) {
   // bypasses RLS).
   const { data: partners } = await db
     .from('partners')
-    .select('id, company_name, contact_name, network_distance')
+    .select('id, company_name, contact_name, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at')
     .in('id', partnerIds)
     .eq('organisation_id', orgId);
 
   const partnerById = new Map((partners || []).map(p => [p.id as string, p]));
+
+  // Evidence enrichment (migration 011, Option 1). For every partner not yet
+  // enriched, fetch LinkedIn profile + recent posts (LinkedIn-sourced) or
+  // Brave firm news + named deals (Brave-sourced) so the renderer has real
+  // signal to personalise the warm opener / credit signal instead of
+  // falling back to thin scoring-time notes. 4-wide concurrency, 8s timeout
+  // per call. Failures are non-fatal — the renderer degrades gracefully.
+  const enrichmentCandidates: OrchestratorPartner[] = (partners || [])
+    .filter(p => !p.evidence_enriched_at)
+    .filter(p => p.source && ['linkedin', 'sales_nav', 'brave'].includes(p.source as string))
+    .map(p => ({
+      id: p.id as string,
+      company_name: p.company_name as string,
+      contact_name: (p.contact_name as string) || null,
+      contact_email: (p.contact_email as string) || null,
+      contact_linkedin: (p.contact_linkedin as string) || null,
+      source: (p.source as OrchestratorPartner['source']) || null,
+      network_distance: (p.network_distance as OrchestratorPartner['network_distance']) || null,
+      evidence_enriched_at: null,
+    }));
+
+  let enrichmentOutcomes: Awaited<ReturnType<typeof enrichPartnersBatch>> = [];
+  if (enrichmentCandidates.length > 0) {
+    // Resolve the org's LinkedIn channel account_id (oauth_token_ref). Required
+    // for linkedin/sales_nav enrichment; Brave-only batches pass null.
+    const { data: linkedinChannel } = await db
+      .from('client_channels')
+      .select('oauth_token_ref')
+      .eq('organisation_id', orgId)
+      .eq('channel_type', 'linkedin')
+      .eq('status', 'active')
+      .limit(1)
+      .maybeSingle();
+    const linkedinAccountId = (linkedinChannel?.oauth_token_ref as string) || null;
+
+    enrichmentOutcomes = await enrichPartnersBatch(db, enrichmentCandidates, linkedinAccountId, 4);
+  }
 
   // Look up existing live steps once for every (partner, template) pair
   // we might touch, so we can skip duplicates without per-partner queries.
@@ -197,6 +246,31 @@ export async function POST(request: Request) {
         partner_name: partner.company_name as string,
         outcome: 'skipped',
         reason: 'No contact_name on partner; run enrich first',
+      });
+      continue;
+    }
+
+    // ICP-score gate. Skip partners flagged as out_of_scope during scoring,
+    // or whose weighted_score is below the threshold. Counts surface in the
+    // audit_events payload so the operator can see "skipped 13 below-ICP".
+    const partnerScore = typeof partner.weighted_score === 'number' ? partner.weighted_score : null;
+    const isOutOfScope = typeof partner.category === 'string'
+      && /out[_ -]?of[_ -]?scope/i.test(partner.category);
+    if (isOutOfScope) {
+      results.push({
+        partner_id: partnerId,
+        partner_name: partner.company_name as string,
+        outcome: 'skipped',
+        reason: `Category is "${partner.category}" — out of scope per v3 ICP`,
+      });
+      continue;
+    }
+    if (partnerScore !== null && partnerScore < MIN_ICP_SCORE) {
+      results.push({
+        partner_id: partnerId,
+        partner_name: partner.company_name as string,
+        outcome: 'skipped',
+        reason: `Weighted score ${partnerScore.toFixed(2)} below MIN_ICP_SCORE (${MIN_ICP_SCORE}) — low fit, not queuing`,
       });
       continue;
     }
@@ -307,6 +381,15 @@ export async function POST(request: Request) {
       assigned_count: seenAssigned.size,
       total_step_rows: inserted?.length || 0,
       template_ids_used: Array.from(new Set(rowsToInsert.map(r => r.template_id))),
+      enrichment: {
+        attempted: enrichmentOutcomes.length,
+        success: enrichmentOutcomes.filter(o => o.status === 'success').length,
+        partial: enrichmentOutcomes.filter(o => o.status === 'partial').length,
+        failed: enrichmentOutcomes.filter(o => o.status === 'failed').length,
+        unavailable: enrichmentOutcomes.filter(o => o.status === 'unavailable').length,
+        emails_backfilled: enrichmentOutcomes.filter(o => o.email_backfilled).length,
+        posts_fetched_total: enrichmentOutcomes.reduce((sum, o) => sum + o.posts_fetched_count, 0),
+      },
     },
   });
 

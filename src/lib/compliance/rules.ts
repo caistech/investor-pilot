@@ -52,14 +52,39 @@ const SENIOR_DEBT_FORBIDDEN: ComplianceRule[] = [
   { pattern: /\bexciting opportunity\b/i, reason: 'Banned filler', action: 'block' },
 ];
 
+// Approved dollar figures per Senior Debt Brief v3. Update here when counsel
+// signs off new figures — the soft-flag regex AND the operator-visible reason
+// text are both built from this list, so they stay in sync.
+const SENIOR_DEBT_APPROVED_DOLLAR_VALUES = [
+  '16.2M', '2.5M', '18.7M', '25.15M', '21.15M', '500K', '200K', '17,730',
+] as const;
+
+// Escape the values for regex (the dots in "16.2M" matter; the comma in
+// "17,730" is already regex-safe but we leave it as-is).
+const APPROVED_DOLLAR_REGEX_BODY = SENIOR_DEBT_APPROVED_DOLLAR_VALUES
+  .map(v => v.replace(/\./g, '\\.'))
+  .join('|');
+
+// Negative lookahead: match $ + figure, EXCEPT when the figure exactly equals
+// one of the approved values followed by a word boundary. Before this fix the
+// pattern matched every $ figure including the approved ones, generating
+// false-positive flags on every cold DM in the queue.
+const UNAPPROVED_DOLLAR_PATTERN = new RegExp(
+  `\\$(?!(?:${APPROVED_DOLLAR_REGEX_BODY})\\b)\\d+([,.]?\\d+)?[KMB]?\\b`,
+  'i',
+);
+
+const APPROVED_DOLLAR_REASON =
+  `Verify $ figure against approved set (${SENIOR_DEBT_APPROVED_DOLLAR_VALUES.map(v => '$' + v).join(', ')})`;
+
 const SENIOR_DEBT_SOFT_FLAG: ComplianceRule[] = [
   // Rate quotes outside the IM-approved figures
   // Approved: 8.5%, 8.0%, 8-8.5%, 8-11% (range from brief Sec 4)
   // Pattern flags anything else
   { pattern: /\b(?!8\.?[05]%|8-(8\.5|11)%)\d+(\.\d+)?%\b/i, reason: 'Unapproved % rate — counsel approved only 8.5% Branscombe, 8.0% Seafields, 8-11% range', action: 'flag' },
 
-  // Dollar amounts beyond confirmed figures
-  { pattern: /\$\d+([,.]?\d+)?[KMB]?\b/i, reason: 'Verify $ figure against approved set ($16.2M, $2.5M, $18.7M, $25.15M, $21.15M, $500K, $200K, $17,730)', action: 'flag' },
+  // Dollar amounts NOT in the approved set
+  { pattern: UNAPPROVED_DOLLAR_PATTERN, reason: APPROVED_DOLLAR_REASON, action: 'flag' },
 
   // Stamford / Front — per Sec 5.5, soft framing in cold; never volunteer
   { pattern: /\bstamford\b/i, reason: 'Per Sec 5.5: Stamford reference only in conversation, not cold outreach', action: 'flag' },

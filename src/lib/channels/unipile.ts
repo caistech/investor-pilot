@@ -646,6 +646,188 @@ function pickString(obj: Record<string, unknown>, key: string): string | null {
 }
 
 // =============================================================================
+// LinkedIn profile + posts deep-read (Option 1 enrichment)
+//
+// Shapes confirmed via spike route /api/test/unipile-profile-fetch (commits
+// d3f9291, 4d686de, ce99e40) against three real partner profiles spanning
+// 1st / 2nd / 3rd-degree tiers. Profile endpoint always returns the basic
+// fields; posts endpoint works across all tiers but item_count varies with
+// the recipient's posting activity.
+//
+// Important tier differences:
+//   - contact_info.emails appears for 1st-degree only
+//   - connected_at appears for 1st-degree only
+//   - shared_connections_count appears for 1st/2nd-degree only
+// =============================================================================
+
+export interface LinkedInProfile {
+  provider_id: string;
+  public_identifier: string;
+  first_name: string;
+  last_name: string;
+  full_name: string;
+  headline: string | null;
+  location: string | null;
+  follower_count: number | null;
+  connections_count: number | null;
+  shared_connections_count: number | null;
+  network_distance: 'FIRST_DEGREE' | 'SECOND_DEGREE' | 'THIRD_DEGREE' | null;
+  email: string | null;            // contact_info.emails[0] — 1st-degree only
+  connected_at: Date | null;       // 1st-degree only
+  is_premium: boolean;
+  is_influencer: boolean;
+  is_creator: boolean;
+  is_open_profile: boolean;
+  is_relationship: boolean;        // is a 1st-degree connection
+}
+
+export interface LinkedInPost {
+  id: string;
+  social_id: string;
+  share_url: string;
+  parsed_datetime: Date | null;
+  text: string;
+  is_repost: boolean;
+  author_name: string | null;
+  author_is_company: boolean;
+  reaction_counter: number;
+  comment_counter: number;
+  // If this is a repost, the original post's text is here. Useful for
+  // warm-DM personalization — referencing a repost reads better when we
+  // know what content was reposted vs the bare "X reposted Y".
+  repost_content_text: string | null;
+}
+
+export type LinkedInProfileResult =
+  | { ok: true; profile: LinkedInProfile }
+  | { ok: false; error: string; status?: number };
+
+export type LinkedInPostsResult =
+  | { ok: true; posts: LinkedInPost[]; cursor?: string | null }
+  | { ok: false; error: string; status?: number };
+
+export async function getLinkedInProfile(input: {
+  account_id: string;
+  provider_id: string;
+}): Promise<LinkedInProfileResult> {
+  if (!UNIPILE_API_KEY) return { ok: false, error: 'UNIPILE_API_KEY not set' };
+  if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
+
+  try {
+    const url = new URL(`${UNIPILE_BASE_URL}/api/v1/users/${encodeURIComponent(input.provider_id)}`);
+    url.searchParams.set('account_id', input.account_id);
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'X-API-KEY': UNIPILE_API_KEY, accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 500)}`, status: response.status };
+    }
+
+    let raw: Record<string, unknown>;
+    try {
+      raw = JSON.parse(text) as Record<string, unknown>;
+    } catch {
+      return { ok: false, error: `Non-JSON response: ${text.slice(0, 200)}` };
+    }
+
+    const contactInfo = raw.contact_info as { emails?: string[] } | undefined;
+    const email = contactInfo?.emails && contactInfo.emails.length > 0 ? contactInfo.emails[0] : null;
+
+    const connectedAtMs = typeof raw.connected_at === 'number' ? raw.connected_at : null;
+
+    const first_name = (raw.first_name as string) || '';
+    const last_name = (raw.last_name as string) || '';
+
+    const profile: LinkedInProfile = {
+      provider_id: (raw.provider_id as string) || input.provider_id,
+      public_identifier: (raw.public_identifier as string) || '',
+      first_name,
+      last_name,
+      full_name: [first_name, last_name].filter(Boolean).join(' ').trim(),
+      headline: (raw.headline as string) || null,
+      location: (raw.location as string) || null,
+      follower_count: typeof raw.follower_count === 'number' ? raw.follower_count : null,
+      connections_count: typeof raw.connections_count === 'number' ? raw.connections_count : null,
+      shared_connections_count: typeof raw.shared_connections_count === 'number' ? raw.shared_connections_count : null,
+      network_distance: (raw.network_distance as LinkedInProfile['network_distance']) || null,
+      email,
+      connected_at: connectedAtMs ? new Date(connectedAtMs) : null,
+      is_premium: raw.is_premium === true,
+      is_influencer: raw.is_influencer === true,
+      is_creator: raw.is_creator === true,
+      is_open_profile: raw.is_open_profile === true,
+      is_relationship: raw.is_relationship === true,
+    };
+
+    return { ok: true, profile };
+  } catch (err) {
+    return { ok: false, error: `Network/fetch error: ${formatFetchError(err)}` };
+  }
+}
+
+export async function getLinkedInPosts(input: {
+  account_id: string;
+  provider_id: string;
+  limit?: number;
+}): Promise<LinkedInPostsResult> {
+  if (!UNIPILE_API_KEY) return { ok: false, error: 'UNIPILE_API_KEY not set' };
+  if (!process.env.UNIPILE_BASE_URL) return { ok: false, error: 'UNIPILE_BASE_URL not set' };
+
+  try {
+    const url = new URL(`${UNIPILE_BASE_URL}/api/v1/users/${encodeURIComponent(input.provider_id)}/posts`);
+    url.searchParams.set('account_id', input.account_id);
+    url.searchParams.set('limit', String(input.limit || 5));
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: { 'X-API-KEY': UNIPILE_API_KEY, accept: 'application/json' },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    const text = await response.text();
+    if (!response.ok) {
+      return { ok: false, error: `Unipile ${response.status}: ${text.slice(0, 500)}`, status: response.status };
+    }
+
+    let parsed: { items?: Array<Record<string, unknown>>; cursor?: string | null };
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      return { ok: false, error: `Non-JSON response: ${text.slice(0, 200)}` };
+    }
+
+    const items = parsed.items || [];
+    const posts: LinkedInPost[] = items.map(p => {
+      const author = p.author as { name?: string; is_company?: boolean } | undefined;
+      const repostContent = p.repost_content as { text?: string } | undefined;
+      const parsedDt = typeof p.parsed_datetime === 'string' ? new Date(p.parsed_datetime) : null;
+      return {
+        id: (p.id as string) || '',
+        social_id: (p.social_id as string) || '',
+        share_url: (p.share_url as string) || '',
+        parsed_datetime: parsedDt && !isNaN(parsedDt.getTime()) ? parsedDt : null,
+        text: (p.text as string) || '',
+        is_repost: p.is_repost === true,
+        author_name: author?.name || null,
+        author_is_company: author?.is_company === true,
+        reaction_counter: typeof p.reaction_counter === 'number' ? p.reaction_counter : 0,
+        comment_counter: typeof p.comment_counter === 'number' ? p.comment_counter : 0,
+        repost_content_text: repostContent?.text || null,
+      };
+    });
+
+    return { ok: true, posts, cursor: parsed.cursor ?? null };
+  } catch (err) {
+    return { ok: false, error: `Network/fetch error: ${formatFetchError(err)}` };
+  }
+}
+
+// =============================================================================
 // Internals
 // =============================================================================
 
