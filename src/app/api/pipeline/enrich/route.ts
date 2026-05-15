@@ -3,6 +3,16 @@ import { hunterEmailFinder, hunterDomainSearch } from '@/lib/agent/hunter-tools'
 import { updateContact } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 60;
+
+// Operational caps — keeps the batch under Vercel's 60s edge ceiling even when
+// Hunter is slow. Sized so 20 partners × ~5s Hunter / 5-wide = ~20s, leaving
+// headroom for outliers.
+const MAX_PARTNERS_PER_REQUEST = 20;
+const HUNTER_TIMEOUT_MS = 8_000;
+
+void hunterEmailFinder; // silence unused-import — legacy v2 codepath, kept for future revival
+
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
@@ -14,6 +24,15 @@ export async function POST(request: Request) {
 
   if (!partner_ids?.length || !organisation_id) {
     return NextResponse.json({ error: 'partner_ids[] and organisation_id required' }, { status: 400 });
+  }
+
+  if (partner_ids.length > MAX_PARTNERS_PER_REQUEST) {
+    return NextResponse.json(
+      {
+        error: `Too many partners — pass at most ${MAX_PARTNERS_PER_REQUEST} per call (got ${partner_ids.length}). Split into batches to stay under the 60s function ceiling.`,
+      },
+      { status: 400 },
+    );
   }
 
   // Load partners
@@ -79,8 +98,16 @@ export async function POST(request: Request) {
         }
 
         try {
-          // Try domain search first (doesn't need a name)
-          const domainResult = await hunterDomainSearch(partner.domain);
+          // Try domain search first (doesn't need a name). Hard timeout so a
+          // slow Hunter call can't block the whole batch — failed call gets
+          // marked unresolved and we move on. The 5-wide concurrency means
+          // worst case for 20 partners is 20/5 × 8s = 32s.
+          const domainResult = await Promise.race([
+            hunterDomainSearch(partner.domain),
+            new Promise<null>((_, reject) =>
+              setTimeout(() => reject(new Error(`Hunter timeout after ${HUNTER_TIMEOUT_MS}ms`)), HUNTER_TIMEOUT_MS),
+            ),
+          ]);
 
           if (domainResult?.emails?.length) {
             // Pick the best email: highest confidence, prefer decision-maker titles

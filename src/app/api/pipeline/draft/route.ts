@@ -4,6 +4,15 @@ import { saveDraft } from '@/lib/db/partners';
 import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 
+export const maxDuration = 60;
+
+// Wall-time guards. Default partner count is now batched 4-wide with per-call
+// timeouts so an outlier Claude response can't block the whole request and
+// push us past Vercel's 60s edge ceiling.
+const MAX_PARTNERS_PER_REQUEST = 20;
+const DRAFT_CONCURRENCY = 4;
+const CLAUDE_TIMEOUT_MS = 8_000;
+
 const client = new Anthropic({
   apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
   ...(process.env.OPENROUTER_API_KEY ? {
@@ -77,6 +86,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'partner_ids[], organisation_id, and product_id required' }, { status: 400 });
   }
 
+  if (partner_ids.length > MAX_PARTNERS_PER_REQUEST) {
+    return NextResponse.json(
+      {
+        error: `Too many partners — pass at most ${MAX_PARTNERS_PER_REQUEST} per call (got ${partner_ids.length}). Split into batches to stay under the 60s function ceiling.`,
+      },
+      { status: 400 },
+    );
+  }
+
   // Load product and its website URL
   const [{ data: product }, productUrl] = await Promise.all([
     db.from('products')
@@ -109,26 +127,30 @@ export async function POST(request: Request) {
     error?: string;
   }> = [];
 
-  // Sequential to respect rate limits
-  for (const partner of partners) {
+  // Parallel batches with per-call timeouts. Previously fully sequential —
+  // for 20 partners × ~4s Claude that's 80s, well over Vercel's 60s edge
+  // ceiling. 4-wide concurrency × ~4s per call = ~20s for 20 partners,
+  // even with stragglers.
+  type PartnerRow = NonNullable<typeof partners>[number];
+  async function draftOne(partner: PartnerRow) {
     if (!partner.contact_email) {
-      results.push({
+      return {
         partner_id: partner.id,
         company_name: partner.company_name,
         status: 'skipped',
         error: 'No contact email',
-      });
-      continue;
+      };
     }
 
     try {
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 500,
-        system: DRAFT_PROMPT,
-        messages: [{
-          role: 'user',
-          content: `${productContext}
+      const response = await client.messages.create(
+        {
+          model: MODEL,
+          max_tokens: 500,
+          system: DRAFT_PROMPT,
+          messages: [{
+            role: 'user',
+            content: `${productContext}
 
 Partner: ${partner.company_name} (${partner.domain})
 Category: ${partner.category || 'Unknown'}
@@ -137,44 +159,51 @@ Score: ${partner.weighted_score || 'N/A'}
 Audience overlap: ${partner.audience_overlap_notes || 'No notes'}
 Complementarity: ${partner.complementarity_notes || 'No notes'}
 Readiness: ${partner.partner_readiness_notes || 'No notes'}`,
-        }],
-      });
+          }],
+        },
+        { signal: AbortSignal.timeout(CLAUDE_TIMEOUT_MS) },
+      );
 
       const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);
       if (!jsonMatch) {
-        results.push({ partner_id: partner.id, company_name: partner.company_name, status: 'error', error: 'Invalid draft response' });
-        continue;
+        return { partner_id: partner.id, company_name: partner.company_name, status: 'error', error: 'Invalid draft response' };
       }
 
       const draft = JSON.parse(jsonMatch[0]);
 
-      await saveDraft(db, organisation_id, partner.domain, {
+      await saveDraft(db!, organisation_id, partner.domain, {
         draft_subject: draft.subject,
         draft_body: draft.body,
         partnership_motion: draft.partnership_motion,
         selected_gtm_angle: draft.selected_gtm_angle,
       });
 
-      results.push({
+      return {
         partner_id: partner.id,
         company_name: partner.company_name,
         status: 'drafted',
         subject: draft.subject,
-      });
+      };
     } catch (err) {
-      await db.from('partners').update({
+      await db!.from('partners').update({
         draft_status: 'none',
         last_updated_at: new Date().toISOString(),
       }).eq('id', partner.id);
 
-      results.push({
+      return {
         partner_id: partner.id,
         company_name: partner.company_name,
         status: 'error',
         error: err instanceof Error ? err.message : String(err),
-      });
+      };
     }
+  }
+
+  for (let i = 0; i < partners.length; i += DRAFT_CONCURRENCY) {
+    const slice = partners.slice(i, i + DRAFT_CONCURRENCY);
+    const batch = await Promise.all(slice.map(draftOne));
+    results.push(...batch);
   }
 
   return NextResponse.json({

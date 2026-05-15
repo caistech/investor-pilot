@@ -248,10 +248,16 @@ export function PipelineTable({
         setMessage(`Error: ${data.error}`);
       } else {
         const verb = action === 'enrich' ? 'enriched' : 'drafted';
-        setMessage(`${data[verb] || 0} ${verb}, ${data.errors || 0} errors`);
+        const succeeded = data[verb] || 0;
+        const errored = data.errors || 0;
+        const skipped = data.skipped || data.unresolved || 0;
+        setMessage(`${succeeded} ${verb}, ${skipped} skipped, ${errored} errors`);
         setSelected(new Set());
-        // Reload page to show updated data
-        window.location.reload();
+        // Only reload if anything actually changed — avoids wiping the
+        // message text before the operator can read it.
+        if (succeeded > 0) {
+          window.location.reload();
+        }
       }
     } catch (err) {
       setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -285,12 +291,31 @@ export function PipelineTable({
         return;
       }
       const s = data.summary || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
+
+      // Surface up to 3 skip reasons inline. The most common reasons we
+      // hit are ICP-gate rejections ("Weighted score 1.4 below MIN_ICP_SCORE")
+      // and out-of-scope category matches — the operator needs to see those
+      // to understand why nothing got queued.
+      const skipReasons = ((data.results || []) as Array<{ outcome: string; partner_name: string; reason?: string }>)
+        .filter(r => r.outcome === 'skipped' && r.reason)
+        .slice(0, 3)
+        .map(r => `• ${r.partner_name}: ${r.reason}`);
+      const reasonsBlock = skipReasons.length > 0
+        ? `\n\nFirst ${skipReasons.length} of ${s.skipped} skips:\n${skipReasons.join('\n')}`
+        : '';
+
       setMessage(
-        `${s.assigned} assigned (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored. ` +
-        `Cron will render due steps within 15 min.`,
+        `${s.assigned} assigned (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
+        (s.assigned > 0 ? ' Cron will render due steps within 15 min.' : '') +
+        reasonsBlock,
       );
       setSelected(new Set());
-      setTimeout(() => window.location.reload(), 1500);
+      // Only auto-reload if we actually changed DB state — when assigned=0
+      // there's nothing new to show, and reloading wipes the skip-reasons
+      // message before the operator can read it.
+      if (s.assigned > 0) {
+        setTimeout(() => window.location.reload(), 1500);
+      }
     } catch (err) {
       setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
@@ -492,9 +517,10 @@ export function PipelineTable({
         </div>
       )}
 
-      {/* Status message */}
+      {/* Status message — preserve newlines so multi-line skip-reason blocks
+          from assign-batch render properly. */}
       {message && (
-        <div className={`mb-4 p-3 rounded-lg text-sm ${message.startsWith('Error') ? 'bg-red-500/10 text-red-400' : 'bg-corp-green-500/10 text-corp-green-400'}`}>
+        <div className={`mb-4 p-3 rounded-lg text-sm whitespace-pre-line ${message.startsWith('Error') ? 'bg-red-500/10 text-red-400' : 'bg-corp-green-500/10 text-corp-green-400'}`}>
           {message}
         </div>
       )}
