@@ -135,6 +135,11 @@ export interface Partner {
   // before run tracking was added. Resolves to discovery_runs.run_code +
   // created_at via the runsById map passed to PipelineTable.
   first_seen_in_run_id: string | null;
+  // Most recent run that surfaced this partner (migration 015). Set on
+  // every UPDATE in upsertPartner. Lets the Prospects "filter by run"
+  // dropdown match re-discoveries — partner surfaces if EITHER first_seen
+  // OR last_seen matches the chosen run.
+  last_seen_in_run_id: string | null;
   last_updated_at: string;
   created_at: string;
 }

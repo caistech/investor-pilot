@@ -193,7 +193,9 @@ export function PipelineTable({
     .filter(p => !excludeOutOfScope || !isOutOfScope(p))
     .filter(p => !hideLowConfidence || p.confidence_score !== 'low-confidence')
     .filter(p => !hideTargeted || !isAlreadyTargeted(p, inFlightSet))
-    .filter(p => runFilter === 'all' || p.first_seen_in_run_id === runFilter);
+    .filter(p => runFilter === 'all'
+      || p.first_seen_in_run_id === runFilter
+      || p.last_seen_in_run_id === runFilter);
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   // Counts for source-tier tabs reflect ALL partners (not respecting the

@@ -36,7 +36,9 @@ export interface PartnerUpsertData {
   source?: 'linkedin' | 'sales_nav' | 'brave' | 'manual';
   // The discovery_runs row that first surfaced this partner. Set on
   // INSERT only — re-discoveries in later runs preserve the origin.
-  // See migration 010.
+  // See migration 010. UPDATE path also writes the same value into
+  // last_seen_in_run_id (migration 015) so the Prospects "filter by run"
+  // dropdown surfaces re-discovered partners under the latest run.
   first_seen_in_run_id?: string | null;
 }
 
@@ -102,14 +104,23 @@ export async function upsertPartner(
   if (existing) {
     // Strip first_seen_in_run_id on UPDATE — re-discovery must not overwrite
     // the partner's origin run. Origin is set once at INSERT.
+    // But the same incoming value DOES write to last_seen_in_run_id so
+    // the Prospects "filter by run" dropdown surfaces re-discoveries.
     const { first_seen_in_run_id, ...rest } = data;
-    void first_seen_in_run_id;
-    const row = { ...rest, last_updated_at: new Date().toISOString() };
+    const row: Record<string, unknown> = { ...rest, last_updated_at: new Date().toISOString() };
+    if (first_seen_in_run_id) {
+      row.last_seen_in_run_id = first_seen_in_run_id;
+    }
     const { error } = await db.from('partners').update(row).eq('id', existing.id);
     if (error) return { status: 'error', error: error.message };
     return { status: 'updated', partner_id: existing.id };
   } else {
-    const row = { ...data, last_updated_at: new Date().toISOString() };
+    // INSERT path — first_seen_in_run_id is the origin; last_seen mirrors it
+    // initially so the filter UI doesn't need to special-case "ever-touched".
+    const row: Record<string, unknown> = { ...data, last_updated_at: new Date().toISOString() };
+    if (data.first_seen_in_run_id) {
+      row.last_seen_in_run_id = data.first_seen_in_run_id;
+    }
     const { data: inserted, error } = await db.from('partners').insert(row).select('id').single();
     if (error) return { status: 'error', error: error.message };
     return { status: 'created', partner_id: inserted?.id };
