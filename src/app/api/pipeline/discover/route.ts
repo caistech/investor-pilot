@@ -1,9 +1,9 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
 import { searchLinkedInPeople, searchSalesNavigator, type LinkedInPerson } from '@/lib/channels/unipile';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 
@@ -18,21 +18,6 @@ interface DiscoveryCandidate {
   contact_title?: string;
   contact_linkedin?: string;
 }
-
-const client = new Anthropic({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
-  ...(process.env.OPENROUTER_API_KEY ? {
-    baseURL: 'https://openrouter.ai/api',
-    defaultHeaders: {
-      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
-      'X-Title': 'InvestorPilot',
-    },
-  } : {}),
-});
-
-const MODEL = process.env.OPENROUTER_API_KEY
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 // Lender ICP scoring prompt (v3, 2026-05-13) — per Senior Debt Brief v3 Section 4.
 // Schema field names retained from v2 (audience_overlap_score etc) to avoid migration;

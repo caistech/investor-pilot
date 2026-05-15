@@ -13,24 +13,7 @@
  * deal history, not generic "private credit" lists.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
-
-const client = new Anthropic({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
-  ...(process.env.OPENROUTER_API_KEY
-    ? {
-        baseURL: 'https://openrouter.ai/api',
-        defaultHeaders: {
-          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
-          'X-Title': 'InvestorPilot',
-        },
-      }
-    : {}),
-});
-
-const MODEL = process.env.OPENROUTER_API_KEY
-  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5'
-  : process.env.AGENT_MODEL || 'claude-sonnet-4-5';
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
 export interface ProductForQueryGen {
   name: string;

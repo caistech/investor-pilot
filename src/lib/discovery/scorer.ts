@@ -9,27 +9,10 @@
  * remapped per Senior Debt Brief v3.
  */
 
-import Anthropic from '@anthropic-ai/sdk';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
-
-const client = new Anthropic({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
-  ...(process.env.OPENROUTER_API_KEY
-    ? {
-        baseURL: 'https://openrouter.ai/api',
-        defaultHeaders: {
-          'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
-          'X-Title': 'InvestorPilot',
-        },
-      }
-    : {}),
-});
-
-const MODEL = process.env.OPENROUTER_API_KEY
-  ? process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5'
-  : process.env.AGENT_MODEL || 'claude-sonnet-4-5';
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
 export const SCORING_PROMPT = `You are a lender prospect scoring analyst for F2K's senior debt placement. Given a person/firm description from search results, score them on 5 dimensions for fit as a direct lender into Australian property development debt facilities ($1M-$5M cheques, first-mortgage senior secured, 8-11% p.a. coupon).
 

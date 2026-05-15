@@ -1,8 +1,8 @@
-import Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { saveDraft } from '@/lib/db/partners';
 import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
 export const maxDuration = 60;
 
@@ -12,21 +12,6 @@ export const maxDuration = 60;
 const MAX_PARTNERS_PER_REQUEST = 20;
 const DRAFT_CONCURRENCY = 4;
 const CLAUDE_TIMEOUT_MS = 8_000;
-
-const client = new Anthropic({
-  apiKey: process.env.OPENROUTER_API_KEY || process.env.ANTHROPIC_API_KEY!,
-  ...(process.env.OPENROUTER_API_KEY ? {
-    baseURL: 'https://openrouter.ai/api',
-    defaultHeaders: {
-      'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
-      'X-Title': 'InvestorPilot',
-    },
-  } : {}),
-});
-
-const MODEL = process.env.OPENROUTER_API_KEY
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 // Lender-channel draft prompt (v3, 2026-05-13) — per Senior Debt Brief v3 + docs/sprint-0/07-draft-email-message.md
 const DRAFT_PROMPT = `You are an outreach email writer for F2K's senior debt placement. Write a personalised cold credit-conversation email to a direct lender or family office private debt allocator about participation in F2K's senior debt facilities.

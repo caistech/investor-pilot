@@ -1,30 +1,13 @@
-import Anthropic from '@anthropic-ai/sdk';
+import type Anthropic from '@anthropic-ai/sdk';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { getProductSourceContent, getProductWebsiteUrl } from '@/lib/agent/sources';
 import { getAgentContext, saveMessage } from '@/lib/agent/memory';
 import { TOOL_DEFINITIONS, executeTool } from '@/lib/agent/tools';
 import { buildMessages, buildFullSystemPrompt } from '@/lib/agent/context';
 import type { AgentAction } from '@/lib/agent/context';
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
 export const maxDuration = 60;
-
-// OpenRouter as primary provider (avoids Anthropic rate limits),
-// falls back to direct Anthropic if OPENROUTER_API_KEY is not set
-const useOpenRouter = !!process.env.OPENROUTER_API_KEY;
-const client = useOpenRouter
-  ? new Anthropic({
-      apiKey: process.env.OPENROUTER_API_KEY!,
-      baseURL: 'https://openrouter.ai/api',
-      defaultHeaders: {
-        'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'https://investorpilot.vercel.app',
-        'X-Title': 'InvestorPilot',
-      },
-    })
-  : new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
-const MODEL = useOpenRouter
-  ? (process.env.AGENT_MODEL || 'anthropic/claude-sonnet-4.5')
-  : (process.env.AGENT_MODEL || 'claude-sonnet-4-5');
 
 async function callLLM(params: {
   system: string;

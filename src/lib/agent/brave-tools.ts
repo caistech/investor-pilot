@@ -1,18 +1,17 @@
-interface BraveSearchResult {
-  title: string;
-  url: string;
-  description: string;
-}
+/**
+ * InvestorPilot adapter over `@caistech/brave-search`.
+ *
+ * Resolves the API key from env (BRAVE_SEARCH_API_KEY or BRAVE_API_KEY) and
+ * applies the project's default country (AU). All other behaviour is delegated
+ * to the shared package.
+ */
 
-interface BraveSearchResponse {
-  web?: {
-    results: Array<{
-      title: string;
-      url: string;
-      description: string;
-    }>;
-  };
-}
+import {
+  braveWebSearch as remoteBraveWebSearch,
+  type BraveSearchResult,
+} from '@caistech/brave-search';
+
+export type { BraveSearchResult };
 
 export async function braveWebSearch(
   query: string,
@@ -22,30 +21,9 @@ export async function braveWebSearch(
   const apiKey = process.env.BRAVE_SEARCH_API_KEY || process.env.BRAVE_API_KEY;
   if (!apiKey) throw new Error('BRAVE_SEARCH_API_KEY not configured');
 
-  const params = new URLSearchParams({
-    q: query,
-    count: String(count),
-    search_lang: 'en',
+  return remoteBraveWebSearch(query, apiKey, {
+    count,
     country: 'AU',
-  });
-
-  const res = await fetch(`https://api.search.brave.com/res/v1/web/search?${params}`, {
-    headers: {
-      'Accept': 'application/json',
-      'Accept-Encoding': 'gzip',
-      'X-Subscription-Token': apiKey,
-    },
     signal,
   });
-
-  if (!res.ok) {
-    throw new Error(`Brave Search failed: ${res.status} ${res.statusText}`);
-  }
-
-  const data: BraveSearchResponse = await res.json();
-  return (data.web?.results || []).map((r) => ({
-    title: r.title,
-    url: r.url,
-    description: r.description,
-  }));
 }
