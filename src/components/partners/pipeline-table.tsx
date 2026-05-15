@@ -127,16 +127,29 @@ const CONTACTED_STATUSES = new Set([
   'disqualified',
 ]);
 
+interface DiscoveryRunSummary {
+  run_code: string;
+  created_at: string;
+}
+
 export function PipelineTable({
   partners,
   organisationId,
   productId,
   inFlightPartnerIds = [],
+  runsById = {},
+  runsForFilter = [],
 }: {
   partners: Partner[];
   organisationId: string;
   productId: string;
   inFlightPartnerIds?: string[];
+  // Map of discovery_runs.id → { run_code, created_at } for annotating
+  // each prospect row with its origin run. Empty for orgs that have never
+  // run discover-batch since migration 010 shipped.
+  runsById?: Record<string, DiscoveryRunSummary>;
+  // Ordered list (newest first) for the filter-by-run dropdown.
+  runsForFilter?: Array<{ id: string; run_code: string; created_at: string }>;
 }) {
   const inFlightSet = new Set(inFlightPartnerIds);
   const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
@@ -151,6 +164,10 @@ export function PipelineTable({
   const [sourceFilter, setSourceFilter] = useState<SourceTierKey>('all');
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>(initialTypeFilter);
+  // Filter by origin discovery run. 'all' = any/no run, '<run_id>' = only
+  // rows first surfaced by that run. Useful for "what did this last run
+  // bring in?" sanity-checks.
+  const [runFilter, setRunFilter] = useState<string>('all');
   // Quality filters — compose with status / source / type. Defaults are
   // conservative so the operator sees the full list on first load and
   // explicitly opts into trimming. Min score 0 = no floor; toggles default
@@ -175,7 +192,8 @@ export function PipelineTable({
     .filter(p => (p.weighted_score ?? 0) >= minScore)
     .filter(p => !excludeOutOfScope || !isOutOfScope(p))
     .filter(p => !hideLowConfidence || p.confidence_score !== 'low-confidence')
-    .filter(p => !hideTargeted || !isAlreadyTargeted(p, inFlightSet));
+    .filter(p => !hideTargeted || !isAlreadyTargeted(p, inFlightSet))
+    .filter(p => runFilter === 'all' || p.first_seen_in_run_id === runFilter);
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   // Counts for source-tier tabs reflect ALL partners (not respecting the
@@ -315,6 +333,21 @@ export function PipelineTable({
             <option key={t} value={t}>{t === 'all' ? 'All types' : t}</option>
           ))}
         </select>
+        {runsForFilter.length > 0 && (
+          <select
+            value={runFilter}
+            onChange={(e) => { setRunFilter(e.target.value); setSelected(new Set()); }}
+            className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-dark-300 focus:border-corp-green-500 focus:outline-none"
+            title="Filter by discovery run — shows only prospects first surfaced by the chosen Find Investors run"
+          >
+            <option value="all">All runs</option>
+            {runsForFilter.map(r => (
+              <option key={r.id} value={r.id}>
+                {r.run_code} · {new Date(r.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+              </option>
+            ))}
+          </select>
+        )}
       </div>
 
       {/* Status filter tabs */}
@@ -518,6 +551,20 @@ export function PipelineTable({
                               <div className="flex items-center gap-2 flex-wrap">
                                 <span className="font-medium truncate">{display.primary}</span>
                                 <SourceBadge partner={p} />
+                                {p.first_seen_in_run_id && runsById[p.first_seen_in_run_id] && (
+                                  <span
+                                    className="text-[10px] px-1.5 py-0.5 rounded font-mono bg-dark-800 text-dark-400 hover:bg-dark-700 cursor-pointer"
+                                    title={`Discovered in run ${runsById[p.first_seen_in_run_id].run_code} on ${new Date(runsById[p.first_seen_in_run_id].created_at).toLocaleString()}. Click to filter list to this run only.`}
+                                    onClick={(e) => {
+                                      e.preventDefault();
+                                      e.stopPropagation();
+                                      setRunFilter(p.first_seen_in_run_id as string);
+                                      setSelected(new Set());
+                                    }}
+                                  >
+                                    {runsById[p.first_seen_in_run_id].run_code}
+                                  </span>
+                                )}
                               </div>
                               {display.subtitle && (
                                 <div className="text-dark-500 text-xs truncate mt-0.5">{display.subtitle}</div>

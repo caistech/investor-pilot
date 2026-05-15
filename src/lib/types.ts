@@ -131,6 +131,10 @@ export interface Partner {
   last_session_notes: string | null;
   network_distance: '1st' | '2nd' | 'cold' | null;
   source: 'linkedin' | 'sales_nav' | 'brave' | 'manual' | null;
+  // Origin discovery run (migration 010). Null for legacy rows discovered
+  // before run tracking was added. Resolves to discovery_runs.run_code +
+  // created_at via the runsById map passed to PipelineTable.
+  first_seen_in_run_id: string | null;
   last_updated_at: string;
   created_at: string;
 }

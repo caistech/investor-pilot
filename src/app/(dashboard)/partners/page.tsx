@@ -22,10 +22,15 @@ export default async function PartnersPage() {
 
   if (!profile?.organisation_id) return <p>Loading...</p>;
 
-  // Fetch partners + currently-in-flight sequence_steps in parallel so we
-  // can flag partners with an active sequence (filter aid: "hide already
-  // targeted" needs to catch both completed sends AND in-flight rows).
-  const [{ data: partners }, { data: activeSteps }, { data: product }] = await Promise.all([
+  // Fetch partners + currently-in-flight sequence_steps + discovery_runs in
+  // parallel so we can flag partners with an active sequence ("hide already
+  // targeted") and annotate each row with its origin discovery run.
+  const [
+    { data: partners },
+    { data: activeSteps },
+    { data: product },
+    { data: runs },
+  ] = await Promise.all([
     supabase
       .from('partners')
       .select('*')
@@ -43,7 +48,28 @@ export default async function PartnersPage() {
       .eq('organisation_id', profile.organisation_id)
       .limit(1)
       .single(),
+    supabase
+      .from('discovery_runs')
+      .select('id, run_code, created_at')
+      .eq('organisation_id', profile.organisation_id)
+      .order('created_at', { ascending: false }),
   ]);
+
+  // Build a lookup so the table can annotate each partner with the run that
+  // first surfaced them (partners.first_seen_in_run_id → run_code + date).
+  // Legacy partners (pre-migration 010) have null first_seen_in_run_id and
+  // render as "—" in the Run column.
+  const runsById = new Map(
+    (runs || []).map(r => [r.id as string, {
+      run_code: r.run_code as string,
+      created_at: r.created_at as string,
+    }]),
+  );
+  const runsForFilter = (runs || []).map(r => ({
+    id: r.id as string,
+    run_code: r.run_code as string,
+    created_at: r.created_at as string,
+  }));
 
   const inFlightPartnerIds = new Set(
     (activeSteps || [])
@@ -69,6 +95,8 @@ export default async function PartnersPage() {
           organisationId={profile.organisation_id}
           productId={product?.id || ''}
           inFlightPartnerIds={Array.from(inFlightPartnerIds)}
+          runsById={Object.fromEntries(runsById)}
+          runsForFilter={runsForFilter}
         />
       ) : (
         <div className="card text-center py-16">
