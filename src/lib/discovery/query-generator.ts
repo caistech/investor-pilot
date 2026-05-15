@@ -83,51 +83,73 @@ export interface QueryGenerationError {
   error: string;
 }
 
-const SYSTEM_PROMPT = `You generate lender search queries for InvestorPilot — a multi-channel outreach platform for placing senior debt and equity into real-asset investment vehicles.
+const SYSTEM_PROMPT = `You generate prospect search queries for InvestorPilot — a platform for sourcing capital for real-estate / construction projects. Cast a WIDE NET. A simple search like "real estate investments property development funding" on Bing/Google returns thousands of relevant results. Your queries should pull at least that many candidates for human review, not zero. Err toward breadth, not precision.
+
+Target roles to surface (in priority order):
+1. Family-office principals + directors with real-estate or construction backgrounds
+2. Real-estate fund managers / fund-of-funds principals
+3. Real-estate private-equity partners
+4. Construction-finance specialists (banks + private credit)
+5. HNW direct-lenders / private-debt allocators
+6. Property-credit fund principals
+7. Real-asset investment officers at institutional allocators
 
 You must generate TWO separate query sets, tuned to two different search engines:
 
-LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching across keywords (EVERY word must appear in the profile or it's filtered out). KEEP LINKEDIN QUERIES TIGHT: 3-5 words max. Each extra word shrinks the result pool exponentially. Use ONE role term + ONE geography + AT MOST ONE asset-class qualifier. Best examples:
+LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching across keywords (EVERY word must appear in the profile or it's filtered out). KEEP LINKEDIN QUERIES TIGHT: 3-4 words max. Each extra word shrinks the result pool exponentially. Use ONE role term + ONE geography. Best examples (broad, return hundreds of hits):
 
-✅ GOOD (3-5 words, returns lots of hits):
+✅ GOOD (3-4 words, broad LinkedIn role + geo):
+- "real estate investor"
+- "real estate fund"
+- "family office real estate"
+- "real estate private equity"
+- "property development fund"
+- "real estate debt"
 - "construction finance Singapore"
 - "private credit Hong Kong"
-- "head construction finance London"
-- "real estate debt New York"
-- "construction lending Dubai"
-- "offshore construction finance"
-- "modular construction lender"
-- "cross border construction finance"
-- "private credit Sydney" (AU secondary)
-- "family office Melbourne" (AU secondary)
+- "real estate fund manager"
+- "property credit fund"
+- "family office Singapore"
+- "real estate investment director"
+- "real estate partner London"
+- "construction lender Dubai"
+- "real estate director New York"
 
-❌ BAD (7+ words, returns 0 because the AND-match needs every word to appear):
+❌ BAD (6+ words, returns 0 because AND-match requires every word):
 - "head of private credit Sydney residential construction debt"
 - "family office Melbourne direct lending modular housing finance"
 - "Singapore family office CIO Australian property credit allocator"
-- "Investment director SMSF wholesale property debt Australia"
 
-LinkedIn rule of thumb: drop modifiers like "residential", "modular", "wholesale", "alternative", "direct lending" UNLESS they replace another word. A profile's headline rarely contains 8 specific finance terms. "Construction" + "finance" + geography is the sweet spot.
+LinkedIn rule of thumb: ONE asset-class word + ONE role/seniority word + ONE geo = max 3-4 words. "Real estate investor" or "real estate fund" alone surfaces tens of thousands of profiles. That's GOOD — let the scoring layer triage; don't pre-filter via narrow queries.
 
 BRAVE WEB SEARCH — searches the public web. LinkedIn blocks Brave from indexing profile pages, so person-targeting queries return ~0. Brave is great for finding COMPANIES via:
 - Fund reports / fund websites
 - News mentions of deal participation
 - Press releases / industry publications
-- Company websites
-Good examples:
-- "Australian property private credit fund 2024 OR 2025"
-- "private debt allocator Australian residential development deal"
-- "family office direct lending Australian property news"
-- "wholesale property credit transaction Australia recent"
-- "Australian residential development senior debt placement"
+- Company websites + about pages
+- Investor aggregator sites + databases
+
+Good examples (3-6 words, broad enough to return many results):
+- "real estate private credit fund"
+- "family office real estate investment"
+- "property development fund manager"
+- "real estate debt fund"
+- "construction finance fund"
+- "single family office real estate"
+- "real estate investment firm Singapore"
+- "private credit fund Hong Kong real estate"
+- "family office direct lending Australia"
+- "real estate investment manager Asia Pacific"
+
+Brave rule of thumb: 3-6 words, NO date qualifiers ("2024 OR 2025"), NO long noun chains. Let Brave's relevance ranking handle freshness. If you'd type it casually into Google, it's a good Brave query.
 
 BAD queries (do not generate):
-- "investor", "Australian finance", "real estate funding" (too vague)
+- Single-word queries: "investor", "fund" (too vague — return millions of irrelevant)
+- 8+ word queries with multiple AND-clauses (return ~0)
 - "tokenisation", "crypto", "RWA", "guarantee", "risk-free" (forbidden per v3)
-- Queries surfacing retail banks, mortgage brokers, equity-only family offices, listed REITs (v3 ICP rejects these)
 
-If the product is SENIOR DEBT (most common): bias toward "private credit fund", "direct lender", "family office private debt", "wholesale debt".
-If the product is PROJECT EQUITY: bias toward "limited partner", "co-investment", "real asset private capital".
+If the product is SENIOR DEBT (most common): bias toward "real estate debt fund", "private credit", "construction finance", "family office direct lending".
+If the product is PROJECT EQUITY: bias toward "real estate fund manager", "real estate private equity", "family office real estate", "limited partner real estate".
 
 ⚠ GEOGRAPHIC RULE — INTERNATIONAL PRIMARY, AU SECONDARY (IMPORTANT):
 
@@ -173,11 +195,15 @@ Return ONLY a JSON object, no markdown or prose:
 export async function generateLenderQueries(input: {
   product: ProductForQueryGen;
   knowledgeBase: KnowledgeBaseSource[];
-  // Total queries split across LinkedIn (60%) + Brave (40%). Default 5 = 3 LI + 2 Brave.
+  // Total queries split across LinkedIn (50%) + Brave (50%). Default 6 = 3 LI + 3 Brave.
+  // Bumped Brave's share from 40% → 50% on 2026-05-15 — operators noted that a
+  // simple "real estate fund" Google search returns thousands of results,
+  // while our prior 1-2 Brave queries per run returned zero. More Brave
+  // queries × broader prompt = actual breadth.
   count?: number;
 }): Promise<QueryGenerationResult | QueryGenerationError> {
-  const total = Math.min(Math.max(input.count || 5, 3), 15);
-  const linkedinCount = Math.max(1, Math.ceil(total * 0.6));
+  const total = Math.min(Math.max(input.count || 6, 4), 15);
+  const linkedinCount = Math.max(1, Math.floor(total * 0.5));
   const braveCount = Math.max(1, total - linkedinCount);
 
   // Build a compact product context string. Keep knowledge base extracts

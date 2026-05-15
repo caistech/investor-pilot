@@ -35,6 +35,7 @@ import { generateLenderQueries } from '@/lib/discovery/query-generator';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 import { enrichPartnersBatch, type OrchestratorPartner } from '@/lib/enrichment/orchestrator';
+import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -48,15 +49,20 @@ type NetworkTier = '1st' | '2nd' | 'cold';
 // doesn't rely on the export being parsed at deploy time).
 // Defaults tightened on 2026-05-15 after Brave latency degraded ~3x (from
 // ~2-3s to ~8s per call), which pushed total wall time past Vercel's 60s
-// edge gateway budget. Browsers were getting "Failed to fetch" because the
-// function had no response bytes to send before the client connection dropped.
-// New numbers target a ~30-40s wall time even with degraded externals.
-const DEFAULT_QUERY_COUNT = 3;          // was 5 — cuts search calls by ~40%
+// edge gateway budget. Then re-broadened later same day: operator noted that
+// a simple "real estate fund" web search returns thousands of results while
+// our discover was returning zero from Brave — too few queries, too few
+// results per query. Current numbers target ~45-55s wall time with much
+// more inventory surfaced.
+const DEFAULT_QUERY_COUNT = 6;                  // was 3 — bumped to surface more
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
-const CANDIDATES_PER_QUERY = 5;         // was 10 — fewer hits per query keeps the scoring budget tight
-const MAX_TOTAL_CANDIDATES = 20;        // was 40 — halves scoring wall time
-const SEARCH_TIMEOUT_MS = 12_000;       // per-search timeout — one stuck Unipile call can't kill the batch
+const CANDIDATES_PER_QUERY = 5;                 // LinkedIn — kept tight
+const BRAVE_CANDIDATES_PER_QUERY = 10;          // Brave — 2x LinkedIn since web search returns more diverse hits
+const MAX_TOTAL_CANDIDATES = 40;                // was 20 — re-broadened; scoring concurrency + timeouts still keep wall time bounded
+const SEARCH_TIMEOUT_MS = 12_000;               // per-search timeout — one stuck Unipile call can't kill the batch
+const HUNTER_CONCURRENCY = 4;                   // post-discovery Hunter enrich for Brave-sourced rows
+const HUNTER_TIMEOUT_MS = 8_000;                // per-call Hunter timeout
 
 // Tier → Unipile network_distance integer-array filter, or undefined to omit.
 // '1st' / '2nd' filter to specific degrees. 'cold' omits the filter entirely
@@ -534,10 +540,78 @@ export async function POST(request: Request) {
     }
   }
 
+  // Auto-Hunter for Brave-sourced candidates. Brave returns COMPANIES, not
+  // people — until we attach a real decision-maker contact + email, those
+  // rows can't be sequenced. Hunter domain-search on the real company
+  // domain returns 1-3 verified emails per firm. The enrich route's
+  // pseudo-domain guard isn't relevant here since Brave domains are real
+  // company hostnames (not "linkedin.com/in/...").
+  let hunterEnrichmentOutcomes: Array<{ partner_id: string; status: string; email?: string | null }> = [];
+  const braveScoredRows = scoredResults.filter(
+    r => r.status !== 'error' && r.partner_id && r.source === 'brave',
+  );
+  if (braveScoredRows.length > 0) {
+    log('hunter_enrichment_start', { count: braveScoredRows.length });
+    // Re-fetch partners we just upserted so we have current domain + email state.
+    const ids = braveScoredRows.map(r => r.partner_id as string);
+    const { data: braveRows } = await db
+      .from('partners')
+      .select('id, domain, contact_email')
+      .in('id', ids);
+    const candidates = (braveRows || []).filter(
+      p => p.domain && !/\//.test(p.domain as string) && !p.contact_email,
+    );
+    for (let i = 0; i < candidates.length; i += HUNTER_CONCURRENCY) {
+      const slice = candidates.slice(i, i + HUNTER_CONCURRENCY);
+      const batch = await Promise.all(
+        slice.map(async (p) => {
+          try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), HUNTER_TIMEOUT_MS);
+            const result = await hunterDomainSearch(p.domain as string);
+            clearTimeout(timer);
+            if (!result?.emails?.length) {
+              return { partner_id: p.id as string, status: 'no_emails', email: null };
+            }
+            const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
+            const best = sorted[0];
+            await db.from('partners').update({
+              contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
+              contact_title: best.position || null,
+              contact_email: best.value,
+              contact_linkedin: best.linkedin || null,
+              email_confidence: best.confidence,
+              email_status: best.confidence >= 70 ? 'verified' : 'probable',
+              contact_source: 'hunter_at_discovery',
+              status: 'contact_found',
+              last_updated_at: new Date().toISOString(),
+            }).eq('id', p.id);
+            return { partner_id: p.id as string, status: 'enriched', email: best.value };
+          } catch (err) {
+            return {
+              partner_id: p.id as string,
+              status: 'error',
+              email: null,
+              _err: err instanceof Error ? err.message : String(err),
+            };
+          }
+        }),
+      );
+      hunterEnrichmentOutcomes.push(...batch);
+    }
+    log('hunter_enrichment_done', {
+      attempted: hunterEnrichmentOutcomes.length,
+      enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
+      no_emails: hunterEnrichmentOutcomes.filter(o => o.status === 'no_emails').length,
+      errors: hunterEnrichmentOutcomes.filter(o => o.status === 'error').length,
+    });
+  }
+
   log('done', {
     candidates_scored: candidatesScored,
     candidates_failed: candidatesFailed,
     profile_enriched: profileEnrichmentOutcomes.filter(o => o.status === 'partial' || o.status === 'success').length,
+    hunter_enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
   });
 
   await finaliseRun('completed', {
@@ -620,9 +694,11 @@ async function fetchCandidates(
     };
   }
 
-  // Brave — no network concept. Tag results as 'cold'.
+  // Brave — no network concept. Tag results as 'cold'. Use the higher
+  // BRAVE_CANDIDATES_PER_QUERY since web search returns more diverse hits
+  // and the per-result cost is lower than a LinkedIn API call.
   try {
-    const searchResults = await braveWebSearch(job.query, CANDIDATES_PER_QUERY);
+    const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY);
     const candidates = searchResults.map(r => {
       const url = new URL(r.url);
       return {
