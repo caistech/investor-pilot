@@ -308,22 +308,36 @@ export function PipelineTable({
         body: JSON.stringify(body),
       });
 
-      const data = await res.json();
+      // Defensive parse — Vercel sometimes returns an HTML error page on
+      // timeouts / runtime crashes / 504s. Plain await res.json() throws
+      // "Unexpected token 'A'" and the operator gets a useless message.
+      // Surface the HTTP status + first slice of the body instead.
+      const rawBody = await res.text();
+      let data: { [k: string]: unknown };
+      try {
+        data = JSON.parse(rawBody);
+      } catch {
+        setMessage(
+          `Error: ${endpoint} returned HTTP ${res.status} ${res.statusText} with non-JSON body — ` +
+          `usually means a function timeout (>60s) or a runtime crash. First 200 chars: ${rawBody.slice(0, 200)}`,
+        );
+        return;
+      }
       if (!res.ok) {
-        setMessage(`Error: ${data.error}`);
+        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
       } else {
         let succeeded: number;
         let errored: number;
         let skipped: number;
 
         if (action === 'enrich') {
-          succeeded = data.enriched || 0;
-          errored = data.errors || 0;
-          skipped = data.skipped || data.unresolved || 0;
+          succeeded = (data.enriched as number) || 0;
+          errored = (data.errors as number) || 0;
+          skipped = (data.skipped as number) || (data.unresolved as number) || 0;
         } else {
           // render-now returns counts:
           // { queued, already_rendered, no_pending_step, blocked, failed, skipped_no_channel }
-          const counts = data.counts || {};
+          const counts = (data.counts as Record<string, number>) || {};
           succeeded = counts.queued || 0;
           errored = (counts.failed || 0) + (counts.blocked || 0);
           skipped = (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0);
@@ -350,8 +364,8 @@ export function PipelineTable({
           // it already explains the dominant outcome in one sentence
           // ("3 messages ready for review" / "all already rendered, check
           // Approvals" / "no sequence assigned, click 2 first").
-          const hint = data.hint || '';
-          const counts = data.counts || {};
+          const hint = (data.hint as string) || '';
+          const counts = (data.counts as Record<string, number>) || {};
           const alreadyDone = counts.already_rendered || 0;
           setMessage(
             `Rendered ${succeeded} of ${n} (${alreadyDone} already done).\n${hint}`,
@@ -389,9 +403,14 @@ export function PipelineTable({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
       });
-      const data = await res.json();
+      const rawBody = await res.text();
+      let data: { [k: string]: unknown };
+      try { data = JSON.parse(rawBody); } catch {
+        setMessage(`Error: /api/sequences/reset returned HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
+        return;
+      }
       if (!res.ok) {
-        setMessage(`Error: ${data.error}`);
+        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
         return;
       }
       setMessage(
@@ -429,12 +448,17 @@ export function PipelineTable({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
       });
-      const data = await res.json();
-      if (!res.ok) {
-        setMessage(`Error: ${data.error}`);
+      const rawBody = await res.text();
+      let data: { [k: string]: unknown };
+      try { data = JSON.parse(rawBody); } catch {
+        setMessage(`Error: /api/sequences/assign-batch returned HTTP ${res.status} non-JSON (function timeout or runtime crash). First 200 chars: ${rawBody.slice(0, 200)}`);
         return;
       }
-      const s = data.summary || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
+      if (!res.ok) {
+        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+        return;
+      }
+      const s = (data.summary as { assigned: number; skipped: number; errored: number; total_steps: number }) || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
 
       // Surface up to 3 skip reasons inline. The most common reasons we
       // hit are ICP-gate rejections ("Weighted score 1.4 below MIN_ICP_SCORE")
