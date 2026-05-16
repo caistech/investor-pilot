@@ -353,9 +353,19 @@ export function PipelineTable({
         }
 
         if (action === 'enrich') {
+          // Tailor the follow-up suggestion to whether anything actually
+          // got an email. "1. Enrich" is Hunter (email lookup) — for
+          // LinkedIn-2nd contacts it routinely returns 0 because they
+          // don't have public emails. In that case the operator does NOT
+          // want "click 2. Assign Sequence next" — they want either
+          // "Re-enrich evidence" (Brave/LinkedIn fit signal, different
+          // path) or to proceed on LinkedIn DM only.
+          const nextStepHint = succeeded > 0
+            ? 'Selection kept — click "2. Assign Sequence" next.'
+            : 'No emails found (Hunter only works for contacts with public business emails). ' +
+              'For LinkedIn-only outreach, click "Re-enrich evidence" then "2. Assign Sequence" — the LinkedIn DM path doesn\'t need an email.';
           setMessage(
-            `Enriched ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n` +
-            `Selection kept — click "2. Assign Sequence" next.`,
+            `Enriched ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n${nextStepHint}`,
           );
           // Selection deliberately kept so the operator can flow into
           // step 2 without re-ticking the same rows.

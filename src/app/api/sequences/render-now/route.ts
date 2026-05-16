@@ -266,6 +266,19 @@ export async function POST(request: Request) {
   const noEvidenceCount = Array.from(blockReasonsByPartner.values()).filter((r) => /no discovery evidence|no_credit_signal/i.test(r)).length;
   const complianceFlagCount = counts.blocked - noEvidenceCount;
 
+  // Pull failure reasons from the runner result so the hint can name
+  // the actual error instead of "open prospect detail". Failures aren't
+  // logged to audit_events (only blocks are), so the runner.results
+  // array is the only place this lives. Take the first reason as
+  // representative — they tend to cluster (OpenRouter outage, missing
+  // contact_name, etc).
+  let firstFailureReason: string | null = null;
+  if (runnerResult && typeof runnerResult === 'object' && Array.isArray((runnerResult as { results?: unknown }).results)) {
+    const failures = ((runnerResult as { results: Array<{ outcome: string; reason?: string }> }).results)
+      .filter((r) => r.outcome === 'failed' && r.reason);
+    if (failures.length > 0) firstFailureReason = failures[0].reason || null;
+  }
+
   // Compose the hint. Multiple categories can be non-zero; surface every
   // one that has a non-trivial remediation, in decreasing operator-action
   // priority (queued = success, blocked = re-enrich, failed = inspect,
@@ -281,7 +294,12 @@ export async function POST(request: Request) {
       parts.push(`${counts.blocked} blocked (${noEvidenceCount} no-evidence, ${complianceFlagCount} compliance) — re-enrich the no-evidence ones first.`);
     }
   }
-  if (counts.failed > 0) parts.push(`${counts.failed} failed — open prospect detail for the per-step error.`);
+  if (counts.failed > 0) {
+    const reasonClip = firstFailureReason
+      ? `: "${firstFailureReason.slice(0, 200)}${firstFailureReason.length > 200 ? '…' : ''}"`
+      : '';
+    parts.push(`${counts.failed} failed${reasonClip}. Open prospect detail for the per-step error trail.`);
+  }
   if (counts.skipped_no_channel > 0) parts.push(`${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
   if (counts.sent_or_replied > 0) parts.push(`${counts.sent_or_replied} already sent or replied (historical).`);
   if (counts.no_pending_step > 0) parts.push(`${counts.no_pending_step} have no sequence assigned — click "2. Assign Sequence" first.`);
