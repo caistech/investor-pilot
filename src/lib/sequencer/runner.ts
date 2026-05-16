@@ -132,7 +132,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           .single(),
         db
           .from('partners')
-          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id, category, profile_recent_posts, profile_connected_at, profile_shared_connections_count, profile_engagement_flags, firm_recent_news, firm_named_deals')
+          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id, category, last_session_notes, profile_recent_posts, profile_connected_at, profile_shared_connections_count, profile_engagement_flags, firm_recent_news, firm_named_deals')
           .eq('id', step.partner_id)
           .single(),
         db
@@ -213,6 +213,9 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         profile_engagement_flags: partner.profile_engagement_flags,
         firm_recent_news: partner.firm_recent_news,
         firm_named_deals: partner.firm_named_deals,
+        // Operator-injected ground-truth note — weighted above public
+        // evidence by the extractor's prompt.
+        operator_notes: partner.last_session_notes,
         // Drives the fit-signal extraction prompt — investor framing for
         // project-scoped partners, partner/credit framing otherwise.
         offering_kind: partner.project_id ? 'project' : 'product',

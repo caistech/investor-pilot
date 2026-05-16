@@ -102,6 +102,12 @@ export interface RenderPartner {
   firm_recent_news?: Array<{ title: string; snippet: string }> | null;
   firm_named_deals?: Array<{ title: string; snippet: string }> | null;
   /**
+   * Operator-injected private context — read as ground-truth evidence
+   * by the fit-signal extractor. Lets the operator override / augment
+   * what Brave + LinkedIn surfaced. Persisted on partners.last_session_notes.
+   */
+  operator_notes?: string | null;
+  /**
    * Whether this partner was discovered for a product (sales path) or a
    * project (fundraising path). Drives the fit-signal extraction prompt:
    * product partners get a credit/partner-readiness framing, project
@@ -520,6 +526,16 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
   if (firmNews.length > 0) {
     evidenceParts.push('FIRM RECENT NEWS (Brave search):');
     firmNews.slice(0, 3).forEach(d => evidenceParts.push(`  - ${d.title}: ${d.snippet}`));
+  }
+
+  // Operator-injected note FIRST — this is ground truth from someone
+  // who actually knows the prospect. The extractor's prompt is told to
+  // weight this above auto-collected evidence. A 2-line note like
+  // "met them at SaaStr, actively scouting SEA EdTech under $5M" is
+  // worth more than 100 lines of generic Brave news.
+  if (partner.operator_notes && partner.operator_notes.trim()) {
+    evidenceParts.push('OPERATOR NOTE (ground truth — weight above public evidence):');
+    evidenceParts.push(partner.operator_notes.trim().slice(0, 2000));
   }
 
   const scoringNotes = [

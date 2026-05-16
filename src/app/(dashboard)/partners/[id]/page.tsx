@@ -8,6 +8,7 @@ import type { Partner, PartnerStatus, SessionEvent } from '@/lib/types';
 import { CompanyLogo } from '@/components/company-logo';
 import { DraftEditor } from '@/components/partners/draft-editor';
 import AssignSequence from '@/components/partners/assign-sequence';
+import { NoteEditor } from '@/components/partners/note-editor';
 import PartnerCommunications, {
   type PendingApproval,
   type TimelineEvent,
@@ -322,6 +323,16 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
               <p className="text-dark-500">No contact found yet.</p>
             )}
           </div>
+
+          {/* Operator-injected evidence note. Read by the renderer as
+              ground truth; lets the operator inject context Brave /
+              LinkedIn couldn't surface (conference meetings, off-record
+              thesis, mutual intros). */}
+          <NoteEditor
+            partnerId={p.id}
+            partnerName={p.company_name}
+            initialNote={(p as Partner & { last_session_notes?: string | null }).last_session_notes ?? null}
+          />
 
           {/* Unified comms — pending approvals + sent + inbound. Per-contact
               lens; /approvals remains the compilation view across all partners. */}
