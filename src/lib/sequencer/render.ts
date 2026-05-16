@@ -353,12 +353,21 @@ Return ONLY JSON, no prose:
 If the evidence is genuinely generic (no specific deal, sector, or quoted statement), return specificity="generic" and we will block the send.`;
 
   try {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 400,
-      system: prompt,
-      messages: [{ role: 'user', content: 'Extract the credit signal.' }],
-    });
+    // Hard 12s per-call timeout. Without this, a hung OpenRouter request
+    // blocks the parallel Promise.all in runner.ts and the whole render-now
+    // route times out at Vercel's 60s ceiling — the operator sees
+    // FUNCTION_INVOCATION_TIMEOUT with no useful information. 12s is
+    // comfortable for the smallest Claude completion (~400 tokens) while
+    // still letting 4 concurrent renders finish well inside 60s.
+    const response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 400,
+        system: prompt,
+        messages: [{ role: 'user', content: 'Extract the credit signal.' }],
+      },
+      { signal: AbortSignal.timeout(12_000) },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
@@ -471,12 +480,18 @@ If the evidence is too thin to anchor on something specific, return:
 That's the safe fallback — keeps the template's original cadence.`;
 
   try {
-    const response = await client.messages.create({
-      model: MODEL,
-      max_tokens: 200,
-      system: prompt,
-      messages: [{ role: 'user', content: 'Generate the opener.' }],
-    });
+    // Same 12s per-call timeout as extractCreditSignal — without this a
+    // hung warm-opener call blocks the parallel render and the whole
+    // route times out at Vercel's 60s ceiling.
+    const response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 200,
+        system: prompt,
+        messages: [{ role: 'user', content: 'Generate the opener.' }],
+      },
+      { signal: AbortSignal.timeout(12_000) },
+    );
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
