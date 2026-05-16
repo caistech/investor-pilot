@@ -4,6 +4,7 @@ import { Inbox, AlertCircle, Send, CheckCircle2, TrendingUp, Plug } from 'lucide
 import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
 import { HeygenHero } from '@/components/dashboard/heygen-hero';
+import { OnboardingSteps } from '@/components/dashboard/onboarding-steps';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,6 +78,16 @@ export default async function DashboardPage() {
 
       {/* AI-generated explainer video — dismissible, hidden until ready */}
       <HeygenHero />
+
+      {/* Onboarding strip — 4 numbered steps with DB-detected completion */}
+      <OnboardingSteps
+        orgId={orgId}
+        activeChannels={activeChannels || 0}
+        partnersScored={partnersScored || 0}
+        queuedApprovals={queuedApprovals || 0}
+        weeklyReplies={weeklyReplies || 0}
+        messagesSent={messagesSent || 0}
+      />
 
       {/* Headline stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">

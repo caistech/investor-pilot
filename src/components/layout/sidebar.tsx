@@ -8,9 +8,9 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 
-// Ordered by operator journey: Dashboard → setup (Products, Channels) →
-// workflow (Discover → Prospects → Approvals) → reference (Sequences,
-// Sessions, Outreach) → Settings.
+// Ordered by operator journey: Dashboard → Set up (Settings → Products →
+// Projects → Channels) → Find & approve (Discover → Prospects → Approvals)
+// → Track (Outreach → Sessions) → Reference (Sequences).
 const navGroups: Array<{ label: string | null; items: Array<{ href: string; label: string; icon: typeof LayoutDashboard }> }> = [
   {
     label: null,
@@ -19,14 +19,16 @@ const navGroups: Array<{ label: string | null; items: Array<{ href: string; labe
     ],
   },
   {
-    label: 'Setup',
+    label: 'Set up',
     items: [
+      { href: '/settings', label: 'Settings', icon: Settings },
+      { href: '/products', label: 'Products', icon: Package },
       { href: '/projects', label: 'Projects', icon: Briefcase },
       { href: '/channels', label: 'Channels', icon: Plug },
     ],
   },
   {
-    label: 'Workflow',
+    label: 'Find & approve',
     items: [
       { href: '/discover', label: 'Discover', icon: Search },
       { href: '/partners', label: 'Prospects', icon: Users },
@@ -34,17 +36,16 @@ const navGroups: Array<{ label: string | null; items: Array<{ href: string; labe
     ],
   },
   {
-    label: 'Reference',
+    label: 'Track',
     items: [
-      { href: '/sequences', label: 'Sequences', icon: Workflow },
-      { href: '/sessions', label: 'Sessions', icon: MessageSquare },
       { href: '/outreach', label: 'Outreach', icon: Send },
+      { href: '/sessions', label: 'Sessions', icon: MessageSquare },
     ],
   },
   {
-    label: null,
+    label: 'Reference',
     items: [
-      { href: '/settings', label: 'Settings', icon: Settings },
+      { href: '/sequences', label: 'Sequences', icon: Workflow },
     ],
   },
 ];

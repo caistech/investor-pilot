@@ -146,6 +146,7 @@ partners.xlsx
 .vercel
 .gstack/
 .env*.local
+.env.local.copy
 
 # Extracted finance docs / scratch
 .tmp-f2k-docs/

@@ -1,4 +1,6 @@
 import Sidebar from '@/components/layout/sidebar';
+import { PageGuide } from '@/components/layout/page-guide';
+import { ElevenLabsWidget } from '@/components/layout/elevenlabs-widget';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
 
@@ -53,7 +55,11 @@ export default async function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-dark-950">
       <Sidebar />
-      <main className="flex-1 p-8 overflow-auto">{children}</main>
+      <main className="flex-1 p-8 overflow-auto">
+        <PageGuide />
+        {children}
+      </main>
+      <ElevenLabsWidget />
     </div>
   );
 }
