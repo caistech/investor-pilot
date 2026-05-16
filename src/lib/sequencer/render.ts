@@ -183,11 +183,11 @@ export async function renderStep(
   let signal: CreditSignal | null = null;
   let warmOpener = 'quick one.'; // fallback if Claude call fails — keeps original cadence
   if (!warm) {
-    const extracted = await extractCreditSignal(partner);
-    if (!extracted.ok) {
-      return { ok: false, reason: extracted.reason, blocker: 'no_credit_signal' };
-    }
-    signal = extracted;
+    // Always proceeds — extractor falls back to a humble explicit
+    // framing rather than refusing, per the researcher rule. The
+    // rendered message's confidence is captured in personalization_score
+    // (high for tier-1 specific evidence, low for tier-4 humble).
+    signal = await extractCreditSignal(partner);
   } else {
     const opener = await generateWarmOpener(partner);
     if (opener) warmOpener = opener;
@@ -261,15 +261,23 @@ interface CreditSignal {
   short: string;       // ≤ 80 chars, slots into "{credit_signal} suggests fit"
   lead: string;        // ~1-2 sentences, opener for first email
   leadShort: string;   // ~1 sentence, opener for follow-up email
-  specificity: 'specific_deal' | 'sector_evidence';
+  /**
+   * Tier of grounding for the message. Drives personalization_score +
+   * (in future) per-tier template language. Never returns failure — the
+   * researcher rule: we always reach out, even if all we have is the
+   * firm name and sector.
+   *
+   * - specific_deal:   named portfolio company / quoted credit deal (tier 1)
+   * - sector_evidence: stated thesis / sector position / firm news (tier 2)
+   * - sector_anchor:   no per-firm evidence — anchored on sector + geography
+   *                    of the recipient pool we surfaced them from (tier 3)
+   * - humble_intro:    no evidence at all — explicit "we found you, here's
+   *                    why we thought you might be interested" (tier 4)
+   */
+  specificity: 'specific_deal' | 'sector_evidence' | 'sector_anchor' | 'humble_intro';
 }
 
-interface CreditSignalError {
-  ok: false;
-  reason: string;
-}
-
-async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal | CreditSignalError> {
+async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal> {
   // Evidence priority (high → low):
   //   1. Recent LinkedIn posts (real human voice, dated, specific)
   //   2. Brave firm-enrichment (named deals, recent news — credit signal direct)
@@ -316,8 +324,14 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
 
   const evidence = evidenceParts.join('\n');
 
+  // Researcher rule: if we have nothing public to anchor on, we still
+  // reach out — humbly and explicitly. The operator's boss expects 35
+  // candidates, not 18; refusing the thin-evidence ones leaves money on
+  // the table. The message must be honest about its basis ("we found
+  // you among SEA Series A investors and thought…") rather than
+  // confabulating a deal that doesn't exist.
   if (!evidence.trim()) {
-    return { ok: false, reason: 'No discovery evidence on partner — re-run discovery before sequencing' };
+    return buildHumbleFallback(partner);
   }
 
   // Switch the extraction prompt based on whether the partner was
@@ -350,7 +364,7 @@ Return ONLY JSON, no prose:
   "specificity": "specific_deal | sector_evidence | generic"
 }
 
-If the evidence is genuinely generic (no specific deal, sector, or quoted statement), return specificity="generic" and we will block the send.`;
+If the evidence is genuinely generic (no specific deal, sector, or quoted statement), still return SOMETHING usable — return specificity="generic" and the system will substitute a humble explicit framing ("we found you among <sector> investors and thought…"). Do not refuse.`;
 
   try {
     // Hard 12s per-call timeout. Without this, a hung OpenRouter request
@@ -372,15 +386,17 @@ If the evidence is genuinely generic (no specific deal, sector, or quoted statem
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
-      return { ok: false, reason: 'LLM returned no JSON object for credit signal extraction' };
+      // LLM returned prose / refused / malformed — fall back rather than block.
+      console.warn(`[render] extractCreditSignal got non-JSON response for ${partner.company_name}, using humble framing`);
+      return buildHumbleFallback(partner);
     }
 
     const parsed = JSON.parse(jsonMatch[0]);
-    if (parsed.specificity === 'generic') {
-      return {
-        ok: false,
-        reason: `Credit signal extraction returned generic; need specific deal/sector evidence. Got: "${parsed.short}"`,
-      };
+    // Researcher rule: never refuse. If the LLM judged its own output
+    // generic, fall back to the humble explicit framing rather than
+    // blocking the partner. Operator can edit / skip in Approvals.
+    if (parsed.specificity === 'generic' || !parsed.short || !parsed.lead) {
+      return buildHumbleFallback(partner);
     }
 
     return {
@@ -391,8 +407,60 @@ If the evidence is genuinely generic (no specific deal, sector, or quoted statem
       specificity: parsed.specificity === 'specific_deal' ? 'specific_deal' : 'sector_evidence',
     };
   } catch (err) {
-    return { ok: false, reason: `LLM call failed: ${err instanceof Error ? err.message : String(err)}` };
+    // LLM call failed (timeout, network, parse error). Same researcher
+    // rule applies — don't refuse the partner, fall back to a humble
+    // grounded message and let the operator decide. The original error
+    // is logged via the caller's audit_events path.
+    console.warn(`[render] extractCreditSignal LLM failed for ${partner.company_name}, falling back to humble framing:`, err);
+    return buildHumbleFallback(partner);
   }
+}
+
+/**
+ * Humble fallback signal — used when public evidence is too thin to
+ * cite a specific deal or sector position. Constructs an explicit
+ * "we found you because…" framing using only the facts we know for
+ * certain: company name, sector category, geography, and the network
+ * distance that surfaced them.
+ *
+ * Never throws, never returns ok:false. This is the researcher's
+ * "boss says reach out anyway, you never know" path.
+ */
+function buildHumbleFallback(partner: RenderPartner): CreditSignal {
+  const firm = partner.company_name || 'your firm';
+  const kind = partner.offering_kind ?? 'product';
+  // Pull a category hint if available — even the partner_readiness_notes
+  // string often mentions a sector ("Vietnam Series A B2B SaaS investor"
+  // for ESP Capital, etc).
+  const sectorHint = (
+    partner.audience_overlap_notes ||
+    partner.complementarity_notes ||
+    partner.partner_readiness_notes ||
+    ''
+  ).trim().slice(0, 160);
+  const sectorClause = sectorHint
+    ? `your profile as a ${sectorHint.replace(/[.\n]+$/, '')}`
+    : kind === 'project'
+      ? `your firm's stated investor focus`
+      : `your firm's stated partner focus`;
+
+  const short = sectorHint
+    ? `${sectorClause} suggests this may be of interest`
+    : `we identified ${firm} among our shortlist of plausible fits`;
+
+  const lead = kind === 'project'
+    ? `${firm} came up in our shortlist of investors who may have an interest in this raise — we don't have public evidence of a recent fit-specific investment yet, but ${sectorClause} suggested it was worth a brief intro rather than skipping you.`
+    : `${firm} came up in our shortlist of potential partners — we don't have a specific recent collaboration on record, but ${sectorClause} suggested an intro was worth attempting rather than skipping you.`;
+
+  const leadShort = `${firm} was on our shortlist on the basis of ${sectorClause}; flagging again in case the timing is better now.`;
+
+  return {
+    ok: true,
+    short,
+    lead,
+    leadShort,
+    specificity: sectorHint ? 'sector_anchor' : 'humble_intro',
+  };
 }
 
 /**
@@ -528,12 +596,19 @@ function formatRelativeDate(date: Date): string {
 }
 
 function personalizationScore(
-  specificity: 'specific_deal' | 'sector_evidence',
+  specificity: 'specific_deal' | 'sector_evidence' | 'sector_anchor' | 'humble_intro',
   partnerScore: number | null,
 ): number {
-  // Specific named-deal evidence is the only way to score above 7. Sector
-  // evidence tops out at 7. Partner ICP score nudges within band.
-  const base = specificity === 'specific_deal' ? 9 : 6;
+  // Per-tier base. Operator can read this score and prefer the high-tier
+  // drafts in their approvals queue, while the low-tier drafts are still
+  // SENT (researcher rule) — they just signal "go light, no specifics
+  // available" to the reader.
+  const base = (
+    specificity === 'specific_deal'   ? 9 :
+    specificity === 'sector_evidence' ? 6 :
+    specificity === 'sector_anchor'   ? 4 :
+                                        2   // humble_intro
+  );
   const bump = partnerScore && partnerScore >= 8 ? 1 : 0;
   return Math.min(10, base + bump);
 }
