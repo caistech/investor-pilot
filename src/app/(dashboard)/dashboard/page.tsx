@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { Inbox, AlertCircle, Send, CheckCircle2, TrendingUp, Plug } from 'lucide-react';
 import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
+import { HeygenHero } from '@/components/dashboard/heygen-hero';
 
 export const dynamic = 'force-dynamic';
 
@@ -73,6 +74,9 @@ export default async function DashboardPage() {
           <p className="text-dark-400 mt-1">Welcome back{profile.full_name ? `, ${profile.full_name}` : ''}</p>
         </div>
       </div>
+
+      {/* AI-generated explainer video — dismissible, hidden until ready */}
+      <HeygenHero />
 
       {/* Headline stats */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
