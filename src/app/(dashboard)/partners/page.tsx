@@ -22,13 +22,17 @@ export default async function PartnersPage() {
 
   if (!profile?.organisation_id) return <p>Loading...</p>;
 
-  // Fetch partners + currently-in-flight sequence_steps + discovery_runs in
-  // parallel so we can flag partners with an active sequence ("hide already
-  // targeted") and annotate each row with its origin discovery run.
+  // Fetch partners + currently-in-flight sequence_steps + discovery_runs +
+  // every product / project (for the offering filter) in parallel so we can
+  // flag partners with an active sequence ("hide already targeted"),
+  // annotate each row with its origin discovery run, and let the operator
+  // narrow by Sales (product) vs Funding (project) — and by specific
+  // product/project within that.
   const [
     { data: partners },
     { data: activeSteps },
-    { data: product },
+    { data: products },
+    { data: projects },
     { data: runs },
   ] = await Promise.all([
     supabase
@@ -44,16 +48,24 @@ export default async function PartnersPage() {
       .in('status', IN_FLIGHT_STATUSES),
     supabase
       .from('products')
-      .select('id')
+      .select('id, name')
       .eq('organisation_id', profile.organisation_id)
-      .limit(1)
-      .single(),
+      .order('created_at', { ascending: true }),
+    supabase
+      .from('projects')
+      .select('id, name')
+      .eq('organisation_id', profile.organisation_id)
+      .order('created_at', { ascending: true }),
     supabase
       .from('discovery_runs')
       .select('id, run_code, created_at')
       .eq('organisation_id', profile.organisation_id)
       .order('created_at', { ascending: false }),
   ]);
+
+  // Legacy single-product prop — first product if any. Kept so existing
+  // batchAction('draft') fallback path still works for product-only orgs.
+  const product = (products || [])[0] ?? null;
 
   // Build a lookup so the table can annotate each partner with the run that
   // first surfaced them (partners.first_seen_in_run_id → run_code + date).
@@ -97,6 +109,10 @@ export default async function PartnersPage() {
           inFlightPartnerIds={Array.from(inFlightPartnerIds)}
           runsById={Object.fromEntries(runsById)}
           runsForFilter={runsForFilter}
+          offerings={[
+            ...(products || []).map((p) => ({ kind: 'product' as const, id: p.id as string, name: p.name as string })),
+            ...(projects || []).map((p) => ({ kind: 'project' as const, id: p.id as string, name: p.name as string })),
+          ]}
         />
       ) : (
         <div className="card text-center py-16">

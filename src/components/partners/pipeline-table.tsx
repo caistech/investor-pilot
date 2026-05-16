@@ -133,6 +133,12 @@ interface DiscoveryRunSummary {
   created_at: string;
 }
 
+export interface OfferingOption {
+  kind: 'product' | 'project';
+  id: string;
+  name: string;
+}
+
 export function PipelineTable({
   partners,
   organisationId,
@@ -140,6 +146,7 @@ export function PipelineTable({
   inFlightPartnerIds = [],
   runsById = {},
   runsForFilter = [],
+  offerings = [],
 }: {
   partners: Partner[];
   organisationId: string;
@@ -151,6 +158,10 @@ export function PipelineTable({
   runsById?: Record<string, DiscoveryRunSummary>;
   // Ordered list (newest first) for the filter-by-run dropdown.
   runsForFilter?: Array<{ id: string; run_code: string; created_at: string }>;
+  // Every product + project belonging to the org. Drives the
+  // Sales/Funding mode tabs + the "which offering" dropdown so the
+  // operator can isolate a single product's or project's prospects.
+  offerings?: OfferingOption[];
 }) {
   const inFlightSet = new Set(inFlightPartnerIds);
   const partnerTypes = ['all', ...Array.from(new Set(partners.map(p => p.partner_type || '').filter(t => t !== '')))];
@@ -169,6 +180,11 @@ export function PipelineTable({
   // rows first surfaced by that run. Useful for "what did this last run
   // bring in?" sanity-checks.
   const [runFilter, setRunFilter] = useState<string>('all');
+  // Sales (product-side prospects) vs Funding (project-side prospects).
+  // Default 'all' so first-load matches existing behaviour.
+  const [modeFilter, setModeFilter] = useState<'all' | 'sales' | 'funding'>('all');
+  // Specific product/project filter. Values: 'all', 'product:<id>', 'project:<id>'.
+  const [offeringFilter, setOfferingFilter] = useState<string>('all');
   // Quality filters — compose with status / source / type. Defaults are
   // conservative so the operator sees the full list on first load and
   // explicitly opts into trimming. Min score 0 = no floor; toggles default
@@ -209,7 +225,26 @@ export function PipelineTable({
     .filter(p => !hideTargeted || !isAlreadyTargeted(p, inFlightSet))
     .filter(p => runFilter === 'all'
       || p.first_seen_in_run_id === runFilter
-      || p.last_seen_in_run_id === runFilter);
+      || p.last_seen_in_run_id === runFilter)
+    .filter(p => {
+      if (modeFilter === 'sales') return !!p.product_id;
+      if (modeFilter === 'funding') return !!p.project_id;
+      return true;
+    })
+    .filter(p => {
+      if (offeringFilter === 'all') return true;
+      if (offeringFilter.startsWith('product:')) return p.product_id === offeringFilter.slice(8);
+      if (offeringFilter.startsWith('project:')) return p.project_id === offeringFilter.slice(8);
+      return true;
+    });
+
+  // Filter the offering dropdown to match the active mode (so "Sales"
+  // mode doesn't show project options that would zero the list).
+  const visibleOfferings = offerings.filter(o => {
+    if (modeFilter === 'sales') return o.kind === 'product';
+    if (modeFilter === 'funding') return o.kind === 'project';
+    return true;
+  });
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
   // Counts for source-tier tabs reflect ALL partners (not respecting the
@@ -286,12 +321,12 @@ export function PipelineTable({
           errored = data.errors || 0;
           skipped = data.skipped || data.unresolved || 0;
         } else {
-          // render-now returns counts from the cron's tally —
-          // { queued, compliance_blocked, failed, skipped_no_channel }
+          // render-now returns counts:
+          // { queued, already_rendered, no_pending_step, blocked, failed, skipped_no_channel }
           const counts = data.counts || {};
           succeeded = counts.queued || 0;
-          errored = (counts.failed || 0) + (counts.compliance_blocked || 0);
-          skipped = counts.skipped_no_channel || 0;
+          errored = (counts.failed || 0) + (counts.blocked || 0);
+          skipped = (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0);
         }
 
         // Use router.refresh() instead of window.location.reload() so the
@@ -311,20 +346,20 @@ export function PipelineTable({
           // Selection deliberately kept so the operator can flow into
           // step 2 without re-ticking the same rows.
         } else {
-          // Render-now completed → the first message is in Approvals.
-          const blockedNote = (data.counts?.compliance_blocked || 0) > 0
-            ? ` (${data.counts.compliance_blocked} blocked by compliance — check Approvals to review).`
-            : '';
-          const channelNote = skipped > 0
-            ? ` ${skipped} skipped — no active channel for that step.`
-            : '';
+          // Render-now: use the route's `hint` string when present —
+          // it already explains the dominant outcome in one sentence
+          // ("3 messages ready for review" / "all already rendered, check
+          // Approvals" / "no sequence assigned, click 2 first").
+          const hint = data.hint || '';
+          const counts = data.counts || {};
+          const alreadyDone = counts.already_rendered || 0;
           setMessage(
-            `Rendered ${succeeded} of ${n}.${blockedNote}${channelNote}\n` +
-            (succeeded > 0
-              ? 'Your messages are ready for review.'
-              : 'Nothing landed in Approvals — make sure you ran "2. Assign Sequence" first.'),
+            `Rendered ${succeeded} of ${n} (${alreadyDone} already done).\n${hint}`,
           );
-          if (succeeded > 0) {
+          // Show the Approvals CTA whenever there's plausibly something
+          // there to look at — either we just queued some, or they were
+          // already queued from a previous attempt.
+          if (succeeded > 0 || alreadyDone > 0) {
             setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
           }
           setSelected(new Set());
@@ -446,6 +481,46 @@ export function PipelineTable({
             {runsForFilter.map(r => (
               <option key={r.id} value={r.id}>
                 {r.run_code} · {new Date(r.created_at).toLocaleDateString('en-AU', { day: 'numeric', month: 'short' })}
+              </option>
+            ))}
+          </select>
+        )}
+        {/* Sales / Funding mode toggle — sales = prospects discovered for
+            a product, funding = prospects discovered for a project. Mirrors
+            the Products (Sales) / Projects (Funding) split in the sidebar. */}
+        {offerings.length > 0 && (
+          <select
+            value={modeFilter}
+            onChange={(e) => {
+              const next = e.target.value as 'all' | 'sales' | 'funding';
+              setModeFilter(next);
+              // Reset the offering filter when mode changes — otherwise a
+              // stale "project:<id>" filter persists while user is on
+              // 'sales' mode and zeros the list.
+              setOfferingFilter('all');
+              setSelected(new Set());
+            }}
+            className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-dark-300 focus:border-corp-green-500 focus:outline-none"
+            title="Filter by Sales (product-side prospects) or Funding (project-side prospects)"
+          >
+            <option value="all">All modes</option>
+            <option value="sales">Sales (Products)</option>
+            <option value="funding">Funding (Projects)</option>
+          </select>
+        )}
+        {/* Specific product or project. Only rendered when there are
+            options under the current mode so the dropdown is never empty. */}
+        {visibleOfferings.length > 0 && (
+          <select
+            value={offeringFilter}
+            onChange={(e) => { setOfferingFilter(e.target.value); setSelected(new Set()); }}
+            className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-dark-300 focus:border-corp-green-500 focus:outline-none"
+            title="Filter by a specific product or project"
+          >
+            <option value="all">All {modeFilter === 'sales' ? 'products' : modeFilter === 'funding' ? 'projects' : 'offerings'}</option>
+            {visibleOfferings.map(o => (
+              <option key={`${o.kind}:${o.id}`} value={`${o.kind}:${o.id}`}>
+                {o.kind === 'product' ? '🛍 ' : '💰 '}{o.name}
               </option>
             ))}
           </select>

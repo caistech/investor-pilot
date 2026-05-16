@@ -3,23 +3,27 @@
  *
  * Operator-triggered render of the FIRST pending sequence_step for each
  * selected partner. Same code path as the 15-minute cron — just invoked
- * synchronously so the operator doesn't have to wait. Hits Approvals
- * immediately on success.
+ * synchronously so the operator doesn't have to wait.
+ *
+ * Diagnostic-first design: every response includes a per-partner state
+ * map so the Prospects page can explain exactly what landed where (vs
+ * the previous "0 rendered, no idea why" experience). The route also
+ * short-circuits when the partner's first step is ALREADY rendered
+ * (status queued_for_approval / compliance_blocked / sent / replied) —
+ * no point burning Claude tokens re-rendering something that's just
+ * sitting in Approvals already.
  *
  * Body:
  *   { partner_ids: string[] }
  *
- * Returns:
+ * Returns (always 200 unless auth fails):
  *   {
  *     ok: true,
- *     processed: number,
- *     counts: { queued?: number, compliance_blocked?: number, failed?: number, skipped_no_channel?: number },
- *     results: [...]
+ *     counts: { queued, already_rendered, blocked, failed, no_pending_step, skipped_no_channel },
+ *     hint: string,
+ *     partner_states: [{ partner_id, first_step_status, outbound_message_id? }],
+ *     runner_result?: { ... }     // present when we actually invoked runSequencer
  *   }
- *
- * The cron is the source of truth for rendering semantics — this route is
- * a thin wrapper around its runSequencer() helper with the partner_ids
- * filter applied and scheduled_for enforcement disabled.
  */
 
 import { NextResponse } from 'next/server';
@@ -28,7 +32,22 @@ import { runSequencer } from '@/lib/sequencer/runner';
 
 export const maxDuration = 60;
 
-const MAX_PARTNERS_PER_REQUEST = 20;
+// Operator-triggered: small batch only. Larger batches blow Vercel's 60s
+// function ceiling because runSequencer is sequential — each partner's
+// first step is its own Claude call. Anything >4 should wait for the
+// 15-min cron tick instead.
+const MAX_PARTNERS_PER_REQUEST = 4;
+
+// Statuses where the step has already produced an outbound_message —
+// re-rendering is wasteful and produces dupes. If the step is in any of
+// these, render-now skips it and reports already_rendered.
+const ALREADY_RENDERED = new Set([
+  'queued_for_approval',
+  'compliance_blocked',
+  'sent',
+  'replied',
+  'failed',
+]);
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -45,7 +64,9 @@ export async function POST(request: Request) {
   }
   if (partnerIds.length > MAX_PARTNERS_PER_REQUEST) {
     return NextResponse.json(
-      { error: `Batch size ${partnerIds.length} exceeds limit ${MAX_PARTNERS_PER_REQUEST}` },
+      {
+        error: `Batch size ${partnerIds.length} exceeds limit ${MAX_PARTNERS_PER_REQUEST}. Render in smaller chunks or wait for the 15-min cron.`,
+      },
       { status: 400 },
     );
   }
@@ -61,9 +82,7 @@ export async function POST(request: Request) {
   }
 
   // Defence-in-depth: only render steps that belong to this org, even if
-  // a malicious client passes another org's partner_ids. The cron uses
-  // service-role and doesn't enforce org boundaries because Vercel cron
-  // is trusted; operator-triggered calls aren't.
+  // a malicious client passes another org's partner_ids.
   const { data: orgPartners } = await db
     .from('partners')
     .select('id')
@@ -78,12 +97,151 @@ export async function POST(request: Request) {
     );
   }
 
-  const result = await runSequencer({
-    partnerIds: allowedIds,
-    ignoreSchedule: true,
-    organisationId: profile.organisation_id,
-    skipWarmupTick: true,
-  });
+  // Fetch the lowest-index step per partner. The renderer always works
+  // through step_index 1 first, so that's the one the operator is
+  // implicitly asking about when they click "3. Render & Queue". Pull
+  // status + outbound_message_id so we can report the current state
+  // without re-rendering.
+  const { data: existingSteps } = await db
+    .from('sequence_steps')
+    .select('id, partner_id, status, step_index, outbound_message_id')
+    .in('partner_id', allowedIds)
+    .eq('organisation_id', profile.organisation_id)
+    .order('step_index', { ascending: true });
 
-  return result;
+  type StepRow = { id: string; partner_id: string; status: string; step_index: number; outbound_message_id: string | null };
+  const firstStepByPartner = new Map<string, StepRow>();
+  for (const s of (existingSteps || []) as StepRow[]) {
+    if (!firstStepByPartner.has(s.partner_id)) {
+      firstStepByPartner.set(s.partner_id, s);
+    }
+  }
+
+  // Partition partners by what needs doing.
+  const noStepIds: string[] = [];      // never assigned to a sequence
+  const alreadyDoneIds: string[] = []; // step exists but already rendered
+  const needsRenderIds: string[] = []; // step is pending
+
+  for (const pid of allowedIds) {
+    const step = firstStepByPartner.get(pid);
+    if (!step) {
+      noStepIds.push(pid);
+    } else if (ALREADY_RENDERED.has(step.status)) {
+      alreadyDoneIds.push(pid);
+    } else {
+      needsRenderIds.push(pid);
+    }
+  }
+
+  // Short-circuit: nothing to render means no Claude calls — return
+  // immediately so the operator gets a clear answer instead of timing
+  // out.
+  if (needsRenderIds.length === 0) {
+    const counts = {
+      queued: 0,
+      already_rendered: alreadyDoneIds.length,
+      no_pending_step: noStepIds.length,
+      blocked: 0,
+      failed: 0,
+      skipped_no_channel: 0,
+    };
+    const hint = noStepIds.length === allowedIds.length
+      ? 'None of the selected partners have a sequence assigned. Click "2. Assign Sequence" first.'
+      : alreadyDoneIds.length === allowedIds.length
+        ? 'All selected partners already have a rendered first message. Check Approvals — or the prospect detail page if Approvals is empty (compliance may have blocked them).'
+        : 'Mixed state — some partners have no sequence yet, others are already rendered. Check the detail page per prospect.';
+    return NextResponse.json({
+      ok: true,
+      counts,
+      hint,
+      partner_states: stateMap(allowedIds, firstStepByPartner),
+    });
+  }
+
+  // Render only the partners with pending steps. Hard-cap total partners
+  // here so the loop stays inside the 60s function ceiling even on a
+  // slow-latency day.
+  let runnerResult: unknown = null;
+  let runnerError: string | null = null;
+  try {
+    const runnerResponse = await runSequencer({
+      partnerIds: needsRenderIds,
+      ignoreSchedule: true,
+      organisationId: profile.organisation_id,
+      skipWarmupTick: true,
+    });
+    // runSequencer returns a NextResponse — unwrap to inspect counts.
+    runnerResult = await runnerResponse.json();
+  } catch (err) {
+    // Includes timeout, network, parsing errors — anything that would
+    // previously have surfaced as "Unexpected token 'A'" in the client.
+    runnerError = err instanceof Error ? err.message : String(err);
+  }
+
+  // Re-fetch step states post-run so the response reflects the new truth.
+  const { data: postSteps } = await db
+    .from('sequence_steps')
+    .select('id, partner_id, status, step_index, outbound_message_id')
+    .in('partner_id', allowedIds)
+    .eq('organisation_id', profile.organisation_id)
+    .order('step_index', { ascending: true });
+
+  const postFirstByPartner = new Map<string, StepRow>();
+  for (const s of (postSteps || []) as StepRow[]) {
+    if (!postFirstByPartner.has(s.partner_id)) postFirstByPartner.set(s.partner_id, s);
+  }
+
+  const counts = {
+    queued: 0,
+    already_rendered: alreadyDoneIds.length,
+    no_pending_step: noStepIds.length,
+    blocked: 0,
+    failed: 0,
+    skipped_no_channel: 0,
+  };
+  for (const pid of needsRenderIds) {
+    const post = postFirstByPartner.get(pid);
+    if (!post) {
+      counts.failed += 1;
+      continue;
+    }
+    if (post.status === 'queued_for_approval') counts.queued += 1;
+    else if (post.status === 'compliance_blocked') counts.blocked += 1;
+    else if (post.status === 'failed') counts.failed += 1;
+    else if (post.status === 'pending') counts.skipped_no_channel += 1; // still pending after render attempt → no channel
+    else counts.failed += 1;
+  }
+
+  const hint = runnerError
+    ? `Renderer threw before finishing: ${runnerError}`
+    : counts.queued > 0
+      ? `${counts.queued} message${counts.queued === 1 ? '' : 's'} ready for review in Approvals.`
+      : counts.blocked > 0
+        ? `${counts.blocked} blocked by compliance — open prospect detail to see flagged terms.`
+        : counts.skipped_no_channel > 0
+          ? `${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`
+          : counts.failed > 0
+            ? `${counts.failed} failed — check the prospect detail page for the per-step error.`
+            : 'No state change. The cron may already be processing these — try Approvals in 30s.';
+
+  return NextResponse.json({
+    ok: true,
+    counts,
+    hint,
+    partner_states: stateMap(allowedIds, postFirstByPartner),
+    runner_result: runnerResult,
+    runner_error: runnerError,
+  });
+}
+
+function stateMap(
+  partnerIds: string[],
+  byPartner: Map<string, { id: string; status: string; outbound_message_id: string | null }>,
+) {
+  return partnerIds.map((pid) => {
+    const step = byPartner.get(pid);
+    return step
+      ? { partner_id: pid, first_step_status: step.status, outbound_message_id: step.outbound_message_id }
+      : { partner_id: pid, first_step_status: 'none', outbound_message_id: null };
+  });
 }
