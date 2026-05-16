@@ -38,6 +38,8 @@ interface SetupSnapshot {
   productPitchConfigured: boolean;
   rubricConfigured: boolean;
   channelConnected: boolean;
+  linkedInChannelConnected: boolean;
+  emailChannelConnected: boolean;
   sequenceConfigured: boolean;
   allDone: boolean;
 }
@@ -71,6 +73,12 @@ export default function ProductsPage() {
       if (res.ok) {
         const data = await res.json();
         setSetup(data);
+        // Add LinkedIn to default sources only if the channel is actually
+        // connected. Operator can still toggle Sales Nav on once they have
+        // an SN subscription wired up.
+        if (data.linkedInChannelConnected) {
+          setFindSources((prev) => (prev.includes('linkedin') ? prev : [...prev, 'linkedin']));
+        }
       }
     } catch { /* tolerate failure — buttons just won't pre-disable */ }
   }
@@ -247,10 +255,11 @@ export default function ProductsPage() {
 
   // Find Investors button state
   const [findingFor, setFindingFor] = useState<string | null>(null);
-  // Default to classic LinkedIn + Brave. Sales Nav requires additional rich
-  // filters our wrapper doesn't send yet — proven returning 0 in production.
-  // Operator can opt-in once SN wrapper is validated separately.
-  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['linkedin', 'brave']);
+  // Default chosen reactively from setup state: include LinkedIn only when a
+  // LinkedIn channel is actually connected. Without this, the discover-batch
+  // route burns 6-9 LinkedIn queries that all fail with "no LinkedIn channel
+  // connected" before falling back to Brave-only results.
+  const [findSources, setFindSources] = useState<Array<'linkedin' | 'sales_nav' | 'brave'>>(['brave']);
   const [findResult, setFindResult] = useState<{
     productId: string;
     queries_used: Array<{ query: string; rationale: string; category: string }>;
@@ -278,10 +287,29 @@ export default function ProductsPage() {
     setFindingFor(productId);
     setFindResult(null);
     try {
+      // Defensive: even if state somehow includes LinkedIn while no channel
+      // exists (race condition with channel disconnect), strip it before
+      // sending so the batch doesn't waste queries on failed searches.
+      const safeSources = setup && !setup.linkedInChannelConnected
+        ? findSources.filter((s) => s !== 'linkedin' && s !== 'sales_nav')
+        : findSources;
+      if (safeSources.length === 0) {
+        setFindResult({
+          productId,
+          queries_used: [],
+          candidates_scored: 0,
+          candidates_failed: 0,
+          candidates_unique: 0,
+          top_results: [],
+          error: 'No sources selected. Connect a LinkedIn channel or keep Brave enabled.',
+        });
+        setFindingFor(null);
+        return;
+      }
       const res = await fetch('/api/pipeline/discover-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId, sources: findSources }),
+        body: JSON.stringify({ product_id: productId, sources: safeSources }),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -668,26 +696,37 @@ export default function ProductsPage() {
                         </p>
                         <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
                           {([
-                            { key: 'sales_nav' as const, label: 'Sales Nav', hint: 'Richer filters (seniority, function, years in role). Requires SN subscription.' },
-                            { key: 'linkedin' as const, label: 'LinkedIn', hint: 'Classic LinkedIn people search. Fallback if Sales Nav fails.' },
-                            { key: 'brave' as const, label: 'Brave', hint: 'Supplementary web search — fund reports, news, deal mentions.' },
-                          ] as const).map(s => (
-                            <button
-                              key={s.key}
-                              type="button"
-                              onClick={() => toggleFindSource(s.key)}
-                              disabled={findingFor !== null}
-                              className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium transition-colors ${
-                                findSources.includes(s.key)
-                                  ? 'bg-corp-green-500/20 text-corp-green-400 border border-corp-green-500/40'
-                                  : 'bg-dark-800 text-dark-500 border border-dark-700 hover:text-dark-300'
-                              }`}
-                              title={s.hint}
-                            >
-                              {s.label}
-                            </button>
-                          ))}
+                            { key: 'sales_nav' as const, label: 'Sales Nav', hint: 'Richer filters (seniority, function, years in role). Requires SN subscription.', needsLinkedIn: true },
+                            { key: 'linkedin' as const, label: 'LinkedIn', hint: 'Classic LinkedIn people search. Requires a connected LinkedIn channel.', needsLinkedIn: true },
+                            { key: 'brave' as const, label: 'Brave', hint: 'Supplementary web search — fund reports, news, deal mentions.', needsLinkedIn: false },
+                          ] as const).map(s => {
+                            const blockedByMissingChannel: boolean = !!(s.needsLinkedIn && setup && !setup.linkedInChannelConnected);
+                            const disabled: boolean = findingFor !== null || blockedByMissingChannel;
+                            return (
+                              <button
+                                key={s.key}
+                                type="button"
+                                onClick={() => !blockedByMissingChannel && toggleFindSource(s.key)}
+                                disabled={disabled}
+                                className={`px-2 py-0.5 rounded text-[10px] uppercase tracking-wide font-medium transition-colors ${
+                                  findSources.includes(s.key) && !blockedByMissingChannel
+                                    ? 'bg-corp-green-500/20 text-corp-green-400 border border-corp-green-500/40'
+                                    : blockedByMissingChannel
+                                      ? 'bg-dark-900 text-dark-600 border border-dark-800 cursor-not-allowed'
+                                      : 'bg-dark-800 text-dark-500 border border-dark-700 hover:text-dark-300'
+                                }`}
+                                title={blockedByMissingChannel ? 'Connect a LinkedIn channel first (Channels → Connect LinkedIn)' : s.hint}
+                              >
+                                {s.label}
+                              </button>
+                            );
+                          })}
                         </div>
+                        {setup && !setup.linkedInChannelConnected && (
+                          <p className="text-xs text-amber-400 mt-2">
+                            LinkedIn + Sales Nav are disabled — <Link href="/channels" className="underline hover:text-amber-300">connect a LinkedIn channel</Link> to enable them. Brave still works on its own (web search).
+                          </p>
+                        )}
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); findInvestorsForProduct(p.id); }}

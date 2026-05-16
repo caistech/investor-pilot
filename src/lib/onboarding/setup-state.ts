@@ -20,8 +20,12 @@ export interface SetupState {
   productPitchConfigured: boolean;
   /** primary active product has scoring_rubric (enough for discovery scoring) */
   rubricConfigured: boolean;
-  /** ≥1 client_channels with status='active' */
+  /** ≥1 client_channels with status='active' (any type) */
   channelConnected: boolean;
+  /** ≥1 active client_channels with channel_type='linkedin' — required for LinkedIn / Sales Navigator discovery sources */
+  linkedInChannelConnected: boolean;
+  /** ≥1 active client_channels with channel_type='email' — required to actually send email steps */
+  emailChannelConnected: boolean;
   /** ≥1 sequence_templates with is_active=true */
   sequenceConfigured: boolean;
   /** Convenience — true when every required prerequisite is met */
@@ -40,7 +44,7 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
   const [
     { data: org },
     { data: primaryProduct },
-    { count: activeChannelCount },
+    { data: activeChannels },
     { count: activeSequenceCount },
   ] = await Promise.all([
     db.from('organisations').select('sender_name, sender_role').eq('id', orgId).maybeSingle(),
@@ -52,9 +56,11 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle(),
+    // Pull channel rows (not just count) so we can distinguish LinkedIn from
+    // email — Find Investors gates on LinkedIn specifically.
     db
       .from('client_channels')
-      .select('*', { count: 'exact', head: true })
+      .select('channel_type')
       .eq('organisation_id', orgId)
       .eq('status', 'active'),
     db
@@ -68,7 +74,10 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
   const hasActiveProduct = !!primaryProduct;
   const productPitchConfigured = !!(primaryProduct?.product_pitch || primaryProduct?.one_sentence_description);
   const rubricConfigured = !!primaryProduct?.scoring_rubric;
-  const channelConnected = (activeChannelCount ?? 0) > 0;
+  const channels = activeChannels ?? [];
+  const channelConnected = channels.length > 0;
+  const linkedInChannelConnected = channels.some((c) => c.channel_type === 'linkedin');
+  const emailChannelConnected = channels.some((c) => c.channel_type === 'email');
   const sequenceConfigured = (activeSequenceCount ?? 0) > 0;
 
   return {
@@ -77,6 +86,8 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
     productPitchConfigured,
     rubricConfigured,
     channelConnected,
+    linkedInChannelConnected,
+    emailChannelConnected,
     sequenceConfigured,
     allDone:
       senderConfigured &&
