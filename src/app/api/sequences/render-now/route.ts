@@ -195,25 +195,39 @@ export async function POST(request: Request) {
     if (!postFirstByPartner.has(s.partner_id)) postFirstByPartner.set(s.partner_id, s);
   }
 
+  // Bucket EVERY selected partner (not just the ones we just rendered)
+  // by their current first-step status. Earlier version only counted
+  // needsRenderIds, which meant a batch of "3 already in compliance_blocked
+  // + 1 just-failed" reported as "3 already done, 1 failed" — true but
+  // not actionable. The operator needs to know the 3 are blocked too.
   const counts = {
     queued: 0,
-    already_rendered: alreadyDoneIds.length,
-    no_pending_step: noStepIds.length,
     blocked: 0,
     failed: 0,
     skipped_no_channel: 0,
+    sent_or_replied: 0,
+    no_pending_step: noStepIds.length,
+    // Kept for backwards-compatible client-side display.
+    already_rendered: alreadyDoneIds.length,
   };
-  for (const pid of needsRenderIds) {
+  for (const pid of allowedIds) {
     const post = postFirstByPartner.get(pid);
-    if (!post) {
-      counts.failed += 1;
-      continue;
+    if (!post) continue; // no step at all (noStepIds covered above)
+    switch (post.status) {
+      case 'queued_for_approval': counts.queued += 1; break;
+      case 'compliance_blocked':  counts.blocked += 1; break;
+      case 'failed':              counts.failed += 1; break;
+      case 'sent':
+      case 'replied':             counts.sent_or_replied += 1; break;
+      case 'pending':
+        // Pending after a render attempt = renderer punted (no channel).
+        // For partners we never tried to render this run, pending is
+        // genuinely pending — but in render-now's contract every selected
+        // partner gets attempted, so treat any leftover pending as skipped.
+        counts.skipped_no_channel += 1;
+        break;
+      default:                    counts.failed += 1;
     }
-    if (post.status === 'queued_for_approval') counts.queued += 1;
-    else if (post.status === 'compliance_blocked') counts.blocked += 1;
-    else if (post.status === 'failed') counts.failed += 1;
-    else if (post.status === 'pending') counts.skipped_no_channel += 1; // still pending after render attempt → no channel
-    else counts.failed += 1;
   }
 
   // Pull the actual block reasons for blocked steps from audit_events so
@@ -252,25 +266,31 @@ export async function POST(request: Request) {
   const noEvidenceCount = Array.from(blockReasonsByPartner.values()).filter((r) => /no discovery evidence|no_credit_signal/i.test(r)).length;
   const complianceFlagCount = counts.blocked - noEvidenceCount;
 
-  const blockedLine = counts.blocked === 0
-    ? ''
-    : noEvidenceCount > 0 && complianceFlagCount === 0
-      ? ` ${noEvidenceCount} blocked because the partner has no Brave/LinkedIn evidence yet — click "Re-enrich evidence" to fix.`
-      : noEvidenceCount === 0 && complianceFlagCount > 0
-        ? ` ${complianceFlagCount} blocked by compliance regex — open prospect detail to see flagged terms.`
-        : ` ${counts.blocked} blocked (${noEvidenceCount} no-evidence, ${complianceFlagCount} compliance) — re-enrich the no-evidence ones first.`;
+  // Compose the hint. Multiple categories can be non-zero; surface every
+  // one that has a non-trivial remediation, in decreasing operator-action
+  // priority (queued = success, blocked = re-enrich, failed = inspect,
+  // no_channel = connect, sent/replied = informational).
+  const parts: string[] = [];
+  if (counts.queued > 0) parts.push(`${counts.queued} ready for review in Approvals.`);
+  if (counts.blocked > 0) {
+    if (noEvidenceCount > 0 && complianceFlagCount === 0) {
+      parts.push(`${counts.blocked} blocked: partner has no Brave/LinkedIn evidence yet — click "Re-enrich evidence" to fix.`);
+    } else if (noEvidenceCount === 0 && complianceFlagCount > 0) {
+      parts.push(`${counts.blocked} blocked by compliance regex — open prospect detail to see the flagged terms.`);
+    } else {
+      parts.push(`${counts.blocked} blocked (${noEvidenceCount} no-evidence, ${complianceFlagCount} compliance) — re-enrich the no-evidence ones first.`);
+    }
+  }
+  if (counts.failed > 0) parts.push(`${counts.failed} failed — open prospect detail for the per-step error.`);
+  if (counts.skipped_no_channel > 0) parts.push(`${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
+  if (counts.sent_or_replied > 0) parts.push(`${counts.sent_or_replied} already sent or replied (historical).`);
+  if (counts.no_pending_step > 0) parts.push(`${counts.no_pending_step} have no sequence assigned — click "2. Assign Sequence" first.`);
 
   const hint = runnerError
     ? `Renderer threw before finishing: ${runnerError}`
-    : counts.queued > 0
-      ? `${counts.queued} message${counts.queued === 1 ? '' : 's'} ready for review in Approvals.${blockedLine}`
-      : counts.blocked > 0
-        ? blockedLine.trim()
-        : counts.skipped_no_channel > 0
-          ? `${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`
-          : counts.failed > 0
-            ? `${counts.failed} failed — check the prospect detail page for the per-step error.`
-            : 'No state change. The cron may already be processing these — try Approvals in 30s.';
+    : parts.length > 0
+      ? parts.join(' ')
+      : 'No state change. The cron may already be processing these — try Approvals in 30s.';
 
   return NextResponse.json({
     ok: true,
