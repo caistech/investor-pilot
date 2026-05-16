@@ -114,6 +114,7 @@ export default function ProductsPage() {
   async function handleAutoFill() {
     if (!canAutoFill()) return;
     setFilling(true);
+    setError(null);
 
     try {
       const res = await fetch('/api/agent/autofill-product', {
@@ -127,30 +128,39 @@ export default function ProductsPage() {
         }),
       });
 
-      if (res.ok) {
-        const data = await res.json();
-        setForm((prev) => ({
-          ...prev,
-          name: data.name || prev.name,
-          one_sentence_description: data.one_sentence_description || prev.one_sentence_description,
-          core_mechanism: data.core_mechanism || '',
-          customer_outcomes: data.customer_outcomes || '',
-          icp_company_size: data.icp_company_size || '',
-          icp_stage: data.icp_stage || '',
-          icp_verticals: data.icp_verticals || '',
-          icp_buyer_title: data.icp_buyer_title || '',
-          icp_user_title: data.icp_user_title || '',
-          icp_stack_tools: data.icp_stack_tools || '',
-          traction_arr: data.traction_arr || '',
-          traction_customers: data.traction_customers || '',
-          partner_types: data.partner_types || 'referral',
-          exclusions: data.exclusions || '',
-        }));
-        setFilled(true);
-        setShowDetails(true);
+      const data = await res.json();
+
+      if (!res.ok) {
+        // 422 from a failed scrape — surface inline so user can switch to
+        // Paste Text mode rather than re-submitting and getting the same
+        // failure, or worse a hallucinated description (the previous bug).
+        const msg = data.error || `Auto-fill failed (HTTP ${res.status})`;
+        const help = data.help ? `\n\n${data.help}` : '';
+        setError(`${msg}${help}`);
+        return;
       }
-    } catch {
-      // Silently fail — user can still fill manually
+
+      setForm((prev) => ({
+        ...prev,
+        name: data.name || prev.name,
+        one_sentence_description: data.one_sentence_description || prev.one_sentence_description,
+        core_mechanism: data.core_mechanism || '',
+        customer_outcomes: data.customer_outcomes || '',
+        icp_company_size: data.icp_company_size || '',
+        icp_stage: data.icp_stage || '',
+        icp_verticals: data.icp_verticals || '',
+        icp_buyer_title: data.icp_buyer_title || '',
+        icp_user_title: data.icp_user_title || '',
+        icp_stack_tools: data.icp_stack_tools || '',
+        traction_arr: data.traction_arr || '',
+        traction_customers: data.traction_customers || '',
+        partner_types: data.partner_types || 'referral',
+        exclusions: data.exclusions || '',
+      }));
+      setFilled(true);
+      setShowDetails(true);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Auto-fill failed — network error');
     }
     setFilling(false);
   }

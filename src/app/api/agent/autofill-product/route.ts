@@ -1,33 +1,11 @@
 import { createClient } from '@/lib/supabase/server';
 import Anthropic from '@anthropic-ai/sdk';
 import { NextResponse } from 'next/server';
+import { fetchPageContent } from '@/lib/scrape/fetch-page';
 
 export const maxDuration = 30;
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
-async function fetchPageContent(url: string): Promise<string> {
-  try {
-    const res = await fetch(url, {
-      headers: { 'User-Agent': 'InvestorPilot/1.0 (product-profile-extractor)' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (!res.ok) return `[Failed to fetch: ${res.status}]`;
-
-    const html = await res.text();
-    // Strip HTML tags, scripts, styles — extract text content
-    const text = html
-      .replace(/<script[\s\S]*?<\/script>/gi, '')
-      .replace(/<style[\s\S]*?<\/style>/gi, '')
-      .replace(/<[^>]+>/g, ' ')
-      .replace(/\s+/g, ' ')
-      .trim();
-    // Cap at ~8000 chars to keep within token limits
-    return text.slice(0, 8000);
-  } catch {
-    return '[Failed to fetch URL]';
-  }
-}
 
 export async function POST(request: Request) {
   const supabase = createClient();
@@ -87,8 +65,28 @@ export async function POST(request: Request) {
   }
 
   if (source_url) {
-    const pageText = await fetchPageContent(source_url);
-    sourceContent += `\n\nWEBSITE CONTENT (from ${source_url}):\n${pageText}`;
+    const fetched = await fetchPageContent(source_url);
+    if (!fetched.ok) {
+      // Refuse to feed garbage to the LLM. Surface a clear error so the
+      // operator can switch to Paste Text mode rather than getting a
+      // hallucinated product description back. This is what caused the
+      // LingoPure "discovery tool" misfire — naive scraper returned an
+      // empty JS shell, Claude filled the gap from context.
+      return NextResponse.json(
+        {
+          error: `Couldn't read ${source_url} — ${fetched.error}`,
+          suggested_action: fetched.suggested_action,
+          help:
+            fetched.suggested_action === 'paste_text_directly'
+              ? 'The page rendered via JavaScript and our scraper only saw an empty shell. Switch to "Paste Text" mode and copy a few paragraphs from the page manually — that\'s the most reliable input for the auto-fill.'
+              : fetched.suggested_action === 'check_url_accessibility'
+                ? 'The URL may be private, behind a login, or returning a server error. Verify it loads in an incognito browser, or paste the text directly.'
+                : 'Try a different URL on the same site (e.g. an /about or /product page rather than the homepage).',
+        },
+        { status: 422 },
+      );
+    }
+    sourceContent += `\n\nWEBSITE CONTENT (from ${source_url}, via ${fetched.source}):\n${fetched.content}`;
   }
 
   if (source_text) {

@@ -1,34 +1,23 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
+import { fetchPageContent } from '@/lib/scrape/fetch-page';
 
+/**
+ * Route URL ingestion through the shared Firecrawl-aware fetcher so KB
+ * URLs are scraped with JS rendering when FIRECRAWL_API_KEY is set.
+ * Without rendering, SPA marketing sites (LingoPure, most React sites)
+ * return empty shells and the downstream auto-fill hallucinates.
+ */
 async function extractTextFromUrl(url: string): Promise<{ title: string; content: string }> {
-  const res = await fetch(url, {
-    headers: { 'User-Agent': 'InvestorPilot/1.0 (knowledge-base-extractor)' },
-    signal: AbortSignal.timeout(15000),
-  });
-
-  if (!res.ok) throw new Error(`Failed to fetch: ${res.status}`);
-
-  const html = await res.text();
-  const titleMatch = html.match(/<title[^>]*>([\s\S]*?)<\/title>/i);
-  const title = titleMatch ? titleMatch[1].trim() : new URL(url).hostname;
-
-  const text = html
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-    .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-    .replace(/<header[\s\S]*?<\/header>/gi, '')
-    .replace(/<[^>]+>/g, ' ')
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
-    .replace(/&#\d+;/g, '')
-    .replace(/\s+/g, ' ')
-    .trim();
-
-  return { title, content: text.slice(0, 50000) };
+  const result = await fetchPageContent(url);
+  if (!result.ok) {
+    throw new Error(result.error);
+  }
+  // Try to pull a title from the markdown's first heading, or fall back
+  // to the hostname (Firecrawl strips the <title> when returning markdown).
+  const firstHeading = result.content.match(/^#\s+(.+)$/m)?.[1]?.trim();
+  const title = firstHeading || new URL(url).hostname;
+  return { title, content: result.content.slice(0, 50000) };
 }
 
 async function extractTextFromFile(buffer: Buffer, fileName: string, mimeType: string): Promise<string> {
