@@ -7,6 +7,7 @@ import Link from 'next/link';
 import type { Product } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
+import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 
 const DETAIL_FIELDS = [
   { key: 'core_mechanism', label: 'Core Mechanism' },
@@ -671,6 +672,20 @@ export default function ProductsPage() {
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* ICP scoring rubric — what the discovery scorer reads */}
+                  <div className="mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20" onClick={(e) => e.stopPropagation()}>
+                    <p className="text-sm font-medium text-amber-400">
+                      ICP scoring rubric {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? '— configured' : '— not configured'}
+                    </p>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3">
+                      The detailed rubric the discovery scorer uses to rank candidates 1–10 across the 5 dimensions for this product&apos;s audience. Required before Find Investors can run.
+                    </p>
+                    <GenerateRubricButton
+                      productId={p.id}
+                      alreadyConfigured={!!(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                    />
                   </div>
 
                   {/* Outreach sequence — auto-generate tailored to this product */}

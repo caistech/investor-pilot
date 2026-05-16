@@ -63,16 +63,24 @@ export async function OnboardingSteps({
       n: 1,
       title: 'Set up',
       blurb: setupDone
-        ? 'Sender, product, channel and outreach sequence are all configured.'
-        : !sequenceConfigured && senderConfigured && productConfigured
-          ? `${setupProgress}/4 — last step: generate your outreach sequence from your product.`
-          : `${setupProgress}/4 configured — sender, product, sending channel, and outreach sequence.`,
-      href: !sequenceConfigured && senderConfigured && productConfigured ? '/settings/templates' : '/settings',
+        ? 'Sender, product (pitch + scoring rubric), channel and outreach sequence are all configured.'
+        : !productConfigured && senderConfigured
+          ? `${setupProgress}/4 — next: open your product and generate the ICP scoring rubric.`
+          : !sequenceConfigured && productConfigured && senderConfigured
+            ? `${setupProgress}/4 — last step: generate your outreach sequence from your product.`
+            : `${setupProgress}/4 configured — sender, product (pitch + scoring rubric), channel, outreach sequence.`,
+      href: !productConfigured && senderConfigured
+        ? '/products'
+        : !sequenceConfigured && productConfigured && senderConfigured
+          ? '/settings/templates'
+          : '/settings',
       cta: setupDone
         ? 'Review setup'
-        : !sequenceConfigured && senderConfigured && productConfigured
-          ? 'Generate sequence'
-          : 'Finish setup',
+        : !productConfigured && senderConfigured
+          ? 'Generate ICP rubric'
+          : !sequenceConfigured && productConfigured && senderConfigured
+            ? 'Generate sequence'
+            : 'Finish setup',
       icon: Settings,
       status: setupStatus,
     },

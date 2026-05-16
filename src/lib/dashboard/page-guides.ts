@@ -30,9 +30,9 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
   },
   '/products': {
     title: 'Products',
-    what_is: 'The product profiles the discovery engine pitches to investors. Each product has its own ICP, knowledge base, outreach pitch, and auto-generated outreach sequence.',
-    what_to_do: 'Add a product — paste a URL and let auto-fill draft the ICP. Then click "Generate sequence" on the active product to create a 6-step LinkedIn + email sequence tailored to this pitch.',
-    what_to_expect: 'Active products get a "Find Investors" button that runs a discovery batch and a "Generate sequence" button that writes the outreach copy. Both can be re-run anytime.',
+    what_is: 'The product profiles the discovery engine pitches to investors. Each product has its own ICP, knowledge base, scoring rubric (what counts as a fit), and auto-generated outreach sequence.',
+    what_to_do: 'Add a product — paste a URL and let auto-fill draft the basic ICP. Then on the product card click (1) Generate ICP scoring rubric — required before Find Investors — and (2) Generate sequence — the 6-step outreach copy tailored to this pitch.',
+    what_to_expect: 'Once both are generated, Find Investors runs the scored discovery batch and the sequence flows into Approvals. Both can be regenerated any time the pitch changes.',
     next: { href: '/projects', label: 'Group products into projects' },
   },
   '/projects': {
