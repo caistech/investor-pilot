@@ -22,10 +22,16 @@ async function extractTextFromUrl(url: string): Promise<{ title: string; content
 
 async function extractTextFromFile(buffer: Buffer, fileName: string, mimeType: string): Promise<string> {
   if (mimeType === 'application/pdf' || fileName.endsWith('.pdf')) {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfParse = require('pdf-parse');
-    const data = await pdfParse(buffer);
-    return data.text.slice(0, 50000);
+    // Was `pdf-parse@2.x` but that pulls pdfjs-dist under the hood which
+    // references DOMMatrix (a browser API). On Vercel's serverless Node
+    // runtime that throws "DOMMatrix is not defined" before we get any
+    // text out. unpdf is purpose-built for serverless — zero browser deps,
+    // returns the same string-of-text shape we needed.
+    const { extractText, getDocumentProxy } = await import('unpdf');
+    const pdf = await getDocumentProxy(new Uint8Array(buffer));
+    const { text } = await extractText(pdf, { mergePages: true });
+    const merged = Array.isArray(text) ? text.join('\n\n') : text;
+    return merged.slice(0, 50000);
   }
 
   if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || fileName.endsWith('.docx')) {
