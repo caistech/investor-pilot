@@ -19,6 +19,9 @@ interface GenerateSequenceButtonProps {
   disabledFixHref?: string;
   /** Label for the fix-link (e.g. "Set sender identity"). */
   disabledFixLabel?: string;
+  /** Called after a successful save so parent client components can
+   *  re-fetch state (router.refresh() only re-runs server components). */
+  onSuccess?: () => void;
 }
 
 /**
@@ -34,6 +37,7 @@ export function GenerateSequenceButton({
   disabledReason = null,
   disabledFixHref,
   disabledFixLabel,
+  onSuccess,
 }: GenerateSequenceButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -65,6 +69,7 @@ export function GenerateSequenceButton({
       }
       setSuccess(`Created "${data.template_name}" — ${data.steps_count} steps.`);
       router.refresh();
+      onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

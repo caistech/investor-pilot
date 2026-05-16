@@ -13,6 +13,9 @@ interface GenerateRubricButtonProps {
   disabledReason?: string | null;
   disabledFixHref?: string;
   disabledFixLabel?: string;
+  /** Called after a successful save so parent client components can
+   *  re-fetch state (router.refresh() only re-runs server components). */
+  onSuccess?: () => void;
 }
 
 /**
@@ -26,6 +29,7 @@ export function GenerateRubricButton({
   disabledReason = null,
   disabledFixHref,
   disabledFixLabel,
+  onSuccess,
 }: GenerateRubricButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -56,6 +60,7 @@ export function GenerateRubricButton({
       }
       setSuccess(`Scoring rubric saved (${data.icp_categories.length} categories, ${data.icp_reject_categories.length} reject categories). You can run Find Investors now.`);
       router.refresh();
+      onSuccess?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {

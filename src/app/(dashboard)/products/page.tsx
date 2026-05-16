@@ -655,6 +655,7 @@ export default function ProductsPage() {
                         }
                         disabledFixHref="/products"
                         disabledFixLabel="Edit product"
+                        onSuccess={() => { loadProducts(); loadSetupState(); }}
                       />
                     </div>
                   </div>
@@ -685,6 +686,7 @@ export default function ProductsPage() {
                         }
                         disabledFixHref={setup && !setup.senderConfigured ? '/settings' : '/products'}
                         disabledFixLabel={setup && !setup.senderConfigured ? 'Set sender identity' : 'Edit product'}
+                        onSuccess={() => { loadProducts(); loadSetupState(); }}
                       />
                     </div>
                   </div>
