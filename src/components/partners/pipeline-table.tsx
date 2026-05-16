@@ -248,25 +248,24 @@ export function PipelineTable({
     setMessage(
       action === 'enrich'
         ? `Enriching ${n} prospect${n === 1 ? '' : 's'} now — looking up emails via Hunter.io…`
-        : `Drafting the first message for ${n} prospect${n === 1 ? '' : 's'} now — Claude is writing each one…`,
+        : `Rendering the first sequence step for ${n} prospect${n === 1 ? '' : 's'} now — these will land in Approvals when done…`,
     );
 
     try {
-      const endpoint = `/api/pipeline/${action}`;
-      // For drafting, route by the offering on the first selected partner.
-      // Project-scoped partners (LingoPure Series A and the like) need
-      // project_id sent so the route picks the investor prompt rather
-      // than the product/lender prompt. Falls back to the page-level
-      // productId for legacy product-only rows.
-      const draftOffering = (() => {
-        const first = selectedPartners[0];
-        if (first?.project_id) return { project_id: first.project_id };
-        if (first?.product_id) return { product_id: first.product_id };
-        return { product_id: productId };
-      })();
+      // Enrich runs /api/pipeline/enrich (Hunter.io email lookup).
+      // Draft runs /api/sequences/render-now — synchronous trigger of the
+      // SAME render path the cron uses, so the rendered message lands in
+      // outbound_messages and the sequence_step transitions to
+      // queued_for_approval. That's what Approvals reads from. Earlier
+      // versions called /api/pipeline/draft which writes to
+      // partners.draft_body, which Approvals never sees — operators were
+      // promised "Go to Approvals" and arrived at an empty queue.
+      const endpoint = action === 'enrich'
+        ? '/api/pipeline/enrich'
+        : '/api/sequences/render-now';
       const body = action === 'enrich'
         ? { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId }
-        : { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId, ...draftOffering };
+        : { partner_ids: selectedPartners.map(p => p.id) };
 
       const res = await fetch(endpoint, {
         method: 'POST',
@@ -278,10 +277,22 @@ export function PipelineTable({
       if (!res.ok) {
         setMessage(`Error: ${data.error}`);
       } else {
-        const verb = action === 'enrich' ? 'enriched' : 'drafted';
-        const succeeded = data[verb] || 0;
-        const errored = data.errors || 0;
-        const skipped = data.skipped || data.unresolved || 0;
+        let succeeded: number;
+        let errored: number;
+        let skipped: number;
+
+        if (action === 'enrich') {
+          succeeded = data.enriched || 0;
+          errored = data.errors || 0;
+          skipped = data.skipped || data.unresolved || 0;
+        } else {
+          // render-now returns counts from the cron's tally —
+          // { queued, compliance_blocked, failed, skipped_no_channel }
+          const counts = data.counts || {};
+          succeeded = counts.queued || 0;
+          errored = (counts.failed || 0) + (counts.compliance_blocked || 0);
+          skipped = counts.skipped_no_channel || 0;
+        }
 
         // Use router.refresh() instead of window.location.reload() so the
         // selection survives the server re-fetch — operators previously
@@ -300,12 +311,22 @@ export function PipelineTable({
           // Selection deliberately kept so the operator can flow into
           // step 2 without re-ticking the same rows.
         } else {
-          // Draft completed → the first message is in Approvals.
+          // Render-now completed → the first message is in Approvals.
+          const blockedNote = (data.counts?.compliance_blocked || 0) > 0
+            ? ` (${data.counts.compliance_blocked} blocked by compliance — check Approvals to review).`
+            : '';
+          const channelNote = skipped > 0
+            ? ` ${skipped} skipped — no active channel for that step.`
+            : '';
           setMessage(
-            `Drafted ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n` +
-            `Your messages are ready for review.`,
+            `Rendered ${succeeded} of ${n}.${blockedNote}${channelNote}\n` +
+            (succeeded > 0
+              ? 'Your messages are ready for review.'
+              : 'Nothing landed in Approvals — make sure you ran "2. Assign Sequence" first.'),
           );
-          setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
+          if (succeeded > 0) {
+            setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
+          }
           setSelected(new Set());
         }
       }
@@ -563,9 +584,9 @@ export function PipelineTable({
             onClick={() => batchAction('draft')}
             disabled={loading !== null}
             className="btn-primary text-sm py-1 px-3"
-            title="Step 3 — Generate the first message for each selected partner using the assigned sequence."
+            title="Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run."
           >
-            {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Draft'}
+            {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
           </button>
           <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white ml-auto">
             Clear
