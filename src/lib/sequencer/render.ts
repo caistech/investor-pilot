@@ -129,7 +129,18 @@ export function isWarmTemplate(key: string): boolean {
 }
 
 export function templateChannel(key: string): 'linkedin_connect' | 'linkedin_dm' | 'email' | null {
-  return SEED_TEMPLATES[key]?.channel ?? null;
+  const seed = SEED_TEMPLATES[key]?.channel;
+  if (seed) return seed;
+  // Auto-generated sequences (generate-from-product / generate-from-project)
+  // use template_keys like auto_connect / auto_dm_first / auto_email_fu1.
+  // Their channel is inferable from the key — without this fallback the
+  // assign-batch validator rejects every LLM-generated sequence.
+  if (key.startsWith('auto_')) {
+    if (key.includes('connect')) return 'linkedin_connect';
+    if (key.includes('dm')) return 'linkedin_dm';
+    if (key.includes('email')) return 'email';
+  }
+  return null;
 }
 
 export async function renderStep(
