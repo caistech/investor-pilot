@@ -32,7 +32,7 @@ export interface ScoringPromptProduct {
 export function buildScoringPrompt(product: ScoringPromptProduct): string {
   if (!product.scoring_rubric) {
     throw new Error(
-      'product.scoring_rubric is not set — configure your ICP scoring rubric via /settings before discovering',
+      'scoring_rubric is not set — generate it on the product card (sales) or project card (funding) before running discovery',
     );
   }
 

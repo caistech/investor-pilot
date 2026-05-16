@@ -143,6 +143,11 @@ export async function POST(request: Request) {
 
   // Project takes precedence when both are provided. Each route below
   // resolves 'auto' / missing to the most-recent active row of its kind.
+  // The five scoring/ICP fields (scoring_rubric + 4 ICP lists) live on
+  // both products and projects post-migration 022, so the offering type
+  // includes them and we pull them on the project branch too — otherwise
+  // buildScoringPrompt throws "scoring_rubric is not set" even when the
+  // operator generated a perfectly valid investor rubric.
   let offering: {
     id: string;
     name: string;
@@ -160,6 +165,12 @@ export async function POST(request: Request) {
     funding_target: string | null;
     geography: string | null;
     asset_class: string | null;
+    product_pitch: string | null;
+    scoring_rubric: string | null;
+    icp_categories: string[] | null;
+    icp_partner_type: string | null;
+    icp_reject_categories: string[] | null;
+    icp_special_cases: string[] | null;
   } | null = null;
   let kbSourceQuery: { table: 'product' | 'project'; id: string } | null = null;
 
@@ -180,13 +191,21 @@ export async function POST(request: Request) {
     }
     const { data: project } = await db
       .from('projects')
-      .select('id, name, description, sponsor, project_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions')
+      .select('id, name, description, sponsor, project_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, investment_thesis, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
       .eq('id', project_id)
       .single();
     if (!project) {
       return NextResponse.json({ error: 'Project not found' }, { status: 404 });
     }
-    offering = { ...project, one_sentence_description: null };
+    offering = {
+      ...project,
+      one_sentence_description: null,
+      // buildScoringPrompt uses product_pitch as the "You are a scoring
+      // analyst for X" anchor. Map the project's investment_thesis (or
+      // description as fallback) into that slot so the prompt has a
+      // useful subject line.
+      product_pitch: project.investment_thesis ?? project.description ?? null,
+    };
     kbSourceQuery = { table: 'project', id: project_id };
   } else {
     if (!product_id || product_id === 'auto') {
