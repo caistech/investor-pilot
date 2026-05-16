@@ -30,9 +30,9 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
   },
   '/products': {
     title: 'Products',
-    what_is: 'The product profiles the discovery engine pitches to investors. Each product has its own ICP, knowledge base and outreach pitch.',
-    what_to_do: 'Add a product — paste a URL or product description and let auto-fill draft the ICP. Toggle the product Active when ready.',
-    what_to_expect: 'Active products get a "Find Investors" button that runs a discovery batch. Drafted emails reference this product as the offer.',
+    what_is: 'The product profiles the discovery engine pitches to investors. Each product has its own ICP, knowledge base, outreach pitch, and auto-generated outreach sequence.',
+    what_to_do: 'Add a product — paste a URL and let auto-fill draft the ICP. Then click "Generate sequence" on the active product to create a 6-step LinkedIn + email sequence tailored to this pitch.',
+    what_to_expect: 'Active products get a "Find Investors" button that runs a discovery batch and a "Generate sequence" button that writes the outreach copy. Both can be re-run anytime.',
     next: { href: '/projects', label: 'Group products into projects' },
   },
   '/projects': {
@@ -86,16 +86,16 @@ export const PAGE_GUIDES: Record<string, PageGuide> = {
   },
   '/sequences': {
     title: 'Sequences',
-    what_is: 'The step-by-step outreach templates the system uses — connect → first-touch → follow-up → bump.',
-    what_to_do: 'Inspect each step. Edit body copy via Settings → Sequence templates if the default voice doesn\'t match yours.',
-    what_to_expect: 'Sequence changes apply to every new prospect scheduled after the edit. In-flight prospects stay on their original template.',
+    what_is: 'Read-only view of your outreach templates and in-flight steps. Sequences are auto-generated from each product\'s pitch — go to Products → Generate sequence to create or regenerate one.',
+    what_to_do: 'Inspect each step\'s channel + delay. Edit step body/subject via Settings → Templates.',
+    what_to_expect: 'Sequence changes apply to every new prospect scheduled after the edit. In-flight prospects stay on their original template. A full sequence builder (add/remove steps, multiple sequences per product) is on the roadmap.',
     next: { href: '/dashboard', label: 'Back to dashboard' },
   },
   '/settings/templates': {
     title: 'Sequence templates',
-    what_is: 'The actual body and subject copy for each outreach step. Tokens like {first_name} interpolate per prospect at send time.',
-    what_to_do: 'Edit subject and body for each step. Preview shows a sample render. Save when you\'re happy.',
-    what_to_expect: 'Edits take effect for prospects scheduled after the save. Existing scheduled steps keep their original copy.',
+    what_is: 'The actual body and subject copy for each outreach step. Sequences here are auto-generated from your product pitch — you can regenerate from this page or edit any step inline.',
+    what_to_do: 'If empty, click Generate. Otherwise edit the subject and body for any step. Tokens like {first_name}, {sender_name}, {credit_signal} interpolate per prospect at send time.',
+    what_to_expect: 'Edits take effect for prospects scheduled after the save. Existing scheduled steps keep their original copy. Use "Regenerate" to start over from your latest product pitch.',
     next: { href: '/settings', label: 'Back to settings' },
   },
 };

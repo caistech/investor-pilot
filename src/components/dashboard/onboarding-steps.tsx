@@ -29,7 +29,7 @@ export async function OnboardingSteps({
 }: OnboardingStepsProps) {
   const supabase = createClient();
 
-  const [{ data: org }, { data: primaryProduct }] = await Promise.all([
+  const [{ data: org }, { data: primaryProduct }, { count: sequenceTemplateCount }] = await Promise.all([
     supabase.from('organisations').select('sender_name').eq('id', orgId).maybeSingle(),
     supabase
       .from('products')
@@ -39,13 +39,19 @@ export async function OnboardingSteps({
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle(),
+    supabase
+      .from('sequence_templates')
+      .select('*', { count: 'exact', head: true })
+      .eq('organisation_id', orgId)
+      .eq('is_active', true),
   ]);
 
   const senderConfigured = !!org?.sender_name;
   const productConfigured = !!primaryProduct?.product_pitch && !!primaryProduct?.scoring_rubric;
   const channelConnected = activeChannels > 0;
-  const setupDone = senderConfigured && productConfigured && channelConnected;
-  const setupProgress = [senderConfigured, productConfigured, channelConnected].filter(Boolean).length;
+  const sequenceConfigured = (sequenceTemplateCount ?? 0) > 0;
+  const setupDone = senderConfigured && productConfigured && channelConnected && sequenceConfigured;
+  const setupProgress = [senderConfigured, productConfigured, channelConnected, sequenceConfigured].filter(Boolean).length;
 
   const setupStatus: Status = setupDone ? 'done' : setupProgress > 0 ? 'in_progress' : 'todo';
   const discoverStatus: Status = partnersScored >= 5 ? 'done' : partnersScored > 0 ? 'in_progress' : 'todo';
@@ -57,10 +63,16 @@ export async function OnboardingSteps({
       n: 1,
       title: 'Set up',
       blurb: setupDone
-        ? 'Sender identity, product pitch and a sending channel are all configured.'
-        : `${setupProgress}/3 configured — sender, product pitch, and a connected channel.`,
-      href: '/settings',
-      cta: setupDone ? 'Review setup' : 'Finish setup',
+        ? 'Sender, product, channel and outreach sequence are all configured.'
+        : !sequenceConfigured && senderConfigured && productConfigured
+          ? `${setupProgress}/4 — last step: generate your outreach sequence from your product.`
+          : `${setupProgress}/4 configured — sender, product, sending channel, and outreach sequence.`,
+      href: !sequenceConfigured && senderConfigured && productConfigured ? '/settings/templates' : '/settings',
+      cta: setupDone
+        ? 'Review setup'
+        : !sequenceConfigured && senderConfigured && productConfigured
+          ? 'Generate sequence'
+          : 'Finish setup',
       icon: Settings,
       status: setupStatus,
     },

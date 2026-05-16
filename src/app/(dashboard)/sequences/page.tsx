@@ -43,6 +43,17 @@ export default async function SequencesPage() {
         </div>
       </div>
 
+      {/* Coming-soon notice about full template editing */}
+      <div className="card mb-6 border-blue-500/20 bg-blue-500/5">
+        <p className="text-sm text-blue-300">
+          <span className="font-semibold">Heads-up:</span> sequences are currently auto-generated from
+          each product&apos;s pitch + ICP (Products → Generate sequence). You can edit individual step
+          copy in <Link href="/settings/templates" className="underline">Settings → Templates</Link>.
+          A full sequence builder (add/remove steps, change channels and delays, multiple sequences per
+          product) is on the roadmap.
+        </p>
+      </div>
+
       {/* Templates */}
       <div className="mb-10">
         <h3 className="mb-4">Templates</h3>
@@ -51,8 +62,8 @@ export default async function SequencesPage() {
             <Workflow className="w-10 h-10 text-dark-500 mx-auto mb-3" />
             <p className="text-dark-400">No sequence templates yet.</p>
             <p className="text-dark-500 text-sm mt-1">
-              Templates define the channel + delay + message-template pattern for each touchpoint.
-              Template creation UI is a Phase 2 deliverable.
+              Visit <Link href="/products" className="text-corp-green-400 underline">Products</Link> and click
+              &ldquo;Generate sequence&rdquo; on any active product to auto-create a tailored 6-step sequence.
             </p>
           </div>
         ) : (

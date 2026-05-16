@@ -6,6 +6,7 @@ import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Tr
 import Link from 'next/link';
 import type { Product } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
+import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 
 const DETAIL_FIELDS = [
   { key: 'core_mechanism', label: 'Core Mechanism' },
@@ -670,6 +671,15 @@ export default function ProductsPage() {
                         )}
                       </div>
                     )}
+                  </div>
+
+                  {/* Outreach sequence — auto-generate tailored to this product */}
+                  <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
+                    <p className="text-sm font-medium text-blue-400">Outreach sequence</p>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3">
+                      Generate a 6-step LinkedIn + email sequence tailored to this product&apos;s pitch and ICP. Replaces any prior auto-generated sequence for this audience.
+                    </p>
+                    <GenerateSequenceButton productId={p.id} variant="secondary" label="Generate / regenerate sequence" confirmBeforeRun />
                   </div>
 
                   <div className="flex gap-2 mt-4 mb-4">
