@@ -16,6 +16,10 @@ export interface ApprovalItem {
   rendered_body: string;
   compliance_check: { pass: boolean; blocked: boolean; flags: Array<{ level: string; reason: string; match: string }> } | null;
   personalization_score: number | null;
+  /** Set when the renderer translated the body to a non-English target. */
+  target_language: string | null;
+  original_subject: string | null;
+  original_body: string | null;
 }
 
 export default async function ApprovalsPage() {
@@ -40,7 +44,7 @@ export default async function ApprovalsPage() {
         partner_id,
         outbound_message_id,
         partners ( id, company_name, weighted_score ),
-        outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score )
+        outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score, evidence_refs )
       `)
       .eq('organisation_id', profile.organisation_id)
       .eq('status', 'queued_for_approval')
@@ -52,6 +56,7 @@ export default async function ApprovalsPage() {
       // Normalise both partners and outbound_messages to a single object.
       const partner = Array.isArray(s.partners) ? s.partners[0] : s.partners;
       const message = Array.isArray(s.outbound_messages) ? s.outbound_messages[0] : s.outbound_messages;
+      const evidenceRefs = (message?.evidence_refs ?? {}) as Record<string, unknown>;
       return {
         step_id: s.id,
         message_id: message?.id || s.outbound_message_id,
@@ -64,6 +69,11 @@ export default async function ApprovalsPage() {
         rendered_body: message?.rendered_body || '',
         compliance_check: message?.compliance_check || null,
         personalization_score: message?.personalization_score ?? null,
+        target_language: typeof evidenceRefs.target_language === 'string' ? evidenceRefs.target_language : null,
+        original_subject: typeof evidenceRefs.original_subject === 'string' ? evidenceRefs.original_subject : null,
+        original_body: typeof evidenceRefs.original_body === 'string' && evidenceRefs.original_body.length > 0
+          ? evidenceRefs.original_body
+          : null,
       };
     });
   }

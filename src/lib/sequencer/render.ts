@@ -251,31 +251,166 @@ export async function renderStep(
     body = injectValueOffer(body, signal.valueOfferLead);
   }
 
+  // Localization. If the recipient's geography suggests a non-English
+  // primary language, translate the rendered body + subject. Keeps the
+  // English original in evidence_refs so the operator can verify in
+  // Approvals before sending. Skips translation when the offering's own
+  // geography matches the recipient's (both English-speaking, or both
+  // same locale) or when target language detection returns null.
+  const targetLanguage = detectTargetLanguage(partner.offering_context?.recipient_geography);
+  let originalSubject = subject;
+  let originalBody = body;
+  let finalSubject = subject;
+  let finalBody = body;
+  if (targetLanguage) {
+    try {
+      const translated = await translateMessage({
+        subject,
+        body,
+        targetLanguage,
+        recipientName: partner.contact_name,
+      });
+      finalSubject = translated.subject;
+      finalBody = translated.body;
+    } catch (err) {
+      // Translation failed — fall back to English rather than blocking.
+      // Operator sees English in Approvals; better than an empty message.
+      console.warn(`[render] translation to ${targetLanguage} failed for ${partner.company_name}, sending in English:`, err);
+    }
+  } else {
+    // No translation — clear the "original" markers so evidence_refs
+    // doesn't claim a translation happened.
+    originalSubject = null;
+    originalBody = '';
+  }
+
   // LinkedIn connect notes are hard-capped by LinkedIn at 300 chars. Reject
   // rather than truncate — truncating mid-sentence reads worse than re-rendering
-  // with a shorter credit_signal.
-  if (tpl.max_chars && body.length > tpl.max_chars) {
+  // with a shorter credit_signal. Check the FINAL (post-translation) body
+  // since translations vary in length per language.
+  if (tpl.max_chars && finalBody.length > tpl.max_chars) {
     return {
       ok: false,
-      reason: `Rendered body ${body.length} chars exceeds max ${tpl.max_chars} for ${templateKey}`,
+      reason: `Rendered body ${finalBody.length} chars exceeds max ${tpl.max_chars} for ${templateKey}${targetLanguage ? ` (after translation to ${targetLanguage})` : ''}`,
       blocker: 'no_credit_signal', // operator should re-discover with tighter signal
     };
   }
 
   return {
     ok: true,
-    subject,
-    body,
+    subject: finalSubject,
+    body: finalBody,
     evidence_refs: {
       template_key: templateKey,
       credit_signal: signal?.short || (warm ? 'warm_relationship' : ''),
       signal_specificity: signal?.specificity || (warm ? 'first_degree_connection' : ''),
       partner_score: partner.weighted_score,
       warm,
+      target_language: targetLanguage,
+      // Keep the English original so the Approvals card can show a
+      // "view English original" toggle for operator verification.
+      original_subject: originalSubject,
+      original_body: originalBody,
     },
     personalization_score: warm
       ? warmPersonalizationScore(partner.weighted_score)
       : personalizationScore(signal!.specificity, partner.weighted_score),
+  };
+}
+
+/**
+ * Map a free-text geography / category string ("Vietnam Series A B2B SaaS
+ * investor", "Tokyo family office", "Riyadh PIF") to a target locale code.
+ * Returns null when no clear non-English target is detected — caller
+ * keeps the English rendering.
+ *
+ * Deliberately conservative: only fires for markets where English is
+ * clearly not the dominant business communication language. US/UK/AU/CA/
+ * Singapore/HK/India default to English even when geography is mentioned.
+ */
+function detectTargetLanguage(geography: string | null | undefined): string | null {
+  if (!geography) return null;
+  const g = geography.toLowerCase();
+  // Order matters — most specific regions first.
+  const map: Array<[RegExp, string]> = [
+    [/\b(vietnam|viet|hanoi|ho chi minh|saigon)\b/, 'Vietnamese'],
+    [/\b(korea|seoul|korean)\b/, 'Korean'],
+    [/\b(japan|tokyo|osaka|kyoto|japanese)\b/, 'Japanese'],
+    [/\b(thai|thailand|bangkok)\b/, 'Thai'],
+    [/\b(indonesi|jakarta|bali)\b/, 'Indonesian'],
+    [/\b(china|chinese|beijing|shanghai|shenzhen|taiwan|taipei)\b/, 'Simplified Chinese'],
+    [/\b(hong kong|hk)\b/, 'Traditional Chinese'],
+    [/\b(saudi|riyadh|jeddah|emirat|uae|dubai|abu dhabi|qatar|doha|kuwait|bahrain|oman)\b/, 'Arabic'],
+    [/\b(brazil|brasil|sao paulo|rio de janeiro|portuguese)\b/, 'Brazilian Portuguese'],
+    [/\b(mexico|mexican|spain|spanish|madrid|barcelona|argent|colomb|chile|santiago|peru|lima)\b/, 'Spanish'],
+    [/\b(france|paris|french|monaco|lyon|marseille)\b/, 'French'],
+    [/\b(german|germany|berlin|munich|frankfurt|austria|vienna|swiss german)\b/, 'German'],
+    [/\b(itali|rome|milan|italian)\b/, 'Italian'],
+    [/\b(turkey|turkish|istanbul|ankara)\b/, 'Turkish'],
+    [/\b(russia|moscow|russian)\b/, 'Russian'],
+  ];
+  for (const [pattern, language] of map) {
+    if (pattern.test(g)) return language;
+  }
+  return null;
+}
+
+/**
+ * Translate a rendered message to the target language using Claude. Keeps
+ * tone (professional, founder-to-investor / founder-to-partner) and
+ * preserves the offering name, sender name, and any URLs verbatim.
+ *
+ * Single short Claude call (~5-8s). The renderer already produced the
+ * English message — this is post-processing, not regeneration. Bounded
+ * by the same 12s AbortSignal pattern as the other render-path calls.
+ */
+async function translateMessage(args: {
+  subject: string | null;
+  body: string;
+  targetLanguage: string;
+  recipientName: string | null;
+}): Promise<{ subject: string | null; body: string }> {
+  const { subject, body, targetLanguage, recipientName } = args;
+  const recipientLine = recipientName ? `Recipient first-name: ${recipientName.trim().split(/\s+/)[0]}` : '';
+  const subjectLine = subject ? `SUBJECT (translate):\n${subject}\n\n` : '';
+  const prompt = `Translate this business outreach message to natural, professional ${targetLanguage}. ${recipientLine}
+
+Rules:
+- Preserve the recipient's first name as written (don't transliterate or change it).
+- Preserve proper nouns: company names, sender name, URLs, product names.
+- Preserve numbers / dates / dollar amounts as written, but localise currency words if appropriate.
+- Match the tone: professional, direct, founder-to-investor / founder-to-partner. Not overly formal.
+- DO NOT add greetings, signoffs, or content that isn't in the source.
+- DO NOT add commentary about the translation.
+
+${subjectLine}BODY (translate):
+${body}
+
+Return ONLY JSON with no prose:
+{
+  "subject": ${subject ? '"<translated subject>"' : 'null'},
+  "body": "<translated body, preserving line breaks>"
+}`;
+
+  const response = await client.messages.create(
+    {
+      model: MODEL,
+      max_tokens: 2000,
+      system: prompt,
+      messages: [{ role: 'user', content: `Translate to ${targetLanguage}.` }],
+    },
+    { signal: AbortSignal.timeout(12_000) },
+  );
+
+  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    throw new Error(`Translation LLM returned no JSON object: ${text.slice(0, 200)}`);
+  }
+  const parsed = JSON.parse(jsonMatch[0]);
+  return {
+    subject: typeof parsed.subject === 'string' ? parsed.subject : subject,
+    body: typeof parsed.body === 'string' && parsed.body.trim().length > 0 ? parsed.body : body,
   };
 }
 

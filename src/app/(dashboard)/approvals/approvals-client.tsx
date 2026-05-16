@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw, Languages } from 'lucide-react';
 import type { ApprovalItem } from './page';
 
 interface Props {
@@ -180,6 +180,13 @@ function ApprovalCard({
   const [editing, setEditing] = useState(false);
   const [editSubject, setEditSubject] = useState(item.rendered_subject || '');
   const [editBody, setEditBody] = useState(item.rendered_body);
+  // Translation toggle: when a non-English target language is set, the
+  // operator can flip between the localised version (sent to the recipient)
+  // and the English original (for sanity-checking the translation).
+  const hasTranslation = !!item.target_language && !!item.original_body;
+  const [showOriginal, setShowOriginal] = useState(false);
+  const visibleSubject = showOriginal && item.original_subject !== null ? item.original_subject : item.rendered_subject;
+  const visibleBody = showOriginal && item.original_body ? item.original_body : item.rendered_body;
 
   function startEdit() {
     setEditSubject(item.rendered_subject || '');
@@ -273,6 +280,22 @@ function ApprovalCard({
       )}
 
       <div className="border-t border-dark-700 pt-4 mb-4">
+        {hasTranslation && !editing && (
+          <div className="flex items-center gap-2 mb-3 text-xs">
+            <Languages className="w-3.5 h-3.5 text-blue-400" />
+            <span className="text-blue-400">
+              {showOriginal
+                ? `Showing English original — recipient will receive the ${item.target_language} version`
+                : `Translated to ${item.target_language} · sent in recipient's language`}
+            </span>
+            <button
+              onClick={() => setShowOriginal(s => !s)}
+              className="ml-2 text-dark-400 hover:text-white underline underline-offset-2"
+            >
+              {showOriginal ? `View ${item.target_language}` : 'View English original'}
+            </button>
+          </div>
+        )}
         {item.rendered_subject !== null && (
           editing ? (
             <input
@@ -286,7 +309,7 @@ function ApprovalCard({
           ) : (
             <p className="text-sm">
               <span className="text-dark-500">Subject: </span>
-              <span className="font-medium">{item.rendered_subject}</span>
+              <span className="font-medium">{visibleSubject}</span>
             </p>
           )
         )}
@@ -300,7 +323,7 @@ function ApprovalCard({
           />
         ) : (
           <pre className="text-sm whitespace-pre-wrap mt-2 text-dark-200 font-sans">
-            {item.rendered_body}
+            {visibleBody}
           </pre>
         )}
       </div>
