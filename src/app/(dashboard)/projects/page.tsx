@@ -42,6 +42,7 @@ const EMPTY_FORM: Omit<Project, 'id' | 'organisation_id' | 'created_at' | 'updat
   asset_class: '',
   pitch_deck_url: '',
   one_pager_url: '',
+  compliance_mode: 'standard',
   core_mechanism: '',
   customer_outcomes: '',
   icp_company_size: '',
@@ -141,6 +142,7 @@ export default function ProjectsPage() {
       asset_class: project.asset_class || '',
       pitch_deck_url: project.pitch_deck_url || '',
       one_pager_url: project.one_pager_url || '',
+      compliance_mode: project.compliance_mode || 'standard',
       core_mechanism: project.core_mechanism || '',
       customer_outcomes: project.customer_outcomes || '',
       icp_company_size: project.icp_company_size || '',
@@ -440,6 +442,26 @@ export default function ProjectsPage() {
               className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none resize-y"
               placeholder="One-paragraph pitch describing what's being funded, terms, security, and structure — from the lender's perspective."
             />
+          </div>
+
+          {/* Compliance ruleset — per-project, picked from the four
+              built-in presets in src/lib/compliance/rules.ts. Inherited
+              by every sequence template generated for this project. */}
+          <div className="mb-6">
+            <label className="block text-sm text-dark-300 mb-1">
+              Compliance ruleset <span className="text-dark-600">— applied to every message sent for this project</span>
+            </label>
+            <select
+              value={form.compliance_mode || 'standard'}
+              onChange={(e) => setForm({ ...form, compliance_mode: e.target.value })}
+              className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+            >
+              <option value="standard">Standard — light-touch (blocks &ldquo;guarantee&rdquo; / &ldquo;risk-free&rdquo;). Default for new projects.</option>
+              <option value="finance_au_senior_debt">Finance AU — Senior debt (strict; blocks tokenisation / yield language, $-figures must be approved set)</option>
+              <option value="finance_au_wholesale">Finance AU — Wholesale junior debt (same rules as senior_debt, reserved)</option>
+              <option value="finance_us">Finance US — standard + future Reg D rules (reserved)</option>
+            </select>
+            <p className="text-xs text-dark-500 mt-1">Pick the ruleset matching this project&apos;s regulatory domain. LingoPure EdTech → Standard. F2K Australian credit → Finance AU Senior debt. Inherited by every sequence template generated for this project.</p>
           </div>
 
           {/* Courtesy-contract attachments — surfaced in outreach as the

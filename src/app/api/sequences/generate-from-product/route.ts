@@ -73,7 +73,7 @@ export async function POST(request: Request) {
   const [{ data: product }, { data: org }, { data: kbRows }] = await Promise.all([
     db
       .from('products')
-      .select('id, name, one_sentence_description, product_pitch, core_mechanism, customer_outcomes, icp_buyer_title, icp_verticals, icp_company_size, asset_class, geography, ticket_size_min_label, ticket_size_max_label, partner_types')
+      .select('id, name, one_sentence_description, product_pitch, core_mechanism, customer_outcomes, icp_buyer_title, icp_verticals, icp_company_size, asset_class, geography, ticket_size_min_label, ticket_size_max_label, partner_types, compliance_mode')
       .eq('id', productId)
       .single(),
     db
@@ -134,7 +134,10 @@ export async function POST(request: Request) {
     name: result.template_name,
     description: result.template_description,
     vertical: result.vertical,
-    compliance_mode: 'standard',
+    // Inherits from product.compliance_mode (migration 026). Operator
+    // picks per-product in the product edit form; brand-new rows
+    // default to 'standard' (light-touch).
+    compliance_mode: (product.compliance_mode as string) || 'standard',
     is_active: true,
     // Routing tag — assign-batch uses this to pick the right template
     // per partner (product-scoped partners get target_kind='product'

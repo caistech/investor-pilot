@@ -179,38 +179,36 @@ export default async function SettingsPage() {
           </div>
         </div>
 
-        {/* Compliance mode */}
+        {/* Compliance mode — reference card. Actual selection is per
+            project/product (migration 026). This card just shows what
+            rulesets exist + points the operator at the right place to
+            switch them. */}
         <div className="card">
           <h4 className="mb-4 flex items-center gap-2">
             <ShieldCheck className="w-5 h-5 text-corp-green-400" />
-            Compliance mode
+            Compliance rulesets (reference)
           </h4>
           <p className="text-dark-400 text-sm mb-4">
-            Determines which pre-send filter rule set applies to outbound messages.
-            Rule sets are defined in <code className="text-dark-300">src/lib/compliance/rules.ts</code>.
+            Compliance rulesets are picked <b>per project and per product</b> — open the project or product card to switch ruleset for that offering. The list below is the catalogue of available rulesets.
           </p>
           <div className="space-y-2 text-sm">
             {[
-              { id: 'finance_au_senior_debt', label: 'Finance AU — Senior debt (current)', active: true },
-              { id: 'finance_au_wholesale', label: 'Finance AU — Wholesale (deferred)', active: false },
-              { id: 'finance_us', label: 'Finance US (reserved)', active: false },
-              { id: 'standard', label: 'Standard / no industry-specific rules', active: false },
+              { id: 'standard', label: 'Standard — light-touch (default for new projects)', desc: 'Blocks only "guarantee" / "risk-free". Right for most SaaS, EdTech, B2B, non-regulated outreach.' },
+              { id: 'finance_au_senior_debt', label: 'Finance AU — Senior debt', desc: 'Strict. Blocks tokenisation/crypto/yield/double-digit, requires $-figures from approved set. Right for AU credit / wholesale debt to lenders.' },
+              { id: 'finance_au_wholesale', label: 'Finance AU — Wholesale (reserved)', desc: 'Reserved for the deferred $125K wholesale junior-debt channel. Currently mirrors senior_debt.' },
+              { id: 'finance_us', label: 'Finance US (reserved)', desc: 'Reserved for future US Reg D expansion. Currently mirrors standard.' },
             ].map(mode => (
               <div
                 key={mode.id}
-                className={`p-3 rounded-lg border flex items-center justify-between ${
-                  mode.active ? 'border-corp-green-500/40 bg-corp-green-500/5' : 'border-dark-700 bg-dark-900'
-                }`}
+                className="p-3 rounded-lg border border-dark-700 bg-dark-900"
               >
-                <span>{mode.label}</span>
-                {mode.active && <span className="badge-green">Active</span>}
+                <div className="font-medium text-dark-200">{mode.label}</div>
+                <p className="text-xs text-dark-500 mt-0.5">{mode.desc}</p>
               </div>
             ))}
           </div>
           <p className="text-dark-500 text-xs mt-3">
-            Mode switching UI is a Sprint 1 deliverable — currently mode is set per
-            sequence_templates.compliance_mode. Counsel can update specific rules without
-            code change once rule content is moved to JSON config.
+            Pick the ruleset per project on the <Link href="/projects" className="text-corp-green-400 underline">Projects</Link> card (Edit) or per product on the <Link href="/products" className="text-corp-green-400 underline">Products</Link> card. New sequences generated after the change inherit the new ruleset; existing in-flight messages keep theirs.
           </p>
         </div>
 

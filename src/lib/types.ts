@@ -87,6 +87,11 @@ export interface Project {
   // cold outreach as the value-offer link — saves the recipient asking.
   pitch_deck_url: string | null;
   one_pager_url: string | null;
+  // Pre-send compliance ruleset (migration 026). Inherited by every
+  // sequence template generated for this project. Operator picks the
+  // appropriate ruleset per project — F2K credit work needs strict
+  // finance_au_senior_debt, LingoPure EdTech needs light-touch standard.
+  compliance_mode: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;

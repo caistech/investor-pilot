@@ -43,7 +43,7 @@ export async function POST(request: Request) {
   const [{ data: project }, { data: org }, { data: kbRows }] = await Promise.all([
     db
       .from('projects')
-      .select('id, organisation_id, name, description, investment_thesis, sponsor, project_type, funding_target, target_round, round_size_label, geography, asset_class, partner_types, icp_buyer_title')
+      .select('id, organisation_id, name, description, investment_thesis, sponsor, project_type, funding_target, target_round, round_size_label, geography, asset_class, partner_types, icp_buyer_title, compliance_mode')
       .eq('id', projectId)
       .single(),
     db
@@ -106,7 +106,10 @@ export async function POST(request: Request) {
     name: result.template_name,
     description: result.template_description,
     vertical: result.vertical,
-    compliance_mode: 'standard',
+    // Compliance mode inherits from the project row (migration 026 ─
+    // operators pick the appropriate ruleset per project). Fallback to
+    // 'standard' (light-touch) when the column is null on legacy rows.
+    compliance_mode: (project.compliance_mode as string) || 'standard',
     is_active: true,
     // Routing tag — assign-batch uses this to pick the right template
     // per partner (project-scoped partners get target_kind='project'
