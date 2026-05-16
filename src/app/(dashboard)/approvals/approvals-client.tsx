@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw } from 'lucide-react';
 import type { ApprovalItem } from './page';
 
 interface Props {
@@ -28,6 +28,48 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
         return;
       }
       setItems(items.filter(i => i.step_id !== stepId));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function regenerate(stepId: string) {
+    setBusyId(stepId);
+    setError(null);
+    try {
+      const res = await fetch(`/api/approvals/${stepId}/regenerate`, { method: 'POST' });
+      const rawBody = await res.text();
+      let json: { [k: string]: unknown };
+      try { json = JSON.parse(rawBody); } catch {
+        setError(`/api/approvals/${stepId}/regenerate returned HTTP ${res.status} non-JSON: ${rawBody.slice(0, 200)}`);
+        return;
+      }
+      if (!res.ok) {
+        setError((json.error as string) || `${res.status} ${res.statusText}`);
+        return;
+      }
+      // If the regenerated step is still queued, patch the card with the
+      // fresh body. If it went to compliance_blocked / failed (e.g.
+      // no_credit_signal again), drop it from the list — the operator
+      // should re-enrich evidence and re-render from Prospects.
+      if (json.new_status === 'queued_for_approval' && json.rendered_body) {
+        setItems(items.map(i => i.step_id === stepId
+          ? { ...i,
+              rendered_subject: (json.rendered_subject as string | null) ?? i.rendered_subject,
+              rendered_body: json.rendered_body as string,
+              compliance_check: (json.compliance_check as ApprovalItem['compliance_check']) ?? i.compliance_check,
+              personalization_score: (json.personalization_score as number | null) ?? i.personalization_score,
+            }
+          : i));
+      } else {
+        setItems(items.filter(i => i.step_id !== stepId));
+        setError(
+          `Draft regenerated but new status is "${json.new_status}". ` +
+          `Likely no_credit_signal — re-enrich this partner's evidence on the Prospects page, then re-render.`,
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -109,6 +151,7 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
                 if (reason) act(item.step_id, 'flag', { reason });
               }}
               onSave={(subject, body) => saveEdit(item.step_id, subject, body)}
+              onRegenerate={() => regenerate(item.step_id)}
             />
           ))}
         </div>
@@ -124,6 +167,7 @@ function ApprovalCard({
   onSkip,
   onFlag,
   onSave,
+  onRegenerate,
 }: {
   item: ApprovalItem;
   busy: boolean;
@@ -131,6 +175,7 @@ function ApprovalCard({
   onSkip: () => void;
   onFlag: () => void;
   onSave: (subject: string | null, body: string) => Promise<boolean>;
+  onRegenerate: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [editSubject, setEditSubject] = useState(item.rendered_subject || '');
@@ -305,6 +350,15 @@ function ApprovalCard({
             >
               <Edit3 className="w-4 h-4" />
               Edit
+            </button>
+            <button
+              onClick={onRegenerate}
+              disabled={busy}
+              className="btn-secondary flex items-center gap-2 text-sm"
+              title="Drop this draft and re-render using the current prompts + extractors. Useful for refreshing drafts produced before a fix landed."
+            >
+              <RotateCw className="w-4 h-4" />
+              Regenerate
             </button>
             <button
               onClick={onApprove}
