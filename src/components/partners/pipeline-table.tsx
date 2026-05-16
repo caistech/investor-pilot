@@ -492,24 +492,26 @@ export function PipelineTable({
             onClick={() => batchAction('enrich')}
             disabled={loading !== null}
             className="btn-secondary text-sm py-1 px-3"
+            title="Step 1 — Hunter.io email lookup for selected partners."
           >
-            {loading === 'enrich' ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Enrich Selected'}
-          </button>
-          <button
-            onClick={() => batchAction('draft')}
-            disabled={loading !== null}
-            className="btn-secondary text-sm py-1 px-3"
-          >
-            {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Draft Selected'}
+            {loading === 'enrich' ? <Loader2 className="w-3 h-3 animate-spin" /> : '1. Enrich'}
           </button>
           <button
             onClick={batchAssignSequences}
             disabled={loading !== null}
-            className="btn-primary text-sm py-1 px-3 inline-flex items-center gap-1.5"
-            title="Auto-routes: 1st-degree → warm DM sequence, others → cold sequence. Skips partners already on a sequence."
+            className="btn-secondary text-sm py-1 px-3 inline-flex items-center gap-1.5"
+            title="Step 2 — Auto-routes: 1st-degree → warm DM sequence, others → cold sequence. Skips partners already on a sequence."
           >
             {loading === 'assign' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-            Assign Sequences
+            2. Assign Sequence
+          </button>
+          <button
+            onClick={() => batchAction('draft')}
+            disabled={loading !== null}
+            className="btn-primary text-sm py-1 px-3"
+            title="Step 3 — Generate the first message for each selected partner using the assigned sequence."
+          >
+            {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Draft'}
           </button>
           <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white ml-auto">
             Clear
