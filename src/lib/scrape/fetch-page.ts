@@ -74,7 +74,7 @@ export async function fetchPageContent(url: string): Promise<FetchPageResult> {
 
 async function fetchViaFirecrawl(url: string, apiKey: string): Promise<FetchPageResult> {
   try {
-    const res = await fetch(`${FIRECRAWL_BASE}/v1/scrape`, {
+    const res = await fetch(`${FIRECRAWL_BASE}/v2/scrape`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${apiKey}`,
