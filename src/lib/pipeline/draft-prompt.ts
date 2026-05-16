@@ -131,9 +131,15 @@ export function buildInvestorDraftPrompt(
   project: InvestorDraftPromptProject,
   sender: DraftPromptSender,
 ): string {
-  if (!project.investment_thesis) {
+  // Fall back to description when investment_thesis isn't filled. The
+  // setup gate also accepts description-as-thesis (so operators can run
+  // Discover/Score/Sequence before drafting a polished thesis), and we
+  // don't want Draft to be the only stage that refuses. If neither is
+  // set there's genuinely nothing to pitch — that's the only hard error.
+  const pitch = project.investment_thesis || project.description;
+  if (!pitch) {
     throw new Error(
-      'project.investment_thesis is not set — open the project card and generate the pitch before drafting',
+      'project has no investment_thesis or description — open the project card and add at least a one-line pitch before drafting',
     );
   }
 
@@ -150,7 +156,7 @@ export function buildInvestorDraftPrompt(
 
   return `You are an outreach email writer pitching the following raise to an investor:
 
-${project.investment_thesis}
+${pitch}
 
 ${[roundLine, assetGeoLine, sponsorLine].filter(Boolean).join(' ')}
 
