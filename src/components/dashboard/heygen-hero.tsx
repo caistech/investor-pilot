@@ -10,6 +10,7 @@ interface VideoState {
   loading: boolean;
   url: string | null;
   unconfigured: boolean;
+  personalised: boolean;
 }
 
 /**
@@ -25,7 +26,7 @@ interface VideoState {
  *   - The video state hasn't loaded yet (avoids a flash of empty hero)
  */
 export function HeygenHero() {
-  const [video, setVideo] = useState<VideoState>({ loading: true, url: null, unconfigured: false });
+  const [video, setVideo] = useState<VideoState>({ loading: true, url: null, unconfigured: false, personalised: false });
   const [dismissed, setDismissed] = useState<boolean>(true); // start dismissed; re-evaluate on mount
 
   useEffect(() => {
@@ -46,18 +47,19 @@ export function HeygenHero() {
     // Fetch the playable URL from the server (which calls Heygen status endpoint).
     fetch('/api/dashboard/heygen-video')
       .then((r) => r.json())
-      .then((data: { ok: boolean; url?: string; status?: string }) => {
+      .then((data: { ok: boolean; url?: string; status?: string; personalised?: boolean }) => {
         if (data.ok && data.url) {
-          setVideo({ loading: false, url: data.url, unconfigured: false });
+          setVideo({ loading: false, url: data.url, unconfigured: false, personalised: data.personalised === true });
         } else {
           setVideo({
             loading: false,
             url: null,
             unconfigured: data.status === 'unconfigured',
+            personalised: false,
           });
         }
       })
-      .catch(() => setVideo({ loading: false, url: null, unconfigured: false }));
+      .catch(() => setVideo({ loading: false, url: null, unconfigured: false, personalised: false }));
   }, []);
 
   function dismiss() {
@@ -85,6 +87,11 @@ export function HeygenHero() {
       <div className="flex items-center gap-2 mb-3 text-sm text-dark-400">
         <PlayCircle className="w-4 h-4 text-corp-green-400" />
         Welcome to InvestorPilot — quick tour
+        {!video.personalised && (
+          <span className="text-xs text-dark-500" title="Your personalised version is rendering — refresh in ~2 min to see it">
+            · personalised version rendering
+          </span>
+        )}
       </div>
       <video
         src={video.url}
