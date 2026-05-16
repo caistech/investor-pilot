@@ -5,8 +5,11 @@ import { Sparkles, Loader2, ShieldCheck } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 
 interface GenerateRubricButtonProps {
-  productId: string;
-  /** True when product.scoring_rubric is already populated — switches the
+  /** Either a product or a project. The button picks the right route +
+   *  copy based on which id is non-null. */
+  productId?: string;
+  projectId?: string;
+  /** True when scoring_rubric is already populated — switches the
    *  button to a regenerate state with confirmation. */
   alreadyConfigured: boolean;
   /** Non-null = button disabled with this reason shown inline. */
@@ -25,12 +28,19 @@ interface GenerateRubricButtonProps {
  */
 export function GenerateRubricButton({
   productId,
+  projectId,
   alreadyConfigured,
   disabledReason = null,
   disabledFixHref,
   disabledFixLabel,
   onSuccess,
 }: GenerateRubricButtonProps) {
+  const isProject = !!projectId;
+  const route = isProject ? '/api/projects/generate-scoring-rubric' : '/api/products/generate-scoring-rubric';
+  const payload = isProject ? { project_id: projectId } : { product_id: productId };
+  const labelKind = isProject ? 'investor' : 'ICP';
+  const verb = alreadyConfigured ? 'Regenerate' : 'Generate';
+  const buttonLabel = `${verb} ${labelKind} scoring rubric`;
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -48,10 +58,10 @@ export function GenerateRubricButton({
     setSuccess(null);
     setBusy(true);
     try {
-      const res = await fetch('/api/products/generate-scoring-rubric', {
+      const res = await fetch(route, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ product_id: productId }),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {
@@ -78,11 +88,7 @@ export function GenerateRubricButton({
         className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : alreadyConfigured ? <ShieldCheck className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
-        {busy
-          ? 'Generating…'
-          : alreadyConfigured
-            ? 'Regenerate ICP scoring rubric'
-            : 'Generate ICP scoring rubric'}
+        {busy ? 'Generating…' : buttonLabel}
       </button>
       {blocked && (
         <p className="mt-2 text-sm text-amber-400 max-w-2xl">

@@ -28,7 +28,7 @@ const HEYGEN_BASE = 'https://api.heygen.com';
 const POLL_INTERVAL_MS = 20_000;
 const POLL_MAX_MS = 15 * 60 * 1000;
 
-const SCRIPT = `Welcome to InvestorPilot. The AI-powered platform that finds investors, opens conversations, and tracks every reply — so you can focus on closing. We use AI for everything. This video you're watching right now is AI-generated. The discovery engine uses AI to find prospects on LinkedIn. The draft writer crafts each personalised email with AI. And the conversation tracker brings it all home. Let's get started.`;
+const SCRIPT = `Welcome to InvestorPilot. The AI-powered platform that finds the right people, opens conversations, and tracks every reply — so you can focus on closing. InvestorPilot runs in two modes. Use Products to find customers, channel partners, and resellers for what you sell. Use Projects to find investors, lenders, and capital providers for what you're raising. Same engine, same workflow. You pick the path. We use AI for everything. This video you're watching right now is AI-generated. The discovery engine uses AI to find prospects on LinkedIn. The draft writer crafts each personalised message with AI. And the conversation tracker brings it all home. Let's get started.`;
 
 const apiKey = process.env.HEYGEN_API_KEY;
 if (!apiKey) {

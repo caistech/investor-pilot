@@ -6,6 +6,8 @@ import { Plus, Briefcase, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, 
 import Link from 'next/link';
 import type { Project, ProjectType } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
+import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
+import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 
 const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
   senior_debt: 'Senior debt',
@@ -505,13 +507,97 @@ export default function ProjectsPage() {
                       ))}
                   </div>
 
-                  {/* Find Investors */}
-                  <div className="mb-4 p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20">
+                  {/* ───────────────────────────────────────────────────────────
+                       Setup flow — top-to-bottom in the order needed.
+                       0 → upload investment materials
+                       1 → generate investor scoring rubric
+                       2 → generate investor outreach sequence
+                       3 → Find Investors (gated on rubric) */}
+
+                  {/* Step 0: Knowledge Base (investment materials) */}
+                  <div className="mb-3 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-bold">0</span>
+                      <p className="text-sm font-medium text-purple-300">Investment materials — upload first</p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      Upload pitch deck, financials, data room links, term sheets, market memo. Step 1 and 2 read from this — the more attached, the more accurately the AI describes the deal to investors.
+                    </p>
+                    <div className="ml-7">
+                      <SourceManager projectId={p.id} />
+                    </div>
+                  </div>
+
+                  {/* Step 1: Investor scoring rubric */}
+                  <div className="mb-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold">1</span>
+                      <p className="text-sm font-medium text-amber-400">
+                        Investor scoring rubric {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? '— configured ✓' : '— not configured'}
+                      </p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      The rubric the discovery scorer uses to rank candidate investors 1–10 across capital fit, asset-class alignment, ticket band, track record and reachability. <strong className="text-amber-300">Required before Find Investors can run.</strong>
+                    </p>
+                    <div className="ml-7">
+                      <GenerateRubricButton
+                        projectId={p.id}
+                        alreadyConfigured={!!(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                        disabledReason={
+                          !p.is_active
+                            ? 'Activate this project first.'
+                            : !p.description && !(p as unknown as { investment_thesis?: string | null }).investment_thesis
+                              ? 'This project has no description or investment thesis yet — add one before generating a rubric.'
+                              : null
+                        }
+                        disabledFixHref="/projects"
+                        disabledFixLabel="Edit project"
+                        onSuccess={() => loadProjects()}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Step 2: Investor outreach sequence */}
+                  <div className="mb-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">2</span>
+                      <p className="text-sm font-medium text-blue-400">Investor outreach sequence</p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      Generate a 6-step LinkedIn + email sequence in credit-conversation / IC-meeting tone (not sales pitch). Tailored to this project&apos;s deal structure and investor audience.
+                    </p>
+                    <div className="ml-7">
+                      <GenerateSequenceButton
+                        projectId={p.id}
+                        variant="secondary"
+                        label="Generate / regenerate investor sequence"
+                        confirmBeforeRun
+                        disabledReason={
+                          !p.is_active
+                            ? 'Activate this project first.'
+                            : !p.description && !(p as unknown as { investment_thesis?: string | null }).investment_thesis
+                              ? 'This project has no description or investment thesis yet — add one before generating the sequence.'
+                              : null
+                        }
+                        disabledFixHref="/projects"
+                        disabledFixLabel="Edit project"
+                        onSuccess={() => loadProjects()}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Step 3: Find Investors — green block, gated on rubric */}
+                  <div className={`mb-4 p-3 rounded-lg border ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/5 border-corp-green-500/20' : 'bg-dark-900/50 border-dark-700'}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-corp-green-400">Find investors for this project</p>
-                        <p className="text-dark-500 text-xs mt-0.5">
-                          Generates targeted queries from the Knowledge Base, runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first.
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/20 text-corp-green-400' : 'bg-dark-700 text-dark-500'}`}>3</span>
+                          <p className={`text-sm font-medium ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'text-corp-green-400' : 'text-dark-400'}`}>Find investors for this project</p>
+                        </div>
+                        <p className="text-dark-500 text-xs mt-0.5 ml-7">
+                          {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
+                            ? 'Generates targeted queries from the Knowledge Base, runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first.'
+                            : 'Complete Step 1 above (generate the investor scoring rubric) to unlock discovery.'}
                         </p>
                         <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
                           {([
@@ -537,8 +623,15 @@ export default function ProjectsPage() {
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); findInvestorsForProject(p.id); }}
-                        disabled={findingFor !== null || !p.is_active}
-                        className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40"
+                        disabled={findingFor !== null || !p.is_active || !(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                        className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={
+                          !p.is_active
+                            ? 'Activate this project first'
+                            : !(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
+                              ? 'Generate the investor scoring rubric (Step 1) before running discovery'
+                              : 'Run investor discovery batch'
+                        }
                       >
                         {findingFor === p.id ? (
                           <><Loader2 className="w-4 h-4 animate-spin" /> Finding…</>
@@ -677,9 +770,6 @@ export default function ProjectsPage() {
                     </button>
                   </div>
 
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <SourceManager projectId={p.id} />
-                  </div>
                 </div>
               )}
             </div>

@@ -174,6 +174,58 @@ Organisation: ${sender.organisation_name}${kbSection}
 Now write the 6 step bodies. Use the placeholders exactly as specified. Return the JSON shape only.`;
 }
 
+/** Project-side variant — context for an investor outreach sequence (fundraising). */
+export interface GenerateProjectContext {
+  name: string;
+  description: string | null;
+  investment_thesis: string | null;
+  sponsor: string | null;
+  project_type: string | null;
+  target_round: string | null;
+  round_size_label: string | null;
+  funding_target: string | null;
+  asset_class: string | null;
+  geography: string | null;
+  partner_types: string | null;
+  icp_buyer_title: string | null;
+}
+
+function buildProjectUserMessage(project: GenerateProjectContext, sender: GenerateSenderContext, kb: KbSource[]): string {
+  let kbTotal = 0;
+  const kbBlocks: string[] = [];
+  for (const s of kb) {
+    if (!s.content) continue;
+    const remaining = 10_000 - kbTotal;
+    if (remaining <= 200) break;
+    const slice = s.content.slice(0, Math.min(3500, remaining));
+    kbBlocks.push(`--- ${s.title} ---\n${slice}`);
+    kbTotal += slice.length;
+  }
+  const kbSection = kbBlocks.length > 0
+    ? `\n\nKNOWLEDGE BASE (verbatim excerpts from uploaded investment materials — quote concrete numbers, traction, and terms from these to make the pitch credible):\n\n${kbBlocks.join('\n\n')}\n\n(End of knowledge base)`
+    : '';
+
+  return `PROJECT (fundraising vehicle — writing outreach to INVESTORS / CAPITAL PROVIDERS)
+Name: ${project.name}
+Sponsor: ${project.sponsor ?? '(none)'}
+Description: ${project.description ?? '(none)'}
+Investment thesis: ${project.investment_thesis ?? '(none — fall back to description)'}
+Project type: ${project.project_type ?? '(none)'}
+Target round / facility: ${project.target_round ?? '(none)'}
+Target raise: ${project.round_size_label ?? project.funding_target ?? '(none)'}
+Asset class: ${project.asset_class ?? '(none)'}
+Geography: ${project.geography ?? '(none)'}
+Investor types to reach: ${project.partner_types ?? '(none)'}
+Buyer title at investor firm: ${project.icp_buyer_title ?? '(none)'}
+
+SENDER
+Name: ${sender.sender_name}
+Role: ${sender.sender_role}
+Organisation: ${sender.organisation_name}${kbSection}
+
+Write the 6 step bodies as INVESTOR outreach — credit-conversation / IC-meeting tone, not sales pitch. Lead with the concrete deal terms (size, structure, geography, sponsor track record). The CTA is always "20-minute credit / IC conversation". Use placeholders exactly. Return the JSON shape only.`;
+}
+
 export async function generateSequenceFromProduct(
   product: GenerateProductContext,
   sender: GenerateSenderContext,
@@ -247,6 +299,79 @@ export async function generateSequenceFromProduct(
     template_name: parsed.template_name?.trim() || `${product.name} — outreach`,
     template_description: parsed.template_description?.trim() || `Auto-generated outreach sequence for ${product.name}`,
     vertical: parsed.vertical?.trim() || 'auto_generated',
+    steps,
+  };
+}
+
+/**
+ * Project-side variant — generates an INVESTOR outreach sequence (credit
+ * conversation / IC meeting tone, not sales pitch). Used by
+ * /api/projects/generate-sequence.
+ */
+export async function generateSequenceFromProject(
+  project: GenerateProjectContext,
+  sender: GenerateSenderContext,
+  kb: KbSource[] = [],
+  meterFor?: { organisation_id: string; route: string },
+): Promise<GenerateSequenceResult> {
+  if (!project.investment_thesis && !project.description) {
+    throw new Error(
+      'Project needs at least a description or investment thesis before an outreach sequence can be generated. Visit /projects to fill it in.',
+    );
+  }
+
+  const response = await client.messages.create(
+    {
+      model: MODEL,
+      max_tokens: 4000,
+      system: SYSTEM_PROMPT,
+      messages: [{ role: 'user', content: buildProjectUserMessage(project, sender, kb) }],
+    },
+    { signal: AbortSignal.timeout(45_000) },
+  );
+
+  meterTokens(meterFor, response, MODEL);
+
+  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) throw new Error(`LLM returned no JSON object: ${text.slice(0, 300)}`);
+
+  let parsed: {
+    template_name?: string;
+    template_description?: string;
+    vertical?: string;
+    steps?: Array<{ step_index?: number; subject?: string | null; body?: string }>;
+  };
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    throw new Error(`LLM returned invalid JSON: ${jsonMatch[0].slice(0, 300)}`);
+  }
+
+  if (!Array.isArray(parsed.steps) || parsed.steps.length !== STEP_SCAFFOLD.length) {
+    throw new Error(`LLM returned ${parsed.steps?.length ?? 0} steps; expected ${STEP_SCAFFOLD.length}`);
+  }
+
+  const steps: GeneratedStep[] = STEP_SCAFFOLD.map((scaffold) => {
+    const written = parsed.steps?.find((s) => s.step_index === scaffold.step_index);
+    if (!written?.body) throw new Error(`LLM omitted body for step ${scaffold.step_index}`);
+    return {
+      step_index: scaffold.step_index,
+      channel: scaffold.channel,
+      delay_days: scaffold.delay_days,
+      template_key: scaffold.template_key,
+      description: scaffold.description,
+      subject: scaffold.has_subject ? (written.subject ?? '') : null,
+      body: written.body.trim(),
+      max_chars: scaffold.max_chars,
+      is_warm: false,
+    };
+  });
+
+  return {
+    template_name: parsed.template_name?.trim() || `${project.name} — investor outreach`,
+    template_description: parsed.template_description?.trim() || `Auto-generated investor outreach sequence for ${project.name}`,
+    vertical: parsed.vertical?.trim() || 'auto_generated_investor',
     steps,
   };
 }

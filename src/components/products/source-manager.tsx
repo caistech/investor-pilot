@@ -249,14 +249,25 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
     return `${(bytes / 1024 / 1024).toFixed(1)}MB`;
   }
 
+  // Context-aware hints: products = sales collateral, projects = investment materials.
+  // The doc set you want for finding customers is fundamentally different from what you
+  // want for pitching investors. Make the prompts reflect that.
+  const isProject = !!projectId;
+  const kbTitle = isProject ? 'Investment materials' : 'Knowledge Base';
+  const kbHint = isProject
+    ? 'Upload pitch deck, financials, data room links, term sheets, market memo, cap table, founder bios. The AI quotes concrete numbers from these in the investor outreach.'
+    : 'Upload product collateral — one-pagers, demos, case studies, customer testimonials, pricing, technical docs. Better KB = more accurate rubric + outreach copy.';
+  const exampleDocLine = isProject
+    ? 'Common docs: pitch deck (PDF), financial model (XLSX), data room URL, term sheet, market sizing memo.'
+    : 'Common docs: product one-pager, demo video link, case study, customer testimonials, pricing sheet.';
+
   return (
     <div className="card">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h4>Knowledge Base</h4>
-          <p className="text-dark-500 text-sm mt-0.5">
-            Add your product collateral — the pipeline uses this for accurate partner discovery
-          </p>
+          <h4>{kbTitle}</h4>
+          <p className="text-dark-500 text-sm mt-0.5">{kbHint}</p>
+          <p className="text-dark-600 text-xs mt-1 italic">{exampleDocLine}</p>
         </div>
         {sources.length > 0 && (
           <span className="badge-blue">{sources.filter((s) => s.processing_status === 'completed').length} sources</span>

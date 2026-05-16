@@ -20,6 +20,12 @@ export interface SetupState {
   productPitchConfigured: boolean;
   /** primary active product has scoring_rubric (enough for discovery scoring) */
   rubricConfigured: boolean;
+  /** ≥1 project with is_active=true (funding path — peer of hasActiveProduct) */
+  hasActiveProject: boolean;
+  /** primary active project has investment_thesis OR description */
+  projectThesisConfigured: boolean;
+  /** primary active project has scoring_rubric */
+  projectRubricConfigured: boolean;
   /** ≥1 client_channels with status='active' (any type) */
   channelConnected: boolean;
   /** ≥1 active client_channels with channel_type='linkedin' — required for LinkedIn / Sales Navigator discovery sources */
@@ -28,10 +34,14 @@ export interface SetupState {
   emailChannelConnected: boolean;
   /** ≥1 sequence_templates with is_active=true */
   sequenceConfigured: boolean;
-  /** Convenience — true when every required prerequisite is met */
+  /** True when at least one of (Products path | Projects path) is fully configured. */
+  anyPathConfigured: boolean;
+  /** Convenience — sender + channel + sequence + AT LEAST one path (product or project) */
   allDone: boolean;
   /** The first active product's id, if any. Lets UI deep-link to /products?focus= */
   primaryProductId: string | null;
+  /** The first active project's id, if any. */
+  primaryProjectId: string | null;
 }
 
 export const REQUIRED_FOR_DISCOVERY = ['hasActiveProduct', 'productPitchConfigured', 'rubricConfigured'] as const;
@@ -44,6 +54,7 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
   const [
     { data: org },
     { data: primaryProduct },
+    { data: primaryProject },
     { data: activeChannels },
     { count: activeSequenceCount },
   ] = await Promise.all([
@@ -56,8 +67,14 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
       .order('created_at', { ascending: true })
       .limit(1)
       .maybeSingle(),
-    // Pull channel rows (not just count) so we can distinguish LinkedIn from
-    // email — Find Investors gates on LinkedIn specifically.
+    db
+      .from('projects')
+      .select('id, investment_thesis, description, scoring_rubric')
+      .eq('organisation_id', orgId)
+      .eq('is_active', true)
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .maybeSingle(),
     db
       .from('client_channels')
       .select('channel_type')
@@ -74,29 +91,42 @@ export async function getSetupState(orgId: string): Promise<SetupState> {
   const hasActiveProduct = !!primaryProduct;
   const productPitchConfigured = !!(primaryProduct?.product_pitch || primaryProduct?.one_sentence_description);
   const rubricConfigured = !!primaryProduct?.scoring_rubric;
+  const hasActiveProject = !!primaryProject;
+  const projectThesisConfigured = !!(primaryProject?.investment_thesis || primaryProject?.description);
+  const projectRubricConfigured = !!primaryProject?.scoring_rubric;
   const channels = activeChannels ?? [];
   const channelConnected = channels.length > 0;
   const linkedInChannelConnected = channels.some((c) => c.channel_type === 'linkedin');
   const emailChannelConnected = channels.some((c) => c.channel_type === 'email');
   const sequenceConfigured = (activeSequenceCount ?? 0) > 0;
 
+  // A path is fully configured when EITHER the product side or the project
+  // side has both pitch/thesis AND rubric set. Operators only need one to
+  // start running discovery — they can fill the other later.
+  const productPathConfigured = hasActiveProduct && productPitchConfigured && rubricConfigured;
+  const projectPathConfigured = hasActiveProject && projectThesisConfigured && projectRubricConfigured;
+  const anyPathConfigured = productPathConfigured || projectPathConfigured;
+
   return {
     senderConfigured,
     hasActiveProduct,
     productPitchConfigured,
     rubricConfigured,
+    hasActiveProject,
+    projectThesisConfigured,
+    projectRubricConfigured,
     channelConnected,
     linkedInChannelConnected,
     emailChannelConnected,
     sequenceConfigured,
+    anyPathConfigured,
     allDone:
       senderConfigured &&
-      hasActiveProduct &&
-      productPitchConfigured &&
-      rubricConfigured &&
+      anyPathConfigured &&
       channelConnected &&
       sequenceConfigured,
     primaryProductId: primaryProduct?.id ?? null,
+    primaryProjectId: primaryProject?.id ?? null,
   };
 }
 
@@ -116,19 +146,37 @@ export function listSetupGaps(state: SetupState): SetupGap[] {
   if (!state.senderConfigured) {
     gaps.push({ key: 'senderConfigured', label: 'Sender identity (name + role)', href: '/settings' });
   }
-  if (!state.hasActiveProduct) {
-    gaps.push({ key: 'hasActiveProduct', label: 'At least one active product', href: '/products' });
-  } else if (!state.productPitchConfigured) {
-    gaps.push({ key: 'productPitchConfigured', label: 'Product pitch (one-line is enough)', href: '/products' });
-  }
-  if (state.hasActiveProduct && !state.rubricConfigured) {
-    gaps.push({ key: 'rubricConfigured', label: 'ICP scoring rubric (generate on the product card)', href: '/products' });
+  // Dual-path gap: at least ONE of products or projects must be configured.
+  // We don't push both — the operator chose their path. Suggest products
+  // first since it's the more common default unless they've already
+  // started a project.
+  if (!state.anyPathConfigured) {
+    if (state.hasActiveProject) {
+      // Operator started a project — finish that path.
+      if (!state.projectThesisConfigured) {
+        gaps.push({ key: 'projectThesisConfigured', label: 'Project investment thesis (or description)', href: '/projects' });
+      } else if (!state.projectRubricConfigured) {
+        gaps.push({ key: 'projectRubricConfigured', label: 'Investor scoring rubric (generate on the project card)', href: '/projects' });
+      }
+    } else if (state.hasActiveProduct) {
+      // Operator started a product — finish that path.
+      if (!state.productPitchConfigured) {
+        gaps.push({ key: 'productPitchConfigured', label: 'Product pitch (one-line is enough)', href: '/products' });
+      } else if (!state.rubricConfigured) {
+        gaps.push({ key: 'rubricConfigured', label: 'Customer ICP scoring rubric (generate on the product card)', href: '/products' });
+      }
+    } else {
+      // Nothing started yet — surface both paths so they choose.
+      gaps.push({ key: 'hasActiveProduct', label: 'Either a Product (for sales) or a Project (for funding)', href: '/dashboard' });
+    }
   }
   if (!state.channelConnected) {
     gaps.push({ key: 'channelConnected', label: 'A connected LinkedIn or email channel', href: '/channels' });
   }
-  if (state.hasActiveProduct && state.productPitchConfigured && !state.sequenceConfigured) {
-    gaps.push({ key: 'sequenceConfigured', label: 'Outreach sequence (generate on the product card)', href: '/products' });
+  if (state.anyPathConfigured && !state.sequenceConfigured) {
+    const projectPathReady = state.hasActiveProject && state.projectThesisConfigured && state.projectRubricConfigured;
+    const targetHref = projectPathReady ? '/projects' : '/products';
+    gaps.push({ key: 'sequenceConfigured', label: 'Outreach sequence (generate on the product or project card)', href: targetHref });
   }
   return gaps;
 }

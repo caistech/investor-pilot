@@ -7,6 +7,8 @@ import { useRouter } from 'next/navigation';
 interface GenerateSequenceButtonProps {
   /** Pre-select a specific product to generate from; defaults server-side to the first active product. */
   productId?: string;
+  /** Or pass a project ID — routes to /api/projects/generate-sequence (investor outreach) instead. */
+  projectId?: string;
   /** primary = filled CTA button; secondary = subtle text button for "Regenerate" placements. */
   variant?: 'primary' | 'secondary';
   /** Button label. */
@@ -31,6 +33,7 @@ interface GenerateSequenceButtonProps {
  */
 export function GenerateSequenceButton({
   productId,
+  projectId,
   variant = 'primary',
   label = 'Generate sequence from product',
   confirmBeforeRun = false,
@@ -39,6 +42,9 @@ export function GenerateSequenceButton({
   disabledFixLabel,
   onSuccess,
 }: GenerateSequenceButtonProps) {
+  const isProject = !!projectId;
+  const route = isProject ? '/api/projects/generate-sequence' : '/api/sequences/generate-from-product';
+  const payload = isProject ? { project_id: projectId } : (productId ? { product_id: productId } : {});
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -56,10 +62,10 @@ export function GenerateSequenceButton({
     setSuccess(null);
     setBusy(true);
     try {
-      const res = await fetch('/api/sequences/generate-from-product', {
+      const res = await fetch(route, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(productId ? { product_id: productId } : {}),
+        body: JSON.stringify(payload),
       });
       const data = await res.json();
       if (!res.ok) {

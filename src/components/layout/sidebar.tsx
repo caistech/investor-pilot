@@ -22,8 +22,8 @@ const navGroups: Array<{ label: string | null; items: Array<{ href: string; labe
     label: 'Set up',
     items: [
       { href: '/settings', label: 'Settings', icon: Settings },
-      { href: '/products', label: 'Products', icon: Package },
-      { href: '/projects', label: 'Projects', icon: Briefcase },
+      { href: '/products', label: 'Products (Sales)', icon: Package },
+      { href: '/projects', label: 'Projects (Funding)', icon: Briefcase },
       { href: '/channels', label: 'Channels', icon: Plug },
     ],
   },
