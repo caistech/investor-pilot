@@ -46,11 +46,18 @@ export async function POST(request: Request) {
     return NextResponse.json(buildCapExceededResponse('llm_tokens', llmCap), { status: 429 });
   }
 
-  const { data: product } = await db
-    .from('products')
-    .select('id, organisation_id, name, one_sentence_description, product_pitch, core_mechanism, customer_outcomes, icp_buyer_title, icp_verticals, icp_company_size, icp_stage, partner_types, asset_class, geography, ticket_size_min_label, ticket_size_max_label, exclusions')
-    .eq('id', productId)
-    .single();
+  const [{ data: product }, { data: kbRows }] = await Promise.all([
+    db
+      .from('products')
+      .select('id, organisation_id, name, one_sentence_description, product_pitch, core_mechanism, customer_outcomes, icp_buyer_title, icp_verticals, icp_company_size, icp_stage, partner_types, asset_class, geography, ticket_size_min_label, ticket_size_max_label, exclusions')
+      .eq('id', productId)
+      .single(),
+    db
+      .from('product_sources')
+      .select('title, content')
+      .eq('product_id', productId)
+      .eq('processing_status', 'completed'),
+  ]);
 
   if (!product) {
     return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -59,9 +66,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Product belongs to a different organisation' }, { status: 403 });
   }
 
+  const kb = (kbRows ?? []).filter((s) => s.content);
+
   let result;
   try {
-    result = await generateScoringRubric(product, {
+    result = await generateScoringRubric(product, kb, {
       organisation_id,
       route: '/api/products/generate-scoring-rubric',
     });

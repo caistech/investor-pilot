@@ -520,7 +520,8 @@ export default function ProductsPage() {
 
               {expandedProduct === p.id && (
                 <div className="mt-4 pt-4 border-t border-dark-800">
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm">
+                  {/* Display-only summary of the product's basic ICP fields */}
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm mb-6">
                     {[
                       { label: 'Core Mechanism', value: p.core_mechanism },
                       { label: 'Customer Outcomes', value: p.customer_outcomes },
@@ -540,13 +541,83 @@ export default function ProductsPage() {
                       </div>
                     ))}
                   </div>
-                  {/* Find Investors — the v3 batch discovery button */}
-                  <div className="mb-4 p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20">
+
+                  {/* ───────────────────────────────────────────────────────────
+                       Setup flow — top-to-bottom in the order the operator
+                       needs to act. Upload knowledge first, then let the AI
+                       build the rubric + sequence from the full context, then
+                       run discovery. */}
+
+                  {/* Step 0: Knowledge Base — uploaded sources back-fill the AI
+                       prompts in Steps 1 & 2. MUST come before generation so
+                       the rubric/sequence reflect actual collateral, not just
+                       the product row. */}
+                  <div className="mb-3 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-bold">0</span>
+                      <p className="text-sm font-medium text-purple-300">Knowledge Base — upload everything first</p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      Add product collateral (PDFs, URLs, pasted text). Step 1 and Step 2 read from
+                      this — the more uploaded, the more accurate the auto-generated rubric and outreach copy.
+                    </p>
+                    <div className="ml-7">
+                      <SourceManager productId={p.id} />
+                    </div>
+                  </div>
+                  {/* ───────────────────────────────────────────────────────────
+                       Setup steps before discovery — eye flows top-to-bottom in
+                       the order the operator needs to act. Step 1 (rubric) and
+                       Step 2 (sequence) are both required before Step 3 (Find
+                       Investors) will run. */}
+
+                  {/* Step 1: ICP scoring rubric — required for Find Investors */}
+                  <div className="mb-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold">1</span>
+                      <p className="text-sm font-medium text-amber-400">
+                        ICP scoring rubric {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? '— configured ✓' : '— not configured'}
+                      </p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      The detailed rubric the discovery scorer uses to rank candidates 1–10 across the 5 dimensions for this product&apos;s audience. <strong className="text-amber-300">Required before Find Investors can run.</strong>
+                    </p>
+                    <div className="ml-7">
+                      <GenerateRubricButton
+                        productId={p.id}
+                        alreadyConfigured={!!(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                      />
+                    </div>
+                  </div>
+
+                  {/* Step 2: Outreach sequence — required before approvals queue can render drafts */}
+                  <div className="mb-3 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">2</span>
+                      <p className="text-sm font-medium text-blue-400">Outreach sequence</p>
+                    </div>
+                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                      Generate a 6-step LinkedIn + email sequence tailored to this product&apos;s pitch and ICP. Replaces any prior auto-generated sequence for this audience.
+                    </p>
+                    <div className="ml-7">
+                      <GenerateSequenceButton productId={p.id} variant="secondary" label="Generate / regenerate sequence" confirmBeforeRun />
+                    </div>
+                  </div>
+
+                  {/* Step 3: Find Investors — the v3 batch discovery button.
+                       Disabled when the rubric (Step 1) hasn't been generated yet
+                       so users can't reach the same "scoring_rubric not set" dead-end. */}
+                  <div className={`mb-4 p-3 rounded-lg border ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/5 border-corp-green-500/20' : 'bg-dark-900/50 border-dark-700'}`}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <p className="text-sm font-medium text-corp-green-400">Find investors for this product</p>
-                        <p className="text-dark-500 text-xs mt-0.5">
-                          Generates 5-8 targeted queries from the Knowledge Base and runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first, then 2nd-degree, then cold. ~2-5 min.
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/20 text-corp-green-400' : 'bg-dark-700 text-dark-500'}`}>3</span>
+                          <p className={`text-sm font-medium ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'text-corp-green-400' : 'text-dark-400'}`}>Find investors for this product</p>
+                        </div>
+                        <p className="text-dark-500 text-xs mt-0.5 ml-7">
+                          {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
+                            ? 'Generates 5-8 targeted queries from the Knowledge Base and runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first, then 2nd-degree, then cold. ~2-5 min.'
+                            : 'Complete Step 1 above (generate the ICP scoring rubric) to unlock discovery.'}
                         </p>
                         <div className="flex flex-wrap gap-1.5 mt-2" onClick={(e) => e.stopPropagation()}>
                           {([
@@ -573,9 +644,15 @@ export default function ProductsPage() {
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); findInvestorsForProduct(p.id); }}
-                        disabled={findingFor !== null || !p.is_active}
-                        className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40"
-                        title={!p.is_active ? 'Activate this product first' : 'Run discovery batch'}
+                        disabled={findingFor !== null || !p.is_active || !(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                        className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
+                        title={
+                          !p.is_active
+                            ? 'Activate this product first'
+                            : !(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
+                              ? 'Generate the ICP scoring rubric (Step 1) before running discovery'
+                              : 'Run discovery batch'
+                        }
                       >
                         {findingFor === p.id ? (
                           <><Loader2 className="w-4 h-4 animate-spin" /> Finding…</>
@@ -674,29 +751,6 @@ export default function ProductsPage() {
                     )}
                   </div>
 
-                  {/* ICP scoring rubric — what the discovery scorer reads */}
-                  <div className="mb-4 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20" onClick={(e) => e.stopPropagation()}>
-                    <p className="text-sm font-medium text-amber-400">
-                      ICP scoring rubric {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? '— configured' : '— not configured'}
-                    </p>
-                    <p className="text-dark-500 text-xs mt-0.5 mb-3">
-                      The detailed rubric the discovery scorer uses to rank candidates 1–10 across the 5 dimensions for this product&apos;s audience. Required before Find Investors can run.
-                    </p>
-                    <GenerateRubricButton
-                      productId={p.id}
-                      alreadyConfigured={!!(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
-                    />
-                  </div>
-
-                  {/* Outreach sequence — auto-generate tailored to this product */}
-                  <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20" onClick={(e) => e.stopPropagation()}>
-                    <p className="text-sm font-medium text-blue-400">Outreach sequence</p>
-                    <p className="text-dark-500 text-xs mt-0.5 mb-3">
-                      Generate a 6-step LinkedIn + email sequence tailored to this product&apos;s pitch and ICP. Replaces any prior auto-generated sequence for this audience.
-                    </p>
-                    <GenerateSequenceButton productId={p.id} variant="secondary" label="Generate / regenerate sequence" confirmBeforeRun />
-                  </div>
-
                   <div className="flex gap-2 mt-4 mb-4">
                     <button
                       onClick={(e) => { e.stopPropagation(); startEdit(p); }}
@@ -727,10 +781,6 @@ export default function ProductsPage() {
                     </button>
                   </div>
 
-                  {/* Knowledge Base */}
-                  <div onClick={(e) => e.stopPropagation()}>
-                    <SourceManager productId={p.id} />
-                  </div>
                 </div>
               )}
             </div>

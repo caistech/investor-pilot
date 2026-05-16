@@ -69,8 +69,8 @@ export async function POST(request: Request) {
     );
   }
 
-  // Load product + sender in parallel
-  const [{ data: product }, { data: org }] = await Promise.all([
+  // Load product + sender + KB sources in parallel
+  const [{ data: product }, { data: org }, { data: kbRows }] = await Promise.all([
     db
       .from('products')
       .select('id, name, one_sentence_description, product_pitch, core_mechanism, customer_outcomes, icp_buyer_title, icp_verticals, icp_company_size, asset_class, geography, ticket_size_min_label, ticket_size_max_label, partner_types')
@@ -81,7 +81,14 @@ export async function POST(request: Request) {
       .select('name, sender_name, sender_role')
       .eq('id', organisation_id)
       .single(),
+    db
+      .from('product_sources')
+      .select('title, content')
+      .eq('product_id', productId)
+      .eq('processing_status', 'completed'),
   ]);
+
+  const kb = (kbRows ?? []).filter((s) => s.content);
 
   if (!product) {
     return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -102,6 +109,7 @@ export async function POST(request: Request) {
         sender_role: org.sender_role,
         organisation_name: org.name as string,
       },
+      kb,
       { organisation_id, route: '/api/sequences/generate-from-product' },
     );
   } catch (err) {

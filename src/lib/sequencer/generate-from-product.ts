@@ -49,6 +49,16 @@ export interface GenerateSenderContext {
   organisation_name: string;
 }
 
+/**
+ * Knowledge base sources uploaded against this product. Caller fetches
+ * from product_sources WHERE processing_status='completed' and passes
+ * through; capped inside buildUserMessage to stay within token budget.
+ */
+export interface KbSource {
+  title: string;
+  content: string | null;
+}
+
 export interface GeneratedStep {
   step_index: number;
   channel: 'linkedin_connect' | 'linkedin_dm' | 'email';
@@ -127,7 +137,21 @@ Return ONLY this JSON shape (no prose, no markdown fences):
   ]
 }`;
 
-function buildUserMessage(product: GenerateProductContext, sender: GenerateSenderContext): string {
+function buildUserMessage(product: GenerateProductContext, sender: GenerateSenderContext, kb: KbSource[]): string {
+  let kbTotal = 0;
+  const kbBlocks: string[] = [];
+  for (const s of kb) {
+    if (!s.content) continue;
+    const remaining = 10_000 - kbTotal;
+    if (remaining <= 200) break;
+    const slice = s.content.slice(0, Math.min(3500, remaining));
+    kbBlocks.push(`--- ${s.title} ---\n${slice}`);
+    kbTotal += slice.length;
+  }
+  const kbSection = kbBlocks.length > 0
+    ? `\n\nKNOWLEDGE BASE (verbatim excerpts from uploaded sources — quote concrete details from these in the outreach copy where they help establish credibility):\n\n${kbBlocks.join('\n\n')}\n\n(End of knowledge base)`
+    : '';
+
   return `PRODUCT
 Name: ${product.name}
 One-line: ${product.one_sentence_description ?? '(none)'}
@@ -145,7 +169,7 @@ Partner types we want to reach: ${product.partner_types ?? '(none)'}
 SENDER
 Name: ${sender.sender_name}
 Role: ${sender.sender_role}
-Organisation: ${sender.organisation_name}
+Organisation: ${sender.organisation_name}${kbSection}
 
 Now write the 6 step bodies. Use the placeholders exactly as specified. Return the JSON shape only.`;
 }
@@ -153,6 +177,7 @@ Now write the 6 step bodies. Use the placeholders exactly as specified. Return t
 export async function generateSequenceFromProduct(
   product: GenerateProductContext,
   sender: GenerateSenderContext,
+  kb: KbSource[] = [],
   meterFor?: { organisation_id: string; route: string },
 ): Promise<GenerateSequenceResult> {
   if (!product.product_pitch && !product.one_sentence_description) {
@@ -166,9 +191,11 @@ export async function generateSequenceFromProduct(
       model: MODEL,
       max_tokens: 4000,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserMessage(product, sender) }],
+      messages: [{ role: 'user', content: buildUserMessage(product, sender, kb) }],
     },
-    { signal: AbortSignal.timeout(20_000) },
+    // 45s timeout — long generation with KB attached can take 20–30s on
+    // OpenRouter. Route maxDuration=60 is the hard ceiling above us.
+    { signal: AbortSignal.timeout(45_000) },
   );
 
   meterTokens(meterFor, response, MODEL);

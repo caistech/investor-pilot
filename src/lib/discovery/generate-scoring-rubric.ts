@@ -37,6 +37,17 @@ export interface RubricProductContext {
   exclusions: string | null;
 }
 
+/**
+ * Knowledge base sources uploaded against this product (PDF parses, URL
+ * scrapes, pasted text). Caller fetches from product_sources WHERE
+ * processing_status='completed' and passes through. Capped at 12000 chars
+ * total inside buildUserMessage to keep the prompt within token budget.
+ */
+export interface KbSource {
+  title: string;
+  content: string | null;
+}
+
 export interface GenerateRubricResult {
   scoring_rubric: string;
   icp_categories: string[];
@@ -78,7 +89,24 @@ Return ONLY this JSON shape (no markdown, no fences):
   "icp_special_cases": ["...", "..."]
 }`;
 
-function buildUserMessage(p: RubricProductContext): string {
+function buildUserMessage(p: RubricProductContext, kb: KbSource[]): string {
+  // Cap KB at ~12000 chars total. Anneke's NDIS feedback showed how easy
+  // it is to blow context budget when collateral is rich; chop per-source
+  // and break early when over.
+  let kbTotal = 0;
+  const kbBlocks: string[] = [];
+  for (const s of kb) {
+    if (!s.content) continue;
+    const remaining = 12_000 - kbTotal;
+    if (remaining <= 200) break;
+    const slice = s.content.slice(0, Math.min(4000, remaining));
+    kbBlocks.push(`--- ${s.title} ---\n${slice}`);
+    kbTotal += slice.length;
+  }
+  const kbSection = kbBlocks.length > 0
+    ? `\n\nKNOWLEDGE BASE (verbatim excerpts from uploaded sources):\n\n${kbBlocks.join('\n\n')}\n\n(End of knowledge base)`
+    : '\n\nKNOWLEDGE BASE: (empty — no sources uploaded; infer rubric from the product fields alone)';
+
   return `PRODUCT
 Name: ${p.name}
 One-line: ${p.one_sentence_description ?? '(none)'}
@@ -93,13 +121,14 @@ Partner types we want to reach: ${p.partner_types ?? '(none)'}
 Asset class: ${p.asset_class ?? '(none)'}
 Geography: ${p.geography ?? '(none)'}
 Ticket size band: ${[p.ticket_size_min_label, p.ticket_size_max_label].filter(Boolean).join(' – ') || '(none)'}
-Exclusions (what NOT to target): ${p.exclusions ?? '(none)'}
+Exclusions (what NOT to target): ${p.exclusions ?? '(none)'}${kbSection}
 
 Now write the scoring configuration. Return the JSON shape only.`;
 }
 
 export async function generateScoringRubric(
   product: RubricProductContext,
+  kb: KbSource[] = [],
   meterFor?: { organisation_id: string; route: string },
 ): Promise<GenerateRubricResult> {
   if (!product.product_pitch && !product.one_sentence_description) {
@@ -113,9 +142,12 @@ export async function generateScoringRubric(
       model: MODEL,
       max_tokens: 3000,
       system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserMessage(product) }],
+      messages: [{ role: 'user', content: buildUserMessage(product, kb) }],
     },
-    { signal: AbortSignal.timeout(20_000) },
+    // 45s timeout — prompts with full KB attached run 15–30s on OpenRouter,
+    // 20s was firing for non-trivial knowledge bases. Route maxDuration=60
+    // is the hard ceiling above us.
+    { signal: AbortSignal.timeout(45_000) },
   );
 
   meterTokens(meterFor, response, MODEL);
