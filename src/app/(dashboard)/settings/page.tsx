@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck, Plug, FileText } from 'lucide-react';
 import { SenderForm } from '@/components/settings/sender-form';
+import { ProductPitchForm } from '@/components/settings/product-pitch-form';
+import type { DraftFacility } from '@/lib/pipeline/draft-prompt';
 
 export const dynamic = 'force-dynamic';
 
@@ -20,6 +22,19 @@ export default async function SettingsPage() {
     .select('*', { count: 'exact', head: true })
     .eq('organisation_id', profile?.organisation_id || '')
     .eq('status', 'paused');
+
+  // First active product — used as the editing target for the Phase B
+  // (pitch + facilities) settings card. Multi-product orgs can edit
+  // additional products via /products; the settings card focuses on the
+  // primary product so the most common operator workflow is one-click.
+  const { data: primaryProduct } = await supabase
+    .from('products')
+    .select('id, name, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms')
+    .eq('organisation_id', profile?.organisation_id || '')
+    .eq('is_active', true)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
 
   return (
     <div>
@@ -47,6 +62,21 @@ export default async function SettingsPage() {
           initialSenderRole={(profile?.organisations as Record<string, string | null>)?.sender_role ?? null}
           initialSignatureBlock={(profile?.organisations as Record<string, string | null>)?.signature_block ?? null}
         />
+
+        {/* Product pitch + facilities (interpolated into draft system prompt) */}
+        {primaryProduct && (
+          <ProductPitchForm
+            productId={primaryProduct.id as string}
+            productName={primaryProduct.name as string}
+            initialPitch={(primaryProduct.product_pitch as string | null) ?? null}
+            initialFacilities={(primaryProduct.facility_summary as DraftFacility[] | null) ?? null}
+            initialAssetClass={(primaryProduct.asset_class as string | null) ?? null}
+            initialGeography={(primaryProduct.geography as string | null) ?? null}
+            initialTicketMinLabel={(primaryProduct.ticket_size_min_label as string | null) ?? null}
+            initialTicketMaxLabel={(primaryProduct.ticket_size_max_label as string | null) ?? null}
+            initialForbiddenTerms={(primaryProduct.draft_compliance_forbidden_terms as string[] | null) ?? null}
+          />
+        )}
 
         {/* Profile */}
         <div className="card">

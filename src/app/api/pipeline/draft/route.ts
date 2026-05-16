@@ -3,6 +3,7 @@ import { saveDraft } from '@/lib/db/partners';
 import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import { buildDraftPrompt, type DraftPromptProduct } from '@/lib/pipeline/draft-prompt';
 
 export const maxDuration = 60;
 
@@ -12,50 +13,6 @@ export const maxDuration = 60;
 const MAX_PARTNERS_PER_REQUEST = 20;
 const DRAFT_CONCURRENCY = 4;
 const CLAUDE_TIMEOUT_MS = 8_000;
-
-// Lender-channel draft prompt (v3, 2026-05-13) — per Senior Debt Brief v3 + docs/sprint-0/07-draft-email-message.md
-const DRAFT_PROMPT = `You are an outreach email writer for F2K's senior debt placement. Write a personalised cold credit-conversation email to a direct lender or family office private debt allocator about participation in F2K's senior debt facilities.
-
-This is a CREDIT CONVERSATION, not a product-suitability conversation. The recipient is the decision-maker (lender), not someone placing other people's money. They expect concrete facility specifics — size, indicative rate, LVR, security, term, exit — and a sponsor track record citation.
-
-Return ONLY a JSON object (no markdown, no explanation):
-{
-  "subject": "<concrete, project-specific subject line — names a facility size and the lender's relevant credit-signal>",
-  "body": "<email body, under 200 words>",
-  "partnership_motion": "<senior debt syndication | first-mortgage participation | combined platform position | individual facility>",
-  "selected_gtm_angle": "<one sentence describing the lender's likely fit angle>"
-}
-
-EMAIL RULES:
-- Subject: concrete, mentions facility size and/or specific project. Examples: "James — F2K $18.7M senior debt across two AU property projects" / "James — $2.5M WA land senior debt, first-mortgage, signed Coop Agreement"
-- Opening: one sentence grounded in the lender's documented credit history (the "credit signal" — e.g., reference their public participation in a prior AU property debt facility)
-- Body: lead with concrete facility specifics:
-    * Branscombe Estate (Claremont TAS) — $16.2M senior construction, 8.5% p.a. indicative + 1% line + 1% establishment + 0.5% exit, ~22 months, first-mortgage, 40% anchor offtake to Homes Tasmania
-    * Seafields Estate (Geraldton WA) — $2.5M senior land, 8.0% p.a. capitalised, Day-1 LVR 71% dropping to 24% within 6 months, first-mortgage over all 141 lots, signed tri-party Cooperation Agreement 19 Mar 2026
-    * Combined $18.7M platform with TAS+WA geographic + construction+subdivision product diversification
-- Choose lead facility per lender ticket size:
-    * Large ($3M+ ticket band) → combined platform pitch
-    * Mid ($1-3M) → standard pitch with both facilities
-    * Smaller (sub-$1M) → Seafields-led only
-- Ask: one specific low-commitment next step — "20-minute credit conversation" + calendar link
-- Length: under 200 words
-- Tone: professional, founder-to-credit-principal. Direct, factual, no hype.
-- Signature: Dennis McMahon | Development Manager, Factory2Key Pty Ltd | F2K Capital
-
-FORBIDDEN (these will be rejected):
-- "guaranteed" / "risk-free" / "no risk"
-- specific % returns beyond IM rates (8.5% Branscombe, 8.0% Seafields are pre-approved; any other % is forbidden)
-- specific raise amounts beyond confirmed figures ($16.2M, $2.5M, $18.7M, $25.15M GRV, $21.15M GRV, $500K M0 deposit, $200K sponsor advance)
-- "tokenisation" / "tokenised" / "crypto" / "blockchain" / "RWA" / "on-chain" (deferred — do not surface unprompted per Sec 5.7 of brief)
-- "retail" / "your clients" (this is direct-lender outreach, lender IS principal)
-- "advisor" / "advise" (this is credit, not advisory product)
-- "I hope this finds you well", "synergy", "mutual benefit", "exciting opportunity", "limited time", "exclusive", "act now"
-- emojis anywhere
-
-NEVER:
-- Fabricate specific claims about the lender's prior deals (only cite what's in the discovery evidence)
-- Mention Stamford Capital or Front Financial in cold outreach (Sec 5.5 — soft framing in cold, direct in conversation)
-- Mention the GREH tokenised fund unprompted (Sec 5.7 — only address if lender raises it)`;
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -80,14 +37,40 @@ export async function POST(request: Request) {
     );
   }
 
-  // Load product and its website URL
-  const [{ data: product }, productUrl] = await Promise.all([
+  // Load product, sender identity (organisations row), and website URL in
+  // one round-trip. Pre-fetched here so the per-partner draft loop reuses
+  // the same buildDraftPrompt() output rather than re-querying per partner.
+  const [{ data: product }, { data: org }, productUrl] = await Promise.all([
     db.from('products')
-      .select('name, one_sentence_description, core_mechanism, customer_outcomes')
+      .select('name, one_sentence_description, core_mechanism, customer_outcomes, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms')
       .eq('id', product_id)
+      .single(),
+    db.from('organisations')
+      .select('sender_name, sender_role')
+      .eq('id', organisation_id)
       .single(),
     getProductWebsiteUrl(product_id),
   ]);
+
+  if (!org?.sender_name || !org?.sender_role) {
+    return NextResponse.json(
+      { error: 'Organisation has no sender identity configured. Visit /settings to set sender_name and sender_role before drafting.' },
+      { status: 400 },
+    );
+  }
+
+  let draftSystemPrompt: string;
+  try {
+    draftSystemPrompt = buildDraftPrompt(product as DraftPromptProduct, {
+      sender_name: org.sender_name,
+      sender_role: org.sender_role,
+    });
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 400 },
+    );
+  }
 
   const productContext = product
     ? `Product: ${product.name}. ${product.one_sentence_description || ''}. Core: ${product.core_mechanism || ''}. Outcomes: ${product.customer_outcomes || ''}.${productUrl ? ` Product website: ${productUrl}` : ''}`
@@ -132,7 +115,7 @@ export async function POST(request: Request) {
         {
           model: MODEL,
           max_tokens: 500,
-          system: DRAFT_PROMPT,
+          system: draftSystemPrompt,
           messages: [{
             role: 'user',
             content: `${productContext}
