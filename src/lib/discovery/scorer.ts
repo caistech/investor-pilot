@@ -14,54 +14,11 @@ import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
-export const SCORING_PROMPT = `You are a lender prospect scoring analyst for F2K's senior debt placement. Given a person/firm description from search results, score them on 5 dimensions for fit as a direct lender into Australian property development debt facilities ($1M-$5M cheques, first-mortgage senior secured, 8-11% p.a. coupon).
-
-Return ONLY a JSON object with this exact structure (no markdown, no explanation):
-{
-  "audience_overlap_score": <1-10>,
-  "audience_overlap_notes": "<one sentence>",
-  "complementarity_score": <1-10>,
-  "complementarity_notes": "<one sentence>",
-  "partner_readiness_score": <1-10>,
-  "partner_readiness_notes": "<one sentence>",
-  "reachability_score": <1-10>,
-  "reachability_notes": "<one sentence>",
-  "strategic_leverage_score": <1-10>,
-  "strategic_leverage_notes": "<one sentence>",
-  "confidence_score": "<normal or low-confidence>",
-  "category": "<lender category — e.g. single family office | multi family office | private credit fund | HNW direct lender | SMSF private debt>",
-  "partner_type": "<lender>"
-}
-
-Scoring dimensions (lender ICP per Senior Debt Brief v3):
-
-- audience_overlap_score (weight 25% — CAPITAL + TICKET FIT): Does this lender write $1M-$5M cheques into private debt? 10/10 = documented $2-5M tickets regularly; capacity for $5M+. 5-7 = writes private debt but ticket size unclear or smaller. 1-4 = equity-only or institutional-scale only.
-
-- complementarity_score (weight 25% — ASSET CLASS FOCUS): Construction finance / property development debt, with bonus weight for modular/prefab and cross-border deal history. 10/10 = construction-finance specialist with documented offshore or cross-border deals (Singapore/HK/US/UK/UAE funds with EM construction exposure). 7-9 = construction-finance specialist without explicit cross-border evidence. 5-7 = private debt focus but unclear if construction/property. 1-4 = wrong asset class (tech VC, equities, etc).
-
-- strategic_leverage_score (weight 25% — TRACK RECORD): Documented construction-finance or real-estate-debt position in past 36 months, ESPECIALLY cross-border or offshore-funded. This is the STRONGEST predictor. 10/10 = public evidence (LinkedIn post, fund report, press) of recent offshore or cross-border construction finance, or modular/prefab construction lending. 7-9 = recent AU/domestic construction-debt position. 5-7 = some real-estate exposure but not specifically construction. 1-4 = no evidence of relevant lending history.
-
-- partner_readiness_score (weight 15% — DECISION AUTHORITY + CADENCE): Personal allocation authority; decides in weeks not months. 10/10 = FO principal / CIO / personal capital / fund partner with offshore mandate flexibility. 5-7 = senior role at small private debt vehicle. 1-4 = analyst-level or slow committee gating.
-
-- reachability_score (weight 10% — GEOGRAPHIC + LINKEDIN VISIBILITY): Singapore / Hong Kong / NYC / London / Dubai construction-finance specialists are HIGHEST (these are F2K's primary market). Miami / SF / other US financial hubs HIGH. Sydney / Melbourne MEDIUM-HIGH (AU secondary). Brisbane / Perth / other AU MEDIUM. Other regions LOW. 10/10 = primary-market construction-finance specialist with high LinkedIn visibility. 7-9 = right region or right specialism, both not both. 5-7 = AU domestic-only with thin offshore mandate. 1-4 = wrong geography AND wrong specialism.
-
-REJECT (score 0-2 across the board, mark category as "out_of_scope"):
-- Retail bank credit officers
-- Mortgage brokers
-- Equity-only family offices (no debt allocation)
-- Tech / venture-focused family offices
-- Public REIT managers
-- Pure listed-equity advisors
-- Generic financial advisors placing retail client money (this is the v2 advisor channel — out of scope in v3)
-- Pure AU-domestic property credit funds with no offshore mandate flexibility AND no construction-finance track record (the AU paradigm-locked group F2K's structure doesn't fit)
-- Bank-owned platforms (slow approval timelines)
-- Retail mortgage trusts and listed mortgage funds
-
-DO NOT REJECT (these were rejected in v2/v3 but are now in-scope for the international-primary ICP):
-- Institutional debt funds >$1B AUM IF they have a Singapore/HK/US/UK construction-specialist desk — they routinely write $5-25M tranches in cross-border deals at exactly F2K's ticket size.
-- Large family offices in Singapore/HK/Dubai that publicly engage on offshore construction or real-asset deals.
-
-If a dimension relies more on inference than evidence, cap at 4/10 and set confidence_score to "low-confidence".`;
+// SCORING_PROMPT was hardcoded here (and duplicated in discover/route.ts) prior
+// to Phase C of the multi-tenant config layer. Both call sites now build the
+// prompt at request time via buildScoringPrompt(product) from
+// src/lib/pipeline/scoring-prompt.ts and pass it through to
+// scoreAndUpsertCandidate as scoringSystemPrompt.
 
 export interface ScoreCandidateInput {
   name: string;
@@ -142,6 +99,7 @@ export async function scoreAndUpsertCandidate(
   db: SupabaseClient,
   candidate: ScoreCandidateInput,
   productContext: string,
+  scoringSystemPrompt: string,
   organisation_id: string,
   product_id: string | null,
   project_id?: string | null,
@@ -166,7 +124,7 @@ export async function scoreAndUpsertCandidate(
       {
         model: MODEL,
         max_tokens: 500,
-        system: SCORING_PROMPT,
+        system: scoringSystemPrompt,
         messages: [{
           role: 'user',
           content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,

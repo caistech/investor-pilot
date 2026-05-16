@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ShieldAlert, ShieldCheck, Plug, FileText } from 'lucide-react';
 import { SenderForm } from '@/components/settings/sender-form';
 import { ProductPitchForm } from '@/components/settings/product-pitch-form';
+import { IcpForm } from '@/components/settings/icp-form';
 import type { DraftFacility } from '@/lib/pipeline/draft-prompt';
 
 export const dynamic = 'force-dynamic';
@@ -23,13 +24,13 @@ export default async function SettingsPage() {
     .eq('organisation_id', profile?.organisation_id || '')
     .eq('status', 'paused');
 
-  // First active product — used as the editing target for the Phase B
-  // (pitch + facilities) settings card. Multi-product orgs can edit
-  // additional products via /products; the settings card focuses on the
-  // primary product so the most common operator workflow is one-click.
+  // First active product — used as the editing target for the Phase B/C
+  // (pitch + facilities + ICP scoring) settings cards. Multi-product orgs
+  // can edit additional products via /products; the settings cards focus
+  // on the primary product so the most common operator workflow is one-click.
   const { data: primaryProduct } = await supabase
     .from('products')
-    .select('id, name, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms')
+    .select('id, name, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
     .eq('organisation_id', profile?.organisation_id || '')
     .eq('is_active', true)
     .order('created_at', { ascending: true })
@@ -75,6 +76,19 @@ export default async function SettingsPage() {
             initialTicketMinLabel={(primaryProduct.ticket_size_min_label as string | null) ?? null}
             initialTicketMaxLabel={(primaryProduct.ticket_size_max_label as string | null) ?? null}
             initialForbiddenTerms={(primaryProduct.draft_compliance_forbidden_terms as string[] | null) ?? null}
+          />
+        )}
+
+        {/* ICP & scoring rubric (interpolated into discover scoring prompt) */}
+        {primaryProduct && (
+          <IcpForm
+            productId={primaryProduct.id as string}
+            productName={primaryProduct.name as string}
+            initialRubric={(primaryProduct.scoring_rubric as string | null) ?? null}
+            initialCategories={(primaryProduct.icp_categories as string[] | null) ?? null}
+            initialPartnerType={(primaryProduct.icp_partner_type as string | null) ?? null}
+            initialRejectCategories={(primaryProduct.icp_reject_categories as string[] | null) ?? null}
+            initialSpecialCases={(primaryProduct.icp_special_cases as string[] | null) ?? null}
           />
         )}
 

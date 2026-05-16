@@ -31,6 +31,7 @@ import {
   type LinkedInPerson,
 } from '@/lib/channels/unipile';
 import { scoreAndUpsertCandidate, type ScoreCandidateInput } from '@/lib/discovery/scorer';
+import { buildScoringPrompt, type ScoringPromptProduct } from '@/lib/pipeline/scoring-prompt';
 import { generateLenderQueries } from '@/lib/discovery/query-generator';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
@@ -192,7 +193,7 @@ export async function POST(request: Request) {
     }
     const { data: product } = await db
       .from('products')
-      .select('id, name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions')
+      .select('id, name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, product_pitch, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases, asset_class, geography')
       .eq('id', product_id)
       .single();
     if (!product) {
@@ -431,12 +432,26 @@ export async function POST(request: Request) {
     : '';
   const productContext = `Offering: ${offering.name}. ${offeringDescription}.${projectMeta} ICP: ${offering.icp_company_size || ''} firms in ${offering.icp_verticals || ''}, buyer: ${offering.icp_buyer_title || ''}.`;
 
+  // Build the scoring system prompt once per batch (Phase C — multi-tenant
+  // ICP). Uses the offering as ScoringPromptProduct since for product-driven
+  // batches the offering IS the product (project-driven batches reuse the
+  // project's underlying product columns).
+  let scoringSystemPrompt: string;
+  try {
+    scoringSystemPrompt = buildScoringPrompt(offering as unknown as ScoringPromptProduct);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 400 },
+    );
+  }
+
   const scoredResults: Awaited<ReturnType<typeof scoreAndUpsertCandidate>>[] = [];
   for (let i = 0; i < uniqueCandidates.length; i += SCORING_CONCURRENCY) {
     const batchStart = Date.now();
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId }))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, scoringSystemPrompt, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId }))
     );
     scoredResults.push(...results);
     log('scoring_batch_done', {
