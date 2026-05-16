@@ -4,6 +4,8 @@ import { ShieldAlert, ShieldCheck, Plug, FileText } from 'lucide-react';
 import { SenderForm } from '@/components/settings/sender-form';
 import { ProductPitchForm } from '@/components/settings/product-pitch-form';
 import { IcpForm } from '@/components/settings/icp-form';
+import { UsageCard } from '@/components/settings/usage-card';
+import { getMonthlyUsage } from '@/lib/usage/events';
 import type { DraftFacility } from '@/lib/pipeline/draft-prompt';
 
 export const dynamic = 'force-dynamic';
@@ -37,11 +39,20 @@ export default async function SettingsPage() {
     .limit(1)
     .maybeSingle();
 
+  // Monthly usage snapshot (used by <UsageCard />). Skipped if there's no
+  // org yet — the empty-state of the page won't reach the cards anyway.
+  const usage = profile?.organisation_id
+    ? await getMonthlyUsage(profile.organisation_id)
+    : null;
+
   return (
     <div>
       <h1 className="mb-8">Settings</h1>
 
       <div className="space-y-6 max-w-3xl">
+        {/* Usage this month — what each cap is, where the org sits against it */}
+        {usage && <UsageCard usage={usage} />}
+
         {/* Organisation */}
         <div className="card">
           <h4 className="mb-4">Organisation</h4>

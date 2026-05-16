@@ -5,6 +5,8 @@ import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
 import { HeygenHero } from '@/components/dashboard/heygen-hero';
 import { OnboardingSteps } from '@/components/dashboard/onboarding-steps';
+import { UsageBanner } from '@/components/dashboard/usage-banner';
+import { getMonthlyUsage } from '@/lib/usage/events';
 
 export const dynamic = 'force-dynamic';
 
@@ -78,6 +80,9 @@ export default async function DashboardPage() {
 
       {/* AI-generated explainer video — dismissible, hidden until ready */}
       <HeygenHero />
+
+      {/* Usage banner — only renders at 80%+ on any cap */}
+      <UsageBanner usage={await getMonthlyUsage(orgId)} />
 
       {/* Onboarding strip — 4 numbered steps with DB-detected completion */}
       <OnboardingSteps

@@ -2,6 +2,7 @@ import { authenticateAndGetDb } from '@/lib/agent/db';
 import { hunterEmailFinder, hunterDomainSearch } from '@/lib/agent/hunter-tools';
 import { updateContact } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
+import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 
 export const maxDuration = 60;
 
@@ -34,6 +35,14 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // Pre-flight cap check — block if Hunter monthly cap is exhausted.
+  const hunterCap = await checkCap(organisation_id, 'hunter_lookup');
+  if (!hunterCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('hunter_lookup', hunterCap), { status: 429 });
+  }
+  const meterFor = { organisation_id, route: '/api/pipeline/enrich' };
+  void user;
 
   // Load partners
   const { data: partners } = await db
@@ -103,7 +112,7 @@ export async function POST(request: Request) {
           // marked unresolved and we move on. The 5-wide concurrency means
           // worst case for 20 partners is 20/5 × 8s = 32s.
           const domainResult = await Promise.race([
-            hunterDomainSearch(partner.domain),
+            hunterDomainSearch(partner.domain, meterFor),
             new Promise<null>((_, reject) =>
               setTimeout(() => reject(new Error(`Hunter timeout after ${HUNTER_TIMEOUT_MS}ms`)), HUNTER_TIMEOUT_MS),
             ),

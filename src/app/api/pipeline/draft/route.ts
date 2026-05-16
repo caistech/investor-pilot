@@ -4,6 +4,7 @@ import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { buildDraftPrompt, type DraftPromptProduct } from '@/lib/pipeline/draft-prompt';
+import { checkCap, buildCapExceededResponse, meterTokens } from '@/lib/usage/events';
 
 export const maxDuration = 60;
 
@@ -36,6 +37,13 @@ export async function POST(request: Request) {
       { status: 400 },
     );
   }
+
+  // Pre-flight cap check — drafting is the most token-heavy stage.
+  const llmCap = await checkCap(organisation_id, 'llm_tokens');
+  if (!llmCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('llm_tokens', llmCap), { status: 429 });
+  }
+  const meterFor = { organisation_id, route: '/api/pipeline/draft' };
 
   // Load product, sender identity (organisations row), and website URL in
   // one round-trip. Pre-fetched here so the per-partner draft loop reuses
@@ -131,6 +139,8 @@ Readiness: ${partner.partner_readiness_notes || 'No notes'}`,
         },
         { signal: AbortSignal.timeout(CLAUDE_TIMEOUT_MS) },
       );
+
+      meterTokens(meterFor, response, MODEL);
 
       const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);

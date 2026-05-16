@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { logEvent } from '@/lib/usage/events';
 
 const supabaseAdmin = createClient(
   process.env.NEXT_PUBLIC_SUPABASE_URL!,
@@ -79,6 +80,15 @@ export async function POST(request: Request) {
       action: 'channel.connected',
       resource_type: 'client_channel',
       payload: { provider, identifier, account_id },
+    });
+
+    // Meter +1 active Unipile account for this org. Running sum of
+    // unipile_account_active events = current connected count (the
+    // disconnect branch below decrements with a negative units value).
+    await logEvent(organisation_id, 'unipile_account_active', 1, {
+      route: '/api/webhooks/unipile/account',
+      provider,
+      account_id,
     });
 
     return NextResponse.json({ ok: true });

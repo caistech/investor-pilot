@@ -13,6 +13,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { createHostedAuthLink } from '@/lib/channels/unipile';
+import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -34,6 +35,14 @@ export async function POST(request: Request) {
 
   if (!profile?.organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
+  }
+
+  // Pre-flight cap check — refuse to generate a connect link if the org has
+  // already hit its connected-account limit. Avoids the user going through
+  // Unipile's OAuth flow only to be silently rejected at the webhook.
+  const cap = await checkCap(profile.organisation_id, 'unipile_account_active');
+  if (!cap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('unipile_account_active', cap), { status: 429 });
   }
 
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000';

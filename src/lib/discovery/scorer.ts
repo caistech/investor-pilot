@@ -11,8 +11,9 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
-import { braveWebSearch } from '@/lib/agent/brave-tools';
+import { braveWebSearch, type MeterFor } from '@/lib/agent/brave-tools';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import { meterTokens } from '@/lib/usage/events';
 
 // SCORING_PROMPT was hardcoded here (and duplicated in discover/route.ts) prior
 // to Phase C of the multi-tenant config layer. Both call sites now build the
@@ -55,7 +56,10 @@ export interface ScoreCandidateResult {
  * chars each). Brave-sourced candidates skip this — they already arrived
  * with web context.
  */
-export async function enrichCandidateWithBrave(candidate: ScoreCandidateInput): Promise<string> {
+export async function enrichCandidateWithBrave(
+  candidate: ScoreCandidateInput,
+  meterFor?: MeterFor,
+): Promise<string> {
   if (candidate.source !== 'linkedin' && candidate.source !== 'sales_nav') return '';
 
   // Best signal we have for company name on a LinkedIn hit: candidate.name
@@ -71,7 +75,7 @@ export async function enrichCandidateWithBrave(candidate: ScoreCandidateInput): 
   // which blew past Vercel's 60s edge timeout when multiplied across 40
   // candidates. Better to drop slow enrichment than hang the whole batch.
   try {
-    const results = await braveWebSearch(query, 3, AbortSignal.timeout(6000));
+    const results = await braveWebSearch(query, 3, AbortSignal.timeout(6000), meterFor);
     if (!results.length) return '';
     const block = results
       .slice(0, 3)
@@ -103,7 +107,7 @@ export async function scoreAndUpsertCandidate(
   organisation_id: string,
   product_id: string | null,
   project_id?: string | null,
-  options?: { enrichWithBrave?: boolean; runId?: string | null },
+  options?: { enrichWithBrave?: boolean; runId?: string | null; meterFor?: MeterFor },
 ): Promise<ScoreCandidateResult> {
   try {
     const personContext = candidate.contact_name
@@ -114,7 +118,9 @@ export async function scoreAndUpsertCandidate(
     // before scoring. Opt-in only — adds a Brave call per LinkedIn candidate
     // which can push the batch over Vercel's function timeout. Worth it when
     // signal quality matters; skip for fast runs.
-    const enrichment = options?.enrichWithBrave === true ? await enrichCandidateWithBrave(candidate) : '';
+    const enrichment = options?.enrichWithBrave === true
+      ? await enrichCandidateWithBrave(candidate, options.meterFor)
+      : '';
 
     // Hard 8s timeout — without this, a slow OpenRouter call (or hung HTTP
     // socket) can hold the route past Vercel's edge gateway budget and the
@@ -132,6 +138,8 @@ export async function scoreAndUpsertCandidate(
       },
       { signal: AbortSignal.timeout(8000) },
     );
+
+    meterTokens(options?.meterFor, response, MODEL);
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);

@@ -4,6 +4,7 @@ import { searchLinkedInPeople, searchSalesNavigator, type LinkedInPerson } from 
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import { checkCap, buildCapExceededResponse, meterTokens } from '@/lib/usage/events';
 
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 
@@ -64,6 +65,18 @@ export async function POST(request: Request) {
   if (!organisation_id) {
     return NextResponse.json({ error: 'Could not resolve organisation' }, { status: 400 });
   }
+
+  // Pre-flight cap check — block if Brave or LLM tokens are exhausted.
+  const _orgId = organisation_id as string;
+  const braveCap = await checkCap(_orgId, 'brave_query');
+  if (!braveCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('brave_query', braveCap), { status: 429 });
+  }
+  const llmCap = await checkCap(_orgId, 'llm_tokens');
+  if (!llmCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('llm_tokens', llmCap), { status: 429 });
+  }
+  const meterFor = { organisation_id: _orgId, route: '/api/pipeline/discover' };
 
   // Resolve offering. Prefer project context when project_id is provided.
   let offeringName = '';
@@ -234,7 +247,7 @@ export async function POST(request: Request) {
 
     if (source === 'brave' && query) {
       try {
-        const searchResults = await braveWebSearch(query, 10);
+        const searchResults = await braveWebSearch(query, 10, undefined, meterFor);
         for (const r of searchResults) {
           const url = new URL(r.url);
           candidates.push({
@@ -303,6 +316,8 @@ export async function POST(request: Request) {
           content: `${productContext}\n\nCandidate to score: ${company.name} (${company.domain})\nSource: ${company.source}${personContext}\nDescription: ${company.description || 'No description available'}`,
         }],
       });
+
+      meterTokens(meterFor, response, MODEL);
 
       const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
       const jsonMatch = text.match(/\{[\s\S]*\}/);

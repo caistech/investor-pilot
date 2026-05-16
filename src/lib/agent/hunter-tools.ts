@@ -13,6 +13,8 @@ import {
   type HunterDomainResult,
   type HunterEmailVerifierResult,
 } from '@caistech/hunter-email';
+import { logEvent } from '@/lib/usage/events';
+import type { MeterFor } from '@/lib/agent/brave-tools';
 
 export type { HunterEmailResult, HunterDomainResult, HunterEmailVerifierResult };
 
@@ -22,22 +24,40 @@ function getApiKey(): string {
   return apiKey;
 }
 
+function meter(meterFor: MeterFor | undefined, lookup: 'finder' | 'domain' | 'verifier', domain?: string) {
+  if (!meterFor) return;
+  void logEvent(meterFor.organisation_id, 'hunter_lookup', 1, {
+    route: meterFor.route,
+    lookup,
+    domain,
+  });
+}
+
 export async function hunterEmailFinder(
   domain: string,
   firstName: string,
   lastName: string,
+  meterFor?: MeterFor,
 ): Promise<HunterEmailResult | null> {
-  return remoteEmailFinder(domain, firstName, lastName, getApiKey());
+  const result = await remoteEmailFinder(domain, firstName, lastName, getApiKey());
+  meter(meterFor, 'finder', domain);
+  return result;
 }
 
 export async function hunterDomainSearch(
   domain: string,
+  meterFor?: MeterFor,
 ): Promise<HunterDomainResult | null> {
-  return remoteDomainSearch(domain, getApiKey());
+  const result = await remoteDomainSearch(domain, getApiKey());
+  meter(meterFor, 'domain', domain);
+  return result;
 }
 
 export async function hunterEmailVerifier(
   email: string,
+  meterFor?: MeterFor,
 ): Promise<HunterEmailVerifierResult | null> {
-  return remoteEmailVerifier(email, getApiKey());
+  const result = await remoteEmailVerifier(email, getApiKey());
+  meter(meterFor, 'verifier');
+  return result;
 }

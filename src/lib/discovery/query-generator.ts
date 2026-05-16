@@ -14,6 +14,8 @@
  */
 
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import { meterTokens } from '@/lib/usage/events';
+import type { MeterFor } from '@/lib/agent/brave-tools';
 
 export interface ProductForQueryGen {
   name: string;
@@ -184,6 +186,7 @@ export async function generateLenderQueries(input: {
   // while our prior 1-2 Brave queries per run returned zero. More Brave
   // queries × broader prompt = actual breadth.
   count?: number;
+  meterFor?: MeterFor;
 }): Promise<QueryGenerationResult | QueryGenerationError> {
   const total = Math.min(Math.max(input.count || 6, 4), 15);
   const linkedinCount = Math.max(1, Math.floor(total * 0.5));
@@ -223,6 +226,8 @@ If PROJECT-SPECIFIC details are present, weave geography + asset class + funding
       system: SYSTEM_PROMPT,
       messages: [{ role: 'user', content: userMessage }],
     });
+
+    meterTokens(input.meterFor, response, MODEL);
 
     const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
     const jsonMatch = text.match(/\{[\s\S]*\}/);

@@ -36,6 +36,7 @@ import { generateLenderQueries } from '@/lib/discovery/query-generator';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
+import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -125,6 +126,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
   const organisation_id: string = profile.organisation_id;
+
+  // Pre-flight cap check — block the whole batch if Brave or LLM tokens are
+  // already exhausted for this billing month. Each batch typically costs 6-12
+  // Brave queries + 20-60 candidate scoring calls (~100-300k tokens), so
+  // running it on an exhausted org would silently fail at the wrapper level.
+  const braveCap = await checkCap(organisation_id, 'brave_query');
+  if (!braveCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('brave_query', braveCap), { status: 429 });
+  }
+  const llmCap = await checkCap(organisation_id, 'llm_tokens');
+  if (!llmCap.allowed) {
+    return NextResponse.json(buildCapExceededResponse('llm_tokens', llmCap), { status: 429 });
+  }
+  const meterFor = { organisation_id, route: '/api/pipeline/discover-batch' };
 
   // Project takes precedence when both are provided. Each route below
   // resolves 'auto' / missing to the most-recent active row of its kind.
@@ -315,6 +330,7 @@ export async function POST(request: Request) {
       content: s.content,
     })),
     count: query_count || DEFAULT_QUERY_COUNT,
+    meterFor,
   });
 
   if (!queryGen.ok) {
@@ -369,7 +385,7 @@ export async function POST(request: Request) {
   for (let i = 0; i < jobs.length; i += SEARCH_CONCURRENCY) {
     const batch = jobs.slice(i, i + SEARCH_CONCURRENCY);
     const results = await Promise.allSettled(
-      batch.map(j => withTimeout(fetchCandidates(j, linkedinAccountId), SEARCH_TIMEOUT_MS, j))
+      batch.map(j => withTimeout(fetchCandidates(j, linkedinAccountId, meterFor), SEARCH_TIMEOUT_MS, j))
     );
     results.forEach((r, idx) => {
       const job = batch[idx];
@@ -451,7 +467,7 @@ export async function POST(request: Request) {
     const batchStart = Date.now();
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, scoringSystemPrompt, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId }))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, scoringSystemPrompt, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId, meterFor }))
     );
     scoredResults.push(...results);
     log('scoring_batch_done', {
@@ -559,7 +575,7 @@ export async function POST(request: Request) {
             // get abandoned (their socket leak gets cleaned up at function
             // exit) rather than blocking the rest of the batch.
             const result = await Promise.race([
-              hunterDomainSearch(p.domain as string),
+              hunterDomainSearch(p.domain as string, meterFor),
               new Promise<null>((_, reject) =>
                 setTimeout(() => reject(new Error('hunter timeout')), HUNTER_TIMEOUT_MS),
               ),
@@ -664,6 +680,7 @@ function withTimeout<T>(
 async function fetchCandidates(
   job: { query: string; source: DiscoverSource; tier: NetworkTier },
   linkedinAccountId: string | null,
+  meterFor: { organisation_id: string; route: string },
 ): Promise<
   { ok: true; candidates: ScoreCandidateInput[] } | { ok: false; error: string }
 > {
@@ -692,7 +709,7 @@ async function fetchCandidates(
   // BRAVE_CANDIDATES_PER_QUERY since web search returns more diverse hits
   // and the per-result cost is lower than a LinkedIn API call.
   try {
-    const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY);
+    const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY, undefined, meterFor);
     const candidates = searchResults.map(r => {
       const url = new URL(r.url);
       return {
