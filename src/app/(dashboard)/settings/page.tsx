@@ -5,6 +5,7 @@ import { SenderForm } from '@/components/settings/sender-form';
 import { ProductPitchForm } from '@/components/settings/product-pitch-form';
 import { IcpForm } from '@/components/settings/icp-form';
 import { UsageCard } from '@/components/settings/usage-card';
+import { InlineNameEdit } from '@/components/settings/inline-name-edit';
 import { getMonthlyUsage } from '@/lib/usage/events';
 import type { DraftFacility } from '@/lib/pipeline/draft-prompt';
 
@@ -57,10 +58,12 @@ export default async function SettingsPage() {
         <div className="card">
           <h4 className="mb-4">Organisation</h4>
           <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-dark-400">Name</span>
-              <span>{(profile?.organisations as Record<string, string>)?.name || '—'}</span>
-            </div>
+            <InlineNameEdit
+              label="Name"
+              initialValue={(profile?.organisations as Record<string, string | null>)?.name ?? null}
+              endpoint="/api/settings/organisation"
+              placeholder="e.g. Acme Capital"
+            />
             <div className="flex justify-between">
               <span className="text-dark-400">Your role</span>
               <span className="badge-green">{profile?.role}</span>
@@ -126,13 +129,17 @@ export default async function SettingsPage() {
         <div className="card">
           <h4 className="mb-4">Profile</h4>
           <div className="space-y-3 text-sm">
-            <div className="flex justify-between">
-              <span className="text-dark-400">Name</span>
-              <span>{profile?.full_name || '—'}</span>
-            </div>
+            <InlineNameEdit
+              label="Name"
+              initialValue={(profile?.full_name as string | null) ?? null}
+              endpoint="/api/settings/profile"
+              placeholder="Your name"
+              maxLength={120}
+            />
             <div className="flex justify-between">
               <span className="text-dark-400">Email</span>
-              <span>{profile?.email || '—'}</span>
+              <span className="text-dark-300">{profile?.email || '—'}</span>
+              <span className="text-xs text-dark-500 ml-2">(re-verify via password reset to change)</span>
             </div>
           </div>
         </div>
