@@ -9,6 +9,10 @@ interface GenerateRubricButtonProps {
   /** True when product.scoring_rubric is already populated — switches the
    *  button to a regenerate state with confirmation. */
   alreadyConfigured: boolean;
+  /** Non-null = button disabled with this reason shown inline. */
+  disabledReason?: string | null;
+  disabledFixHref?: string;
+  disabledFixLabel?: string;
 }
 
 /**
@@ -16,11 +20,18 @@ interface GenerateRubricButtonProps {
  * cap-exceeded / no-pitch errors as inline messages so the user can fix
  * them and retry without leaving the products page.
  */
-export function GenerateRubricButton({ productId, alreadyConfigured }: GenerateRubricButtonProps) {
+export function GenerateRubricButton({
+  productId,
+  alreadyConfigured,
+  disabledReason = null,
+  disabledFixHref,
+  disabledFixLabel,
+}: GenerateRubricButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const blocked = !!disabledReason;
 
   async function handleClick() {
     if (alreadyConfigured) {
@@ -57,8 +68,9 @@ export function GenerateRubricButton({ productId, alreadyConfigured }: GenerateR
       <button
         type="button"
         onClick={handleClick}
-        disabled={busy}
-        className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50"
+        disabled={busy || blocked}
+        title={blocked ? disabledReason ?? '' : undefined}
+        className="btn-secondary inline-flex items-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : alreadyConfigured ? <ShieldCheck className="w-4 h-4" /> : <Sparkles className="w-4 h-4" />}
         {busy
@@ -67,6 +79,19 @@ export function GenerateRubricButton({ productId, alreadyConfigured }: GenerateR
             ? 'Regenerate ICP scoring rubric'
             : 'Generate ICP scoring rubric'}
       </button>
+      {blocked && (
+        <p className="mt-2 text-sm text-amber-400 max-w-2xl">
+          {disabledReason}
+          {disabledFixHref && disabledFixLabel && (
+            <>
+              {' '}
+              <a href={disabledFixHref} className="underline hover:text-amber-300">
+                {disabledFixLabel} →
+              </a>
+            </>
+          )}
+        </p>
+      )}
       {error && <p className="mt-2 text-sm text-red-400 max-w-2xl">{error}</p>}
       {success && <p className="mt-2 text-sm text-corp-green-400 max-w-2xl">{success}</p>}
     </div>

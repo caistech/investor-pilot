@@ -13,6 +13,12 @@ interface GenerateSequenceButtonProps {
   label?: string;
   /** When true, asks the user to confirm — used on Regenerate to avoid blowing away edits. */
   confirmBeforeRun?: boolean;
+  /** Non-null = button disabled with this reason shown inline + as tooltip. */
+  disabledReason?: string | null;
+  /** Link rendered next to the disabled reason so the user can fix the prereq. */
+  disabledFixHref?: string;
+  /** Label for the fix-link (e.g. "Set sender identity"). */
+  disabledFixLabel?: string;
 }
 
 /**
@@ -25,11 +31,15 @@ export function GenerateSequenceButton({
   variant = 'primary',
   label = 'Generate sequence from product',
   confirmBeforeRun = false,
+  disabledReason = null,
+  disabledFixHref,
+  disabledFixLabel,
 }: GenerateSequenceButtonProps) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const blocked = !!disabledReason;
 
   async function handleClick() {
     if (confirmBeforeRun) {
@@ -72,12 +82,26 @@ export function GenerateSequenceButton({
       <button
         type="button"
         onClick={handleClick}
-        disabled={busy}
-        className={`${baseClasses} disabled:opacity-50`}
+        disabled={busy || blocked}
+        title={blocked ? disabledReason ?? '' : undefined}
+        className={`${baseClasses} disabled:opacity-50 disabled:cursor-not-allowed`}
       >
         {busy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
         {busy ? 'Generating…' : label}
       </button>
+      {blocked && (
+        <p className="mt-2 text-sm text-amber-400 max-w-2xl">
+          {disabledReason}
+          {disabledFixHref && disabledFixLabel && (
+            <>
+              {' '}
+              <a href={disabledFixHref} className="underline hover:text-amber-300">
+                {disabledFixLabel} →
+              </a>
+            </>
+          )}
+        </p>
+      )}
       {error && (
         <p className="mt-2 text-sm text-red-400 max-w-2xl">{error}</p>
       )}

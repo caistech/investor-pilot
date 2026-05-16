@@ -32,6 +32,16 @@ const EMPTY_FORM = {
   partner_types: 'referral', exclusions: '',
 };
 
+interface SetupSnapshot {
+  senderConfigured: boolean;
+  hasActiveProduct: boolean;
+  productPitchConfigured: boolean;
+  rubricConfigured: boolean;
+  channelConnected: boolean;
+  sequenceConfigured: boolean;
+  allDone: boolean;
+}
+
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [showForm, setShowForm] = useState(false);
@@ -46,12 +56,24 @@ export default function ProductsPage() {
   const [sourceMode, setSourceMode] = useState<'name' | 'url' | 'text'>('name');
   const [sourceUrl, setSourceUrl] = useState('');
   const [sourceText, setSourceText] = useState('');
+  const [setup, setSetup] = useState<SetupSnapshot | null>(null);
   const supabase = createClient();
 
   useEffect(() => {
     loadProducts();
+    loadSetupState();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function loadSetupState() {
+    try {
+      const res = await fetch('/api/onboarding/setup-state');
+      if (res.ok) {
+        const data = await res.json();
+        setSetup(data);
+      }
+    } catch { /* tolerate failure — buttons just won't pre-disable */ }
+  }
 
   async function getOrgId(): Promise<string | null> {
     const { data: { user } } = await supabase.auth.getUser();
@@ -586,6 +608,15 @@ export default function ProductsPage() {
                       <GenerateRubricButton
                         productId={p.id}
                         alreadyConfigured={!!(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
+                        disabledReason={
+                          !p.is_active
+                            ? 'Activate this product first.'
+                            : !p.one_sentence_description && !(p as unknown as { product_pitch?: string | null }).product_pitch
+                              ? 'This product has no description or pitch yet — add one before generating a rubric.'
+                              : null
+                        }
+                        disabledFixHref="/products"
+                        disabledFixLabel="Edit product"
                       />
                     </div>
                   </div>
@@ -600,7 +631,23 @@ export default function ProductsPage() {
                       Generate a 6-step LinkedIn + email sequence tailored to this product&apos;s pitch and ICP. Replaces any prior auto-generated sequence for this audience.
                     </p>
                     <div className="ml-7">
-                      <GenerateSequenceButton productId={p.id} variant="secondary" label="Generate / regenerate sequence" confirmBeforeRun />
+                      <GenerateSequenceButton
+                        productId={p.id}
+                        variant="secondary"
+                        label="Generate / regenerate sequence"
+                        confirmBeforeRun
+                        disabledReason={
+                          !p.is_active
+                            ? 'Activate this product first.'
+                            : setup && !setup.senderConfigured
+                              ? 'Sender identity is not set — the sequence needs your name and role to sign the messages.'
+                              : !p.one_sentence_description && !(p as unknown as { product_pitch?: string | null }).product_pitch
+                                ? 'Product has no description or pitch — add one before generating the sequence copy.'
+                                : null
+                        }
+                        disabledFixHref={setup && !setup.senderConfigured ? '/settings' : '/products'}
+                        disabledFixLabel={setup && !setup.senderConfigured ? 'Set sender identity' : 'Edit product'}
+                      />
                     </div>
                   </div>
 
