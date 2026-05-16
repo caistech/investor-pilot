@@ -136,6 +136,10 @@ export async function POST(request: Request) {
     vertical: result.vertical,
     compliance_mode: 'standard',
     is_active: true,
+    // Routing tag — assign-batch uses this to pick the right template
+    // per partner (product-scoped partners get target_kind='product'
+    // templates, project-scoped partners get target_kind='project').
+    target_kind: 'product',
     steps: result.steps,
   };
 

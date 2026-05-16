@@ -372,6 +372,42 @@ export function PipelineTable({
     }
   }
 
+  async function resetSequences() {
+    if (selectedPartners.length === 0) return;
+    const n = selectedPartners.length;
+    const confirmMsg = `Reset sequences for ${n} prospect${n === 1 ? '' : 's'}?\n\n` +
+      `This deletes the current sequence assignment AND any draft / queued / blocked messages. Sent + replied messages stay (history is preserved). Use when you've assigned the wrong template and want to start clean.`;
+    if (!confirm(confirmMsg)) return;
+
+    setLoading('reset');
+    setNextCta(null);
+    setMessage(`Resetting sequences for ${n} prospect${n === 1 ? '' : 's'}…`);
+
+    try {
+      const res = await fetch('/api/sequences/reset', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(`Error: ${data.error}`);
+        return;
+      }
+      setMessage(
+        `Reset ${data.partners_reset} prospect${data.partners_reset === 1 ? '' : 's'}: ` +
+        `${data.steps_deleted} sequence step${data.steps_deleted === 1 ? '' : 's'} + ` +
+        `${data.messages_deleted} draft${data.messages_deleted === 1 ? '' : 's'} deleted.\n` +
+        `Selection kept — click "2. Assign Sequence" to re-assign to the correct template.`,
+      );
+      router.refresh();
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function batchAssignSequences() {
     if (selectedPartners.length === 0) return;
     const firstDegreeCount = selectedPartners.filter(p => p.network_distance === '1st').length;
@@ -663,7 +699,15 @@ export function PipelineTable({
           >
             {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
           </button>
-          <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white ml-auto">
+          <button
+            onClick={resetSequences}
+            disabled={loading !== null}
+            className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2 ml-auto"
+            title="Delete the current sequence assignment + any draft messages for the selected partners. Use when partners were assigned to the wrong template and you want to re-do Step 2 cleanly."
+          >
+            {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Reset sequence'}
+          </button>
+          <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white">
             Clear
           </button>
         </div>

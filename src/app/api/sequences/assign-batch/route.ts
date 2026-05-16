@@ -45,6 +45,10 @@ interface TemplateRow {
   name: string;
   steps: TemplateStep[];
   is_active: boolean;
+  // Added in migration 023 — 'product' (sales partner outreach) or
+  // 'project' (investor outreach). Routes templates to the right
+  // partners so an investor doesn't get a channel-partner pitch.
+  target_kind: 'product' | 'project' | null;
 }
 
 const TERMINAL_STATUSES = new Set([
@@ -100,18 +104,36 @@ export async function POST(request: Request) {
   }
   const orgId = profile.organisation_id;
 
-  // Resolve warm + cold templates once up front. Pattern-match the warm one
-  // by name (same heuristic as the per-partner recommendation logic so the
+  // Resolve all active templates for this org. We'll split them into
+  // product-side vs project-side pools and pick the right one per
+  // partner below. Pattern-match the warm template by name within each
+  // pool (same heuristic as the per-partner recommendation logic so the
   // batch and individual flows route identically).
   const { data: templates } = await db
     .from('sequence_templates')
-    .select('id, name, steps, is_active')
+    .select('id, name, steps, is_active, target_kind')
     .eq('organisation_id', orgId)
     .eq('is_active', true);
 
   const activeTemplates = (templates || []) as TemplateRow[];
-  const warmTemplate = activeTemplates.find(t => /warm/i.test(t.name));
-  const coldTemplate = activeTemplates.find(t => !/warm/i.test(t.name));
+
+  // Pre-build per-kind pools. A template with target_kind=null (legacy or
+  // freshly-seeded) falls into the 'product' pool because that was the
+  // generator's only output before migration 023.
+  const productPool = activeTemplates.filter(t => (t.target_kind || 'product') === 'product');
+  const projectPool = activeTemplates.filter(t => t.target_kind === 'project');
+  const pickWarmCold = (pool: TemplateRow[]) => ({
+    warm: pool.find(t => /warm/i.test(t.name)) || null,
+    cold: pool.find(t => !/warm/i.test(t.name)) || null,
+  });
+  const productPair = pickWarmCold(productPool);
+  const projectPair = pickWarmCold(projectPool);
+
+  // The original fall-throughs (used when a partner has no project_id
+  // and no product_id, which shouldn't happen post-migration 007 but
+  // sometimes does for hand-imported rows).
+  const warmTemplate = productPair.warm || projectPair.warm;
+  const coldTemplate = productPair.cold || projectPair.cold;
 
   if (!warmTemplate && !coldTemplate) {
     return NextResponse.json(
@@ -138,10 +160,11 @@ export async function POST(request: Request) {
 
   // Fetch all selected partners in one round-trip. Filtering to this org
   // is the security boundary (RLS would also enforce it but service client
-  // bypasses RLS).
+  // bypasses RLS). project_id + product_id pulled so the routing layer
+  // below can pick the matching template pool per partner.
   const { data: partners } = await db
     .from('partners')
-    .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at')
+    .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at, project_id, product_id')
     .in('id', partnerIds)
     .eq('organisation_id', orgId);
 
@@ -187,9 +210,14 @@ export async function POST(request: Request) {
 
   // Look up existing live steps once for every (partner, template) pair
   // we might touch, so we can skip duplicates without per-partner queries.
+  // Both pools' template IDs are included — the partner-specific routing
+  // happens below, but the duplicate-step check needs to know about every
+  // template we might assign across the batch.
   const templateIdsInPlay = [
-    warmTemplate?.id,
-    coldTemplate?.id,
+    productPair.warm?.id,
+    productPair.cold?.id,
+    projectPair.warm?.id,
+    projectPair.cold?.id,
   ].filter((id): id is string => !!id);
 
   const { data: existingSteps } = await db
@@ -276,14 +304,47 @@ export async function POST(request: Request) {
       continue;
     }
 
-    const useWarm = partner.network_distance === '1st' && warmTemplate;
-    const chosen = useWarm ? warmTemplate : (coldTemplate || warmTemplate);
+    // Route to the matching template pool. project-scoped partners get
+    // an investor-side template; product-scoped partners get a sales-side
+    // template. Falls back to the other pool if the matching one is
+    // empty — that surfaces as a soft warning in `reason` so the
+    // operator knows to generate the missing sequence rather than
+    // silently sending the wrong message type.
+    const partnerKind: 'product' | 'project' = partner.project_id
+      ? 'project'
+      : 'product';
+    const matchingPair = partnerKind === 'project' ? projectPair : productPair;
+    const fallbackPair = partnerKind === 'project' ? productPair : projectPair;
+
+    const useWarm = partner.network_distance === '1st';
+    let chosen = useWarm
+      ? matchingPair.warm || matchingPair.cold
+      : matchingPair.cold || matchingPair.warm;
+    let usedFallback = false;
+    if (!chosen) {
+      chosen = useWarm
+        ? fallbackPair.warm || fallbackPair.cold
+        : fallbackPair.cold || fallbackPair.warm;
+      usedFallback = !!chosen;
+    }
+
     if (!chosen) {
       results.push({
         partner_id: partnerId,
         partner_name: partner.company_name as string,
         outcome: 'skipped',
-        reason: 'No suitable template available for this partner',
+        reason: `No ${partnerKind}-side sequence template exists yet — generate one on the ${partnerKind === 'project' ? 'project card' : 'product card'} first`,
+      });
+      continue;
+    }
+    if (usedFallback) {
+      // Don't block the assignment — but flag clearly that the operator
+      // is going to get the wrong message tone for this partner type.
+      results.push({
+        partner_id: partnerId,
+        partner_name: partner.company_name as string,
+        outcome: 'skipped',
+        reason: `No ${partnerKind}-side template exists — would have used "${chosen.name}" (${partnerKind === 'project' ? 'sales' : 'investor'}-side) which is the wrong tone for a ${partnerKind === 'project' ? 'project' : 'product'} prospect. Generate a matching sequence first.`,
       });
       continue;
     }
