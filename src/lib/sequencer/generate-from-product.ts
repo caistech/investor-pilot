@@ -190,6 +190,64 @@ export interface GenerateProjectContext {
   icp_buyer_title: string | null;
 }
 
+/**
+ * Investor-side system prompt. Distinct from the product (sales) prompt
+ * above because the rhetorical mode is different: founder-to-investor /
+ * GP-to-LP / credit principal-to-allocator, not channel-partner pitch.
+ *
+ * Calling the wrong prompt here was the root cause of the LingoPure
+ * Series A demo run producing drafts like "we've built a tool that
+ * collapses weeks of research" — Claude was leaning on the SALES prompt
+ * and confabulating product-pitch language about the project.
+ */
+const SYSTEM_PROMPT_PROJECT = `You are an outreach sequence writer for fundraising. Given a project profile (a capital-raising vehicle — a company raising equity, a fund raising LP commitments, or a project raising debt) and the sender's identity, write the bodies (and subject lines, where applicable) for a 6-step outreach sequence the sender will use to reach investors / capital allocators who match this raise.
+
+The 6 steps are FIXED in channel + delay (you do NOT change these):
+  1. LinkedIn connection request (Day 0, ≤300 chars)
+  2. LinkedIn DM after connection accepted (Day 2)
+  3. Email first-touch in parallel (Day 3, with subject)
+  4. Email follow-up #1 (Day 7, with subject)
+  5. LinkedIn DM follow-up (Day 9)
+  6. Closing-loop email (Day 14, with subject)
+
+Each step body MUST use these placeholder variables exactly (the renderer substitutes them per-prospect at send time):
+  {first_name}        — recipient first name
+  {firm}              — recipient firm / fund / family office name
+  {sender_name}       — sender's full name
+  {sender_role}       — sender's role / title
+
+You MAY use these per-prospect signal placeholders when natural:
+  {credit_signal}            — one-clause reason this specific investor fits this raise (their thesis / a recent deal / their stated focus)
+  {credit_signal_lead}       — opener-length narrative version
+  {credit_signal_lead_short} — one-sentence variant for short follow-ups
+
+WRITING RULES — INVESTOR-FACING (NOT SALES)
+- The recipient is an INVESTOR / CAPITAL ALLOCATOR — VC partner, growth equity principal, family office PM, private-credit allocator, fund-of-fund LP, depending on the project. Not a customer. Not a channel partner. Not a reseller. Speak founder-to-investor or GP-to-LP.
+- The project IS the offering. Describe what it actually is using the project's specific language (sector, business model, geography, traction). DO NOT describe the project as a "discovery tool", a "platform that helps operators", or any other generic SaaS pitch unless that is literally what the project does. Quote the investment thesis and KB verbatim wherever possible.
+- Lead with the deal-relevant fact, not pleasantries. e.g. "We're raising a $3M Series A for a Vietnam B2B EdTech operating in CEFR-certified English training since 2021" — not "I'd love to share what we're building".
+- The ask is investment-specific: a 20-min intro call, a one-pager / teaser, access to the data room, a deck. Never "let me know your thoughts".
+- Cite concrete numbers from the KB / investment thesis when present: revenue, ARR, growth rate, customer count, round size, valuation cap, lead status. Generic placeholder language signals "no traction" to investors.
+- Match the persona inferred from icp_buyer_title + investor types:
+    • VC partner → founder pitching their company; lead with traction + thesis fit
+    • Private-credit allocator → credit principal pitching the facility; lead with first-mortgage / coverage / coupon
+    • LP / family office → GP pitching the fund; lead with track record + strategy
+- Stay under the step's char limit. No emoji, no markdown, no hashtags. British/Australian spelling where natural.
+
+Return ONLY this JSON shape (no prose, no markdown fences):
+{
+  "template_name": "<short descriptive name, e.g. 'LingoPure Series A — VC/PE Partner outreach' or '{project_name} — LP intro'>",
+  "template_description": "<one sentence describing the sequence's audience and purpose>",
+  "vertical": "<short slug, e.g. 'vc_series_a', 'lp_intro_re_fund', 'senior_debt_au'>",
+  "steps": [
+    { "step_index": 1, "subject": null, "body": "..." },
+    { "step_index": 2, "subject": null, "body": "..." },
+    { "step_index": 3, "subject": "...", "body": "..." },
+    { "step_index": 4, "subject": "...", "body": "..." },
+    { "step_index": 5, "subject": null, "body": "..." },
+    { "step_index": 6, "subject": "...", "body": "..." }
+  ]
+}`;
+
 function buildProjectUserMessage(project: GenerateProjectContext, sender: GenerateSenderContext, kb: KbSource[]): string {
   let kbTotal = 0;
   const kbBlocks: string[] = [];
@@ -324,7 +382,11 @@ export async function generateSequenceFromProject(
     {
       model: MODEL,
       max_tokens: 4000,
-      system: SYSTEM_PROMPT,
+      // Investor-side prompt — not SYSTEM_PROMPT (which is for sales).
+      // Same call previously used SYSTEM_PROMPT, producing drafts like
+      // "we've built a tool that collapses weeks of research" for a
+      // VC-targeted raise. Fixed when SYSTEM_PROMPT_PROJECT landed.
+      system: SYSTEM_PROMPT_PROJECT,
       messages: [{ role: 'user', content: buildProjectUserMessage(project, sender, kb) }],
     },
     { signal: AbortSignal.timeout(45_000) },
