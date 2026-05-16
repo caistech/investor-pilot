@@ -132,7 +132,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           .single(),
         db
           .from('partners')
-          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id, profile_recent_posts, profile_connected_at, profile_shared_connections_count, profile_engagement_flags, firm_recent_news, firm_named_deals')
+          .select('id, company_name, contact_name, contact_title, audience_overlap_notes, complementarity_notes, partner_readiness_notes, weighted_score, project_id, product_id, category, profile_recent_posts, profile_connected_at, profile_shared_connections_count, profile_engagement_flags, firm_recent_news, firm_named_deals')
           .eq('id', step.partner_id)
           .single(),
         db
@@ -187,6 +187,16 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         product_id: partner.product_id || null,
       });
 
+      // Load the offering (project or product) so the renderer's
+      // fit-signal extractor can reason about WHY this specific
+      // recipient might care — geography / sector / cultural angles —
+      // not just regurgitate evidence facts.
+      const offeringContext = await loadOfferingContext(db, {
+        project_id: partner.project_id || null,
+        product_id: partner.product_id || null,
+        recipient_category: partner.category || null,
+      });
+
       const renderPartner: RenderPartner = {
         id: partner.id,
         company_name: partner.company_name,
@@ -206,6 +216,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         // Drives the fit-signal extraction prompt — investor framing for
         // project-scoped partners, partner/credit framing otherwise.
         offering_kind: partner.project_id ? 'project' : 'product',
+        offering_context: offeringContext ?? undefined,
       };
 
       let context;
@@ -347,6 +358,62 @@ async function markStep(db: ReturnType<typeof createServiceClient>, stepId: stri
     .from('sequence_steps')
     .update({ status })
     .eq('id', stepId);
+}
+
+/**
+ * Load the offering (project or product) the partner was discovered for,
+ * shaped for the renderer's inferential prompt. Returns null if neither
+ * id resolves — the extractor degrades gracefully (no offering context,
+ * relies on evidence alone).
+ *
+ * The recipient_category field is included in the recipient_geography
+ * slot because partners.category is the closest thing we currently have
+ * to a per-prospect "what kind of investor are they" tag — and the
+ * inference layer benefits from that even without a true country code.
+ * Proper recipient_geography lives on partner.firm row fields that
+ * aren't populated yet — TODO when we add a firm_country column.
+ */
+async function loadOfferingContext(
+  db: ReturnType<typeof createServiceClient>,
+  ref: { project_id: string | null; product_id: string | null; recipient_category: string | null },
+): Promise<{
+  name: string;
+  pitch: string;
+  sector: string | null;
+  geography: string | null;
+  recipient_geography: string | null;
+} | null> {
+  if (ref.project_id) {
+    const { data } = await db
+      .from('projects')
+      .select('name, description, investment_thesis, asset_class, geography')
+      .eq('id', ref.project_id)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      name: (data.name as string) || 'this project',
+      pitch: ((data.investment_thesis as string) || (data.description as string) || '').slice(0, 800),
+      sector: (data.asset_class as string) || null,
+      geography: (data.geography as string) || null,
+      recipient_geography: ref.recipient_category,
+    };
+  }
+  if (ref.product_id) {
+    const { data } = await db
+      .from('products')
+      .select('name, one_sentence_description, product_pitch, asset_class, geography')
+      .eq('id', ref.product_id)
+      .maybeSingle();
+    if (!data) return null;
+    return {
+      name: (data.name as string) || 'this product',
+      pitch: ((data.product_pitch as string) || (data.one_sentence_description as string) || '').slice(0, 800),
+      sector: (data.asset_class as string) || null,
+      geography: (data.geography as string) || null,
+      recipient_geography: ref.recipient_category,
+    };
+  }
+  return null;
 }
 
 /**

@@ -109,6 +109,23 @@ export interface RenderPartner {
    * so legacy callers keep the original behaviour.
    */
   offering_kind?: 'product' | 'project';
+  /**
+   * What we're actually pitching. Lets the fit-signal extractor draw
+   * inferential connections between the recipient's context (geography,
+   * sector, role) and the offering's value prop — e.g. a Vietnamese
+   * investor pitched an English-training EdTech can be hooked on
+   * "you've likely seen English barriers limit your portfolio's
+   * international ambitions firsthand". Without this, the extractor
+   * only sees the recipient and can't reason about WHY they'd care.
+   */
+  offering_context?: {
+    name: string;
+    pitch: string;
+    sector: string | null;
+    geography: string | null;
+    /** Recipient firm's country/region — used for cultural inferences. */
+    recipient_geography?: string | null;
+  };
 }
 
 export interface RenderedMessage {
@@ -341,30 +358,64 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
   // placeholders. Only the LLM's framing changes.
   const kind = partner.offering_kind ?? 'product';
   const recipientNoun = kind === 'project' ? 'investor / capital allocator' : 'partner';
-  const targetVerb = kind === 'project'
-    ? 'observed investment behaviour by the investor — ideally a named portfolio company, stated thesis, or sector position'
-    : 'observed credit / partnership behaviour by the partner — ideally a named deal, sector participation, or quoted public statement';
-  const goodExample = kind === 'project'
-    ? "your firm's 2024 lead investment in Owl Labs (EdTech SaaS Series A)"
-    : "your firm's participation in the Pacific Vista BTR facility (2024)";
-  const genericExamples = kind === 'project'
-    ? '"active in SEA tech", "experienced investor"'
-    : '"active in property credit", "experienced lender"';
 
-  const prompt = `You extract fit signals for cold outreach to a ${recipientNoun}. The signal must be a SPECIFIC ${targetVerb}. Generic descriptors (${genericExamples}) are not acceptable.
+  // What we're pitching — fed to the LLM so it can REASON about why this
+  // specific recipient might care, not just regurgitate evidence facts.
+  // A Vietnamese investor pitched English-training EdTech doesn't need a
+  // "named deal" hook to be interested — they likely have personal
+  // experience with the problem. The model can draw that inference if
+  // we give it the offering context.
+  const offering = partner.offering_context;
+  const offeringSection = offering
+    ? `\nWHAT WE'RE PITCHING TO THEM:
+- Name: ${offering.name}
+- Pitch: ${offering.pitch}
+- Sector: ${offering.sector ?? '(unspecified)'}
+- Geography of the offering: ${offering.geography ?? '(unspecified)'}
+- Recipient's geography (helps with cultural / market inferences): ${offering.recipient_geography ?? '(unspecified)'}
+`
+    : '';
 
-Evidence on ${partner.company_name}:
+  const prompt = `You're a senior research analyst preparing personalised cold outreach to a ${recipientNoun}. Your job is to find the strongest plausible reason THIS specific recipient would care about THIS specific offering — and write it as an honest, humble opener.
+
+You have two information sources:
+
+1. EVIDENCE about ${partner.company_name} (what we found via Brave / LinkedIn / discovery scoring):
 ${evidence}
+${offeringSection}
+
+THINK LIKE A HUMAN RESEARCHER, NOT A TEMPLATE-FILLER. Examples of legitimate angles:
+- Named investment / named deal that fits the offering's sector  → strongest (tier 1)
+- Recipient's stated thesis matches the offering's market         → strong (tier 2)
+- Recipient's geography / culture / language suggests personal interest in the problem
+  (e.g. "as a Vietnamese investor you've likely seen first-hand how English
+   communication barriers limit portfolio companies' international ambitions" —
+   this is a LEGITIMATE inference from geography + offering sector, not a
+   fabricated fact)                                                → tier 2 / 3
+- Sector overlap without specifics ("SEA Series A investors broadly")  → tier 3
+- Nothing specific — humble explicit reach-out ("we found you in our
+  shortlist of plausible fits and thought worth a brief intro")     → tier 4
+
+Rules:
+- Never fabricate specifics (don't invent deals, don't quote things they
+  haven't said). Inferences from geography / sector / role are allowed
+  and should be hedged ("you've likely…", "given your firm's stated focus…").
+- Prefer the strongest tier you can defend with the available facts.
+- The opener should make the reader think "yes, that's a reasonable reason
+  to reach out to me" — not "this is generic" and not "this is fabricated".
+- For non-English-speaking markets (Vietnam, Korea, Japan, China, MENA, LATAM)
+  consider whether language / cultural friction with English-first products
+  is a relevant angle.
 
 Return ONLY JSON, no prose:
 {
-  "short": "<≤80 chars phrase that slots into 'X suggests fit'. Cite the specific evidence. e.g. '${goodExample}'>",
-  "lead": "<1-2 sentence opener for a cold email, grounded in the specific evidence>",
+  "short": "<≤80 chars phrase that slots into 'X suggests fit'. e.g. 'your firm's lead in Owl Labs 2024' or 'your firm's Vietnam SaaS focus + likely first-hand experience of English barriers'>",
+  "lead": "<1-2 sentence opener for a cold email. Cite the specific evidence OR draw the named inference. Match tone to certainty.>",
   "leadShort": "<single sentence opener for a follow-up email>",
   "specificity": "specific_deal | sector_evidence | generic"
 }
 
-If the evidence is genuinely generic (no specific deal, sector, or quoted statement), still return SOMETHING usable — return specificity="generic" and the system will substitute a humble explicit framing ("we found you among <sector> investors and thought…"). Do not refuse.`;
+If you genuinely cannot find ANY plausible angle (rare), return specificity="generic" and the system will substitute a humble explicit framing. Do not refuse — return something.`;
 
   try {
     // Hard 12s per-call timeout. Without this, a hung OpenRouter request
@@ -438,28 +489,53 @@ function buildHumbleFallback(partner: RenderPartner): CreditSignal {
     partner.partner_readiness_notes ||
     ''
   ).trim().slice(0, 160);
-  const sectorClause = sectorHint
-    ? `your profile as a ${sectorHint.replace(/[.\n]+$/, '')}`
-    : kind === 'project'
-      ? `your firm's stated investor focus`
-      : `your firm's stated partner focus`;
 
-  const short = sectorHint
-    ? `${sectorClause} suggests this may be of interest`
-    : `we identified ${firm} among our shortlist of plausible fits`;
+  // If we know the offering's sector + the recipient's geography, draw a
+  // light cultural / market-fit inference. For non-English-speaking
+  // markets pitched English-product, the "you've likely experienced this
+  // problem firsthand" framing is honest and effective. We hedge with
+  // "may" / "perhaps" so the reader doesn't feel a fact has been invented.
+  const offering = partner.offering_context;
+  const geo = offering?.recipient_geography?.toLowerCase() || '';
+  const isNonEnglishMarket = /\b(vietnam|viet|korea|japan|china|thai|indo|saudi|emirat|brazil|mexico|spain|france|german|argent|colomb|chile|tur)/i.test(geo);
+  const isEnglishLanguageOffering = !!offering?.pitch && /\b(english|esl|cefr|toefl|ielts|language[\s-]learn|communication)\b/i.test(offering.pitch + ' ' + (offering.sector || ''));
+
+  let inferenceClause: string | null = null;
+  if (offering && isNonEnglishMarket && isEnglishLanguageOffering) {
+    inferenceClause = `as an investor in a non-English-speaking market you've likely seen first-hand how English communication barriers limit portfolio companies' international ambitions`;
+  } else if (offering && offering.sector && sectorHint) {
+    inferenceClause = `${sectorHint.replace(/[.\n]+$/, '')} suggests a plausible thesis overlap with ${offering.name} (${offering.sector})`;
+  }
+
+  const sectorClause = inferenceClause
+    || (sectorHint ? `your profile as a ${sectorHint.replace(/[.\n]+$/, '')}` : null)
+    || (kind === 'project' ? `your firm's stated investor focus` : `your firm's stated partner focus`);
+
+  const short = inferenceClause
+    ? inferenceClause.slice(0, 80)
+    : sectorHint
+      ? `${sectorClause} suggests this may be of interest`
+      : `we identified ${firm} among our shortlist of plausible fits`;
 
   const lead = kind === 'project'
-    ? `${firm} came up in our shortlist of investors who may have an interest in this raise — we don't have public evidence of a recent fit-specific investment yet, but ${sectorClause} suggested it was worth a brief intro rather than skipping you.`
-    : `${firm} came up in our shortlist of potential partners — we don't have a specific recent collaboration on record, but ${sectorClause} suggested an intro was worth attempting rather than skipping you.`;
+    ? `${firm} came up in our shortlist for this raise — we don't have public evidence of a recent fit-specific investment, but ${sectorClause}. Worth a brief intro rather than skipping over.`
+    : `${firm} came up in our shortlist of potential partners — we don't have a specific recent collaboration on record, but ${sectorClause}. Worth attempting an intro rather than skipping over.`;
 
   const leadShort = `${firm} was on our shortlist on the basis of ${sectorClause}; flagging again in case the timing is better now.`;
+
+  // Inference-bearing fallback is tier 3 (anchored), pure hedge is tier 4.
+  const tier: CreditSignal['specificity'] = inferenceClause
+    ? 'sector_anchor'
+    : sectorHint
+      ? 'sector_anchor'
+      : 'humble_intro';
 
   return {
     ok: true,
     short,
     lead,
     leadShort,
-    specificity: sectorHint ? 'sector_anchor' : 'humble_intro',
+    specificity: tier,
   };
 }
 
