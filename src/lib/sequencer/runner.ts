@@ -203,6 +203,9 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         profile_engagement_flags: partner.profile_engagement_flags,
         firm_recent_news: partner.firm_recent_news,
         firm_named_deals: partner.firm_named_deals,
+        // Drives the fit-signal extraction prompt — investor framing for
+        // project-scoped partners, partner/credit framing otherwise.
+        offering_kind: partner.project_id ? 'project' : 'product',
       };
 
       let context;

@@ -101,6 +101,14 @@ export interface RenderPartner {
   profile_engagement_flags?: { is_creator?: boolean; is_premium?: boolean } | null;
   firm_recent_news?: Array<{ title: string; snippet: string }> | null;
   firm_named_deals?: Array<{ title: string; snippet: string }> | null;
+  /**
+   * Whether this partner was discovered for a product (sales path) or a
+   * project (fundraising path). Drives the fit-signal extraction prompt:
+   * product partners get a credit/partner-readiness framing, project
+   * partners get an investor / thesis-match framing. Defaults to 'product'
+   * so legacy callers keep the original behaviour.
+   */
+  offering_kind?: 'product' | 'project';
 }
 
 export interface RenderedMessage {
@@ -312,14 +320,31 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
     return { ok: false, reason: 'No discovery evidence on partner — re-run discovery before sequencing' };
   }
 
-  const prompt = `You extract credit signals for direct-lender outreach. The signal must be a SPECIFIC observed credit behaviour by the lender — ideally a named deal, sector participation, or quoted public statement. Generic descriptors ("active in property credit", "experienced lender") are not acceptable.
+  // Switch the extraction prompt based on whether the partner was
+  // discovered for a product (sales partner) or a project (investor).
+  // Same JSON shape both sides — the renderer substitutes the result
+  // into {credit_signal} / {credit_signal_lead} / {credit_signal_lead_short}
+  // placeholders. Only the LLM's framing changes.
+  const kind = partner.offering_kind ?? 'product';
+  const recipientNoun = kind === 'project' ? 'investor / capital allocator' : 'partner';
+  const targetVerb = kind === 'project'
+    ? 'observed investment behaviour by the investor — ideally a named portfolio company, stated thesis, or sector position'
+    : 'observed credit / partnership behaviour by the partner — ideally a named deal, sector participation, or quoted public statement';
+  const goodExample = kind === 'project'
+    ? "your firm's 2024 lead investment in Owl Labs (EdTech SaaS Series A)"
+    : "your firm's participation in the Pacific Vista BTR facility (2024)";
+  const genericExamples = kind === 'project'
+    ? '"active in SEA tech", "experienced investor"'
+    : '"active in property credit", "experienced lender"';
 
-Evidence on lender ${partner.company_name}:
+  const prompt = `You extract fit signals for cold outreach to a ${recipientNoun}. The signal must be a SPECIFIC ${targetVerb}. Generic descriptors (${genericExamples}) are not acceptable.
+
+Evidence on ${partner.company_name}:
 ${evidence}
 
 Return ONLY JSON, no prose:
 {
-  "short": "<≤80 chars phrase that slots into 'X suggests fit'. Cite the specific evidence. e.g. 'your firm's participation in the Pacific Vista BTR facility (2024)'>",
+  "short": "<≤80 chars phrase that slots into 'X suggests fit'. Cite the specific evidence. e.g. '${goodExample}'>",
   "lead": "<1-2 sentence opener for a cold email, grounded in the specific evidence>",
   "leadShort": "<single sentence opener for a follow-up email>",
   "specificity": "specific_deal | sector_evidence | generic"

@@ -386,6 +386,50 @@ export function PipelineTable({
     }
   }
 
+  async function reEnrichEvidence() {
+    if (selectedPartners.length === 0) return;
+    const n = selectedPartners.length;
+    if (n > 10) {
+      setMessage(`Error: Re-enrich runs LinkedIn + Brave per partner — cap is 10 per call (selected: ${n}). Trim selection.`);
+      return;
+    }
+    setLoading('reenrich');
+    setNextCta(null);
+    setMessage(`Re-enriching evidence for ${n} prospect${n === 1 ? '' : 's'} now — pulling fresh Brave firm news + LinkedIn posts…`);
+
+    try {
+      const res = await fetch('/api/partners/re-enrich-evidence', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
+      });
+      const rawBody = await res.text();
+      let data: { [k: string]: unknown };
+      try { data = JSON.parse(rawBody); } catch {
+        setMessage(`Error: /api/partners/re-enrich-evidence returned HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
+        return;
+      }
+      if (!res.ok) {
+        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+        return;
+      }
+      const enriched = (data.enriched as number) || 0;
+      const skipped = (data.skipped as number) || 0;
+      const failed = (data.failed as number) || 0;
+      setMessage(
+        `Re-enriched ${enriched} of ${n}. ${skipped} skipped (no LinkedIn URL / unsupported source), ${failed} failed.\n` +
+        (enriched > 0
+          ? 'Selection kept — now click "Reset sequence" → "2. Assign Sequence" → "3. Render & Queue" to regenerate drafts with fresh evidence.'
+          : 'Nothing refreshed — check that the selected partners have a contact_linkedin URL or a Brave-discoverable domain.'),
+      );
+      router.refresh();
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function resetSequences() {
     if (selectedPartners.length === 0) return;
     const n = selectedPartners.length;
@@ -724,9 +768,17 @@ export function PipelineTable({
             {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
           </button>
           <button
+            onClick={reEnrichEvidence}
+            disabled={loading !== null}
+            className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 ml-auto"
+            title="Re-fetch Brave firm news + LinkedIn profile / posts for the selected partners. Use when render reports 'no Brave/LinkedIn evidence yet' — refreshes the signal the credit_signal extractor needs."
+          >
+            {loading === 'reenrich' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Re-enrich evidence'}
+          </button>
+          <button
             onClick={resetSequences}
             disabled={loading !== null}
-            className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2 ml-auto"
+            className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2"
             title="Delete the current sequence assignment + any draft messages for the selected partners. Use when partners were assigned to the wrong template and you want to re-do Step 2 cleanly."
           >
             {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Reset sequence'}

@@ -216,12 +216,56 @@ export async function POST(request: Request) {
     else counts.failed += 1;
   }
 
+  // Pull the actual block reasons for blocked steps from audit_events so
+  // the operator sees WHY a partner went silent (the most common reason
+  // is "No discovery evidence on partner" — they need to re-enrich, not
+  // edit the message). Without this, the UI just said "blocked by
+  // compliance" which sent operators hunting for forbidden terms that
+  // weren't the actual cause.
+  const blockedStepIds = (postSteps || [])
+    .filter((s) => s.status === 'compliance_blocked')
+    .map((s) => s.id as string);
+
+  const blockReasonsByPartner = new Map<string, string>();
+  if (blockedStepIds.length > 0) {
+    const { data: auditRows } = await db
+      .from('audit_events')
+      .select('resource_id, payload, created_at')
+      .eq('organisation_id', profile.organisation_id)
+      .eq('action', 'sequence.render_blocked')
+      .in('resource_id', blockedStepIds)
+      .order('created_at', { ascending: false });
+    const stepToPartner = new Map((postSteps || []).map((s) => [s.id as string, s.partner_id as string]));
+    for (const row of auditRows || []) {
+      const partnerId = stepToPartner.get(row.resource_id as string);
+      if (!partnerId) continue;
+      if (blockReasonsByPartner.has(partnerId)) continue; // first reason wins
+      const payload = (row.payload as { reason?: string; blocker?: string } | null) ?? {};
+      const reason = payload.reason || payload.blocker || 'compliance';
+      blockReasonsByPartner.set(partnerId, reason);
+    }
+  }
+
+  // Distinguish "no evidence" blocks from compliance-flag blocks because
+  // the remediation is different: no-evidence → re-enrich, compliance
+  // flag → edit the body.
+  const noEvidenceCount = Array.from(blockReasonsByPartner.values()).filter((r) => /no discovery evidence|no_credit_signal/i.test(r)).length;
+  const complianceFlagCount = counts.blocked - noEvidenceCount;
+
+  const blockedLine = counts.blocked === 0
+    ? ''
+    : noEvidenceCount > 0 && complianceFlagCount === 0
+      ? ` ${noEvidenceCount} blocked because the partner has no Brave/LinkedIn evidence yet — click "Re-enrich evidence" to fix.`
+      : noEvidenceCount === 0 && complianceFlagCount > 0
+        ? ` ${complianceFlagCount} blocked by compliance regex — open prospect detail to see flagged terms.`
+        : ` ${counts.blocked} blocked (${noEvidenceCount} no-evidence, ${complianceFlagCount} compliance) — re-enrich the no-evidence ones first.`;
+
   const hint = runnerError
     ? `Renderer threw before finishing: ${runnerError}`
     : counts.queued > 0
-      ? `${counts.queued} message${counts.queued === 1 ? '' : 's'} ready for review in Approvals.`
+      ? `${counts.queued} message${counts.queued === 1 ? '' : 's'} ready for review in Approvals.${blockedLine}`
       : counts.blocked > 0
-        ? `${counts.blocked} blocked by compliance — open prospect detail to see flagged terms.`
+        ? blockedLine.trim()
         : counts.skipped_no_channel > 0
           ? `${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`
           : counts.failed > 0
