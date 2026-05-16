@@ -52,3 +52,15 @@ export const ALLOWED_ORIGINS = [
 ];
 
 export const LANGUAGE = 'en';
+
+/**
+ * Widget bubble placement on the page. ElevenLabs self-positions the
+ * widget using fixed positioning on its own shadow root, so wrapping it
+ * in a positioned div has no effect — the position must come from the
+ * agent's platform_settings.widget config.
+ *
+ * Options: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'.
+ * We use top-right so the bubble doesn't overlap the page-level CTAs
+ * (which all live near the bottom or right side of cards).
+ */
+export const WIDGET_PLACEMENT: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' = 'top-right';

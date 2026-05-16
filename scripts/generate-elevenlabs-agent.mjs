@@ -30,7 +30,7 @@ if (!apiKey) {
   process.exit(1);
 }
 
-const { AGENT_NAME, SYSTEM_PROMPT, FIRST_MESSAGE, ALLOWED_ORIGINS, LANGUAGE } = readAgentConfig();
+const { AGENT_NAME, SYSTEM_PROMPT, FIRST_MESSAGE, ALLOWED_ORIGINS, LANGUAGE, WIDGET_PLACEMENT } = readAgentConfig();
 
 const headers = { 'xi-api-key': apiKey, 'Content-Type': 'application/json' };
 
@@ -63,6 +63,7 @@ async function main() {
     platform_settings: {
       widget: {
         allowlist: ALLOWED_ORIGINS.map((origin) => ({ hostname: new URL(origin).hostname })),
+        placement: WIDGET_PLACEMENT,
       },
     },
   };

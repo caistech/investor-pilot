@@ -32,6 +32,7 @@ import {
   FIRST_MESSAGE,
   ALLOWED_ORIGINS,
   LANGUAGE,
+  WIDGET_PLACEMENT,
 } from '@/lib/elevenlabs/agent-config';
 
 const DEFAULT_ADMIN_EMAILS = ['mcmdennis@gmail.com', 'dennis@factory2key.com.au'];
@@ -89,6 +90,7 @@ export async function POST(request: Request) {
     platform_settings: {
       widget: {
         allowlist: ALLOWED_ORIGINS.map((origin) => ({ hostname: new URL(origin).hostname })),
+        placement: WIDGET_PLACEMENT,
       },
     },
   };

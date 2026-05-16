@@ -3,10 +3,12 @@
 import Script from 'next/script';
 
 /**
- * Floating ElevenLabs ConvAI voice-help widget. Positioned in the top-right
- * corner of every dashboard page via the dashboard layout. Non-blocking —
- * it sits over content but the widget itself ships its own bubble UI that
- * does not steal focus until the user clicks it.
+ * Floating ElevenLabs ConvAI voice-help widget. Positioned via the agent's
+ * platform_settings.widget.placement field (set to 'top-right' in
+ * src/lib/elevenlabs/agent-config.ts — the widget self-positions via fixed
+ * positioning on its own shadow root, so wrapping it in a positioned div
+ * has no effect). Non-blocking — does not steal focus until the user clicks
+ * it.
  *
  * Renders nothing if NEXT_PUBLIC_ELEVENLABS_AGENT_ID is unset, so dev/preview
  * environments without the agent configured stay clean.
@@ -17,10 +19,7 @@ export function ElevenLabsWidget() {
 
   return (
     <>
-      <div className="fixed top-4 right-4 z-50 pointer-events-auto">
-        {/* The convai-widget custom element is rendered by the script below. */}
-        <elevenlabs-convai agent-id={agentId} />
-      </div>
+      <elevenlabs-convai agent-id={agentId} />
       <Script
         src="https://unpkg.com/@elevenlabs/convai-widget-embed"
         strategy="afterInteractive"

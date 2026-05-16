@@ -26,8 +26,9 @@ function extractTemplate(src, name) {
 
 function extractString(src, name) {
   // Matches `export const NAME = "...";` or `export const NAME = '...';`
-  const reDouble = new RegExp(`export const ${name} = "([^"]*)";`, 'm');
-  const reSingle = new RegExp(`export const ${name} = '([^']*)';`, 'm');
+  // Also handles `export const NAME: SomeType = '...';` (TS type annotation).
+  const reDouble = new RegExp(`export const ${name}(?:\\s*:[^=]+)?\\s*=\\s*"([^"]*)";`, 'm');
+  const reSingle = new RegExp(`export const ${name}(?:\\s*:[^=]+)?\\s*=\\s*'([^']*)';`, 'm');
   return (src.match(reDouble) ?? src.match(reSingle))?.[1] ?? null;
 }
 
@@ -47,6 +48,7 @@ export function readAgentConfig() {
     FIRST_MESSAGE: extractString(src, 'FIRST_MESSAGE'),
     ALLOWED_ORIGINS: extractArray(src, 'ALLOWED_ORIGINS'),
     LANGUAGE: extractString(src, 'LANGUAGE') ?? 'en',
+    WIDGET_PLACEMENT: extractString(src, 'WIDGET_PLACEMENT') ?? 'top-right',
   };
   const missing = ['AGENT_NAME', 'SYSTEM_PROMPT', 'FIRST_MESSAGE'].filter((k) => !cfg[k]);
   if (missing.length) {
