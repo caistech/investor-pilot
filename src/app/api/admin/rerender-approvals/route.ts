@@ -25,7 +25,7 @@
 
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { renderStep, type RenderPartner } from '@/lib/sequencer/render';
+import { renderStep, resolveStepTemplate, type RenderPartner } from '@/lib/sequencer/render';
 import { createOrgContextCache } from '@/lib/sequencer/context';
 import { checkCompliance } from '@/lib/compliance/filter';
 import type { ComplianceMode } from '@/lib/compliance/rules';
@@ -255,7 +255,17 @@ async function rerenderOneStep(
     };
 
     // 3. Render via current pipeline.
-    const rendered = await renderStep(tplStep.template_key, renderPartner, renderContext);
+    const stepTemplate = resolveStepTemplate(tplStep);
+    if (!stepTemplate) {
+      return {
+        step_id: step.id,
+        partner_id: step.partner_id,
+        outcome: 'failed',
+        reason: `Unknown template_key: ${tplStep.template_key}`,
+        enrichment_status: enrichmentStatus,
+      };
+    }
+    const rendered = await renderStep(tplStep.template_key, renderPartner, renderContext, stepTemplate);
     if (!rendered.ok) {
       return {
         step_id: step.id,

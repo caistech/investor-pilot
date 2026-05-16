@@ -92,6 +92,22 @@ export default async function SettingsPage() {
           />
         )}
 
+        {/* Sequence templates (Phase D — body content lives on each step) */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h4>Sequence templates</h4>
+            <Link href="/settings/templates" className="btn-secondary text-sm">
+              Manage templates
+            </Link>
+          </div>
+          <p className="text-dark-400 text-sm">
+            Edit the body and subject of each outreach step. The renderer interpolates
+            <code className="text-dark-300 mx-1">{'{first_name}'}</code>,
+            <code className="text-dark-300 mx-1">{'{credit_signal}'}</code>,
+            <code className="text-dark-300 mx-1">{'{sender_name}'}</code> and friends per partner at send time.
+          </p>
+        </div>
+
         {/* Profile */}
         <div className="card">
           <h4 className="mb-4">Profile</h4>

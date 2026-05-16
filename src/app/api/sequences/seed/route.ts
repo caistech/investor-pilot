@@ -17,6 +17,30 @@
 
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
+import { SEED_TEMPLATES } from '@/lib/sequencer/seed-templates';
+
+/**
+ * Enrich a step with the seed template content (subject, body, max_chars,
+ * is_warm) drawn from SEED_TEMPLATES by template_key. Phase D — the cron
+ * + admin renderers now read content directly from the step's JSONB; new
+ * tenants seeded via this route get full content embedded so they don't
+ * rely on the fallback.
+ */
+function withSeedContent<T extends { template_key: string }>(step: T): T & {
+  subject: string | null;
+  body: string;
+  max_chars: number;
+  is_warm: boolean;
+} {
+  const seed = SEED_TEMPLATES[step.template_key];
+  return {
+    ...step,
+    subject: seed?.subject ?? null,
+    body: seed?.body ?? '',
+    max_chars: seed?.max_chars ?? 2000,
+    is_warm: seed?.is_warm ?? false,
+  };
+}
 
 const TEMPLATE_NAME = 'F2K senior debt — direct lender';
 const TEMPLATE_VERTICAL = 'senior_debt_au_property';
@@ -114,14 +138,14 @@ export async function POST() {
   const cold = await ensureTemplate(db, organisation_id, user!.id, {
     name: TEMPLATE_NAME,
     description: "Direct-to-lender outreach sequence for F2K's $18.7M senior debt syndicate. Per Senior Debt Brief v3.",
-    steps: STEPS,
+    steps: STEPS.map(withSeedContent),
   });
 
   const warm = await ensureTemplate(db, organisation_id, user!.id, {
     name: WARM_TEMPLATE_NAME,
     description:
       "Warm DM-only sequence for operator's 1st-degree LinkedIn connections. 3 steps over 9 days. No connect-request step — recipient already accepted.",
-    steps: WARM_STEPS,
+    steps: WARM_STEPS.map(withSeedContent),
   });
 
   return NextResponse.json({
@@ -135,7 +159,7 @@ async function ensureTemplate(
   db: Awaited<ReturnType<typeof authenticateAndGetDb>>['db'],
   organisation_id: string,
   user_id: string,
-  tpl: { name: string; description: string; steps: typeof STEPS },
+  tpl: { name: string; description: string; steps: ReturnType<typeof withSeedContent>[] },
 ) {
   // Idempotency: check whether a template with this exact name already exists
   // for this org. If so, return it without modification.

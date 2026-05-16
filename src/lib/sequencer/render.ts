@@ -18,6 +18,7 @@
  */
 
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import { SEED_TEMPLATES, type SeedTemplate } from './seed-templates';
 
 /**
  * Per-organisation context the renderer needs to fill `{sender_name}` and
@@ -29,6 +30,45 @@ export interface RenderContext {
   sender_name: string;
   sender_role: string;
   signature_block?: string | null;
+}
+
+/**
+ * The template content the renderer needs for a single step. Caller
+ * extracts from the sequence_templates row's steps[i] JSONB. When the row
+ * was seeded prior to Phase D and only carries a template_key reference,
+ * caller falls back to SEED_TEMPLATES via resolveStepTemplate().
+ */
+export interface StepTemplate {
+  subject: string | null;
+  body: string;
+  max_chars: number;
+  is_warm: boolean;
+}
+
+/**
+ * Resolve a step's renderer-ready template content from a DB step row.
+ * Prefers the step's own subject/body/max_chars/is_warm (Phase D
+ * authoritative shape); falls back to SEED_TEMPLATES[template_key] for
+ * rows seeded before Phase D landed.
+ *
+ * Returns null when the template_key is unknown AND the step carries no
+ * inline content — caller surfaces this as `unknown_template`.
+ */
+export function resolveStepTemplate(step: {
+  template_key: string;
+  subject?: string | null;
+  body?: string | null;
+  max_chars?: number | null;
+  is_warm?: boolean | null;
+}): StepTemplate | null {
+  const seed: SeedTemplate | null = SEED_TEMPLATES[step.template_key] ?? null;
+  if (!step.body && !seed) return null;
+  return {
+    subject: step.subject ?? seed?.subject ?? null,
+    body: step.body ?? seed?.body ?? '',
+    max_chars: step.max_chars ?? seed?.max_chars ?? 2000,
+    is_warm: step.is_warm ?? seed?.is_warm ?? false,
+  };
 }
 
 export interface RenderPartner {
@@ -79,165 +119,26 @@ export interface RenderError {
 
 export type RenderResult = RenderedMessage | RenderError;
 
-const TEMPLATES = {
-  lender_v3_connect: {
-    channel: 'linkedin_connect' as const,
-    subject: null,
-    body: `{first_name} — F2K is placing two AU property dev senior debt facilities directly with selected lenders. {credit_signal} suggests fit. Wholesale, first-mortgage, $1-5M tickets. Open to a brief conversation? — {sender_name}`,
-    max_chars: 300,
-  },
-  lender_v3_dm_first: {
-    channel: 'linkedin_dm' as const,
-    subject: null,
-    body: `Thanks for connecting, {first_name}.
-
-Short context: F2K (factory2key.com.au) is placing senior debt directly into two Australian property development projects, replacing a stalled broker process. Both facilities are first-mortgage, wholesale, fixed-term.
-
-  ▸ Branscombe Estate (Claremont TAS) — $16.2M senior construction. 37 modular dwellings. Indicative 8.5% p.a. + standard fees. ~22mo term. 40% anchor offtake to Homes Tasmania (CHP route).
-
-  ▸ Seafields Estate (Geraldton WA) — $2.5M senior land. 141 residential lots, tri-party Cooperation Agreement signed. Indicative 8.0% p.a. capitalised. Day-1 LVR 71%, dropping to 24% within 6 months at developer's cost.
-
-Open to either facility individually or combined. Lenders pari-passu in syndicate.
-
-If a 20-minute credit conversation is useful, I can share the V10 Finance Submissions and project models. {credit_signal} suggested fit. If not relevant, completely understand.
-{project_urls_block}
-— {sender_name}
-{sender_role}`,
-    max_chars: 2000, // LinkedIn DM ~8k char limit, we cap shorter
-  },
-  lender_v3_email_first: {
-    channel: 'email' as const,
-    subject: `{first_name} — F2K $18.7M AU property senior debt, direct lender process`,
-    body: `Hi {first_name},
-
-{credit_signal_lead}
-
-F2K is placing $18.7M senior debt directly with selected lenders across two Australian property development projects:
-
-  • Branscombe Estate (Claremont, TAS) — $16.2M senior construction, 8.5% p.a. indicative + standard fees, ~22 months, first-mortgage. 37 modular dwellings, 40% anchor offtake to Homes Tasmania.
-
-  • Seafields Estate (Geraldton, WA) — $2.5M senior land, 8.0% p.a. capitalised, ~36 months, first-mortgage over 141 residential lots. Signed tri-party Cooperation Agreement (Mar 2026). Day-1 LVR 71% dropping to 24% within six months.
-
-Both pari-passu, wholesale, fixed-term. Lenders can take either facility individually or both. Typical ticket band $1-5M.
-
-V10 Finance Submissions and project models available on request. If a 20-minute credit conversation is useful, reply here and I'll send a calendar link.
-{project_urls_block}
-— {sender_name}
-{sender_role}`,
-    max_chars: 2500,
-  },
-  lender_v3_email_fu1: {
-    channel: 'email' as const,
-    subject: `Re: {first_name} — F2K $18.7M AU property senior debt`,
-    body: `Hi {first_name},
-
-Quick follow-up on the F2K senior debt position. {credit_signal_lead_short}
-
-If a 20-minute credit conversation on either facility (Branscombe $16.2M senior construction TAS / Seafields $2.5M senior land WA, both first-mortgage, 8-8.5% indicative) would be useful, I can share the V10 Finance Submissions and project models.
-
-If not the right moment or not a fit, no further follow-up needed.
-
-— {sender_name}
-F2K Capital`,
-    max_chars: 1200,
-  },
-  lender_v3_dm_fu: {
-    channel: 'linkedin_dm' as const,
-    subject: null,
-    body: `{first_name} — short follow-up. If a 20-min call on either of the F2K facilities (Branscombe $16.2M senior construction, Seafields $2.5M senior land, both first-mortgage, 8-8.5% indicative) would be useful, I can share V10 IMs and credit models. Otherwise no further follow-up.
-
-— {sender_name}`,
-    max_chars: 600,
-  },
-  lender_v3_email_fu2: {
-    channel: 'email' as const,
-    subject: `Closing the loop — F2K senior debt`,
-    body: `Hi {first_name},
-
-Closing the loop on the F2K $18.7M senior debt position. If the indicative terms (8.5% Branscombe TAS / 8.0% Seafields WA, both first-mortgage, fixed-term) aren't a fit for {firm} right now, completely understand — won't follow up again.
-
-If timing changes or a different facility size would suit better, the door is open.
-
-— {sender_name}
-F2K Capital`,
-    max_chars: 800,
-  },
-
-  // -------------------------------------------------------------------------
-  // Warm DM templates — 1st-degree LinkedIn connections only.
-  // No connect-request step (operator and recipient already connected). No
-  // credit_signal extraction either — the relationship itself is the signal.
-  // Counsel still needs to clear these per v3 brief Sec 5.8, but the risk
-  // profile is materially lower than cold outreach.
-  // -------------------------------------------------------------------------
-  lender_v3_warm_dm_first: {
-    channel: 'linkedin_dm' as const,
-    subject: null,
-    body: `{first_name} — {warm_opener}
-
-F2K is placing $18.7M senior debt directly with selected lenders across two AU property projects:
-
-  ▸ Branscombe Estate (Claremont TAS) — $16.2M senior construction, 8.5% indicative + standard fees, ~22mo, first-mortgage. 40% anchor offtake to Homes Tasmania.
-
-  ▸ Seafields Estate (Geraldton WA) — $2.5M senior land, 8.0% capitalised, ~36mo, first-mortgage over 141 lots. Signed tri-party Coop Agreement Mar 2026.
-
-Pari-passu syndicate, $1-5M tickets typical. V10 Finance Submissions + credit models available.
-
-Worth a 20-min credit conversation? No expectation either way — figured you'd want first look given F2K's on your radar.
-{project_urls_block}
-— {sender_name}`,
-    max_chars: 2000,
-  },
-  lender_v3_warm_dm_fu: {
-    channel: 'linkedin_dm' as const,
-    subject: null,
-    body: `{first_name} — short follow-up. If a quick call on either F2K facility (Branscombe $16.2M senior construction TAS / Seafields $2.5M senior land WA, both first-mortgage, 8-8.5% indicative) would be useful, I can send V10 IMs over today.
-
-Otherwise no further chase.
-
-— {sender_name}`,
-    max_chars: 700,
-  },
-  lender_v3_warm_dm_final: {
-    channel: 'linkedin_dm' as const,
-    subject: null,
-    body: `{first_name} — closing the loop. If timing isn't right or not a fit for {firm} right now, completely understand — won't follow up again. Door's open if circumstances change.
-
-— {sender_name}`,
-    max_chars: 500,
-  },
-} as const;
-
-// Warm templates skip credit_signal extraction (the relationship IS the signal)
-// and rate higher on personalization_score by default. Adding a new warm key?
-// Add it here too or the renderer will fail trying to extract credit_signal
-// from a partner who likely has thin discovery evidence.
-const WARM_TEMPLATE_KEYS = new Set<string>([
-  'lender_v3_warm_dm_first',
-  'lender_v3_warm_dm_fu',
-  'lender_v3_warm_dm_final',
-]);
+// TEMPLATES const + WARM_TEMPLATE_KEYS Set previously lived here. Phase D moved
+// the canonical content into src/lib/sequencer/seed-templates.ts; the renderer
+// now takes a `template: StepTemplate` arg, so callers source content from the
+// DB sequence_templates row (preferred) or fall back via resolveStepTemplate().
 
 export function isWarmTemplate(key: string): boolean {
-  return WARM_TEMPLATE_KEYS.has(key);
+  return SEED_TEMPLATES[key]?.is_warm === true;
 }
 
-export type TemplateKey = keyof typeof TEMPLATES;
-
 export function templateChannel(key: string): 'linkedin_connect' | 'linkedin_dm' | 'email' | null {
-  if (!(key in TEMPLATES)) return null;
-  return TEMPLATES[key as TemplateKey].channel;
+  return SEED_TEMPLATES[key]?.channel ?? null;
 }
 
 export async function renderStep(
   templateKey: string,
   partner: RenderPartner,
   context: RenderContext,
+  template: StepTemplate,
 ): Promise<RenderResult> {
-  if (!(templateKey in TEMPLATES)) {
-    return { ok: false, reason: `Unknown template_key: ${templateKey}`, blocker: 'unknown_template' };
-  }
-  const tpl = TEMPLATES[templateKey as TemplateKey];
+  const tpl = template;
 
   if (!partner.contact_name) {
     return {
@@ -252,7 +153,7 @@ export async function renderStep(
     return { ok: false, reason: 'contact_name empty after trim', blocker: 'missing_contact' };
   }
 
-  const warm = isWarmTemplate(templateKey);
+  const warm = template.is_warm;
 
   // Cold templates require a specific credit signal — generic openers tank
   // reply rates and the v3 brief explicitly forbids them. Warm templates

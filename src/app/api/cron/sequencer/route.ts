@@ -20,7 +20,7 @@
 
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
-import { renderStep, type RenderPartner } from '@/lib/sequencer/render';
+import { renderStep, resolveStepTemplate, type RenderPartner } from '@/lib/sequencer/render';
 import { createOrgContextCache } from '@/lib/sequencer/context';
 import { checkCompliance } from '@/lib/compliance/filter';
 import { advanceAllWarmupDays } from '@/lib/channels/channel-guard';
@@ -182,7 +182,14 @@ async function runSequencer() {
         continue;
       }
 
-      const rendered = await renderStep(tplStep.template_key, renderPartner, context);
+      const stepTemplate = resolveStepTemplate(tplStep);
+      if (!stepTemplate) {
+        await markStep(db, step.id, 'failed');
+        results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: `Unknown template_key: ${tplStep.template_key}` });
+        continue;
+      }
+
+      const rendered = await renderStep(tplStep.template_key, renderPartner, context, stepTemplate);
 
       if (!rendered.ok) {
         await markStep(db, step.id, 'compliance_blocked');
