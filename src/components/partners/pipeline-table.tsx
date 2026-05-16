@@ -15,6 +15,11 @@ const FILTER_TABS = [
   { key: 'drafted', label: 'Drafted' },
   { key: 'sent', label: 'Sent' },
   { key: 'replied', label: 'Replied' },
+  // New tier between sent and replied — prospect accepted a value offer
+  // (pilot, brief, intro) but hasn't booked a meeting yet. Higher
+  // priority for the operator: nurture into a meeting, don't re-pitch
+  // them like a cold prospect.
+  { key: 'engaged', label: 'Warm engaged' },
 ] as const;
 
 type FilterKey = typeof FILTER_TABS[number]['key'];
@@ -33,8 +38,9 @@ const SOURCE_TABS = [
 
 type SourceTierKey = typeof SOURCE_TABS[number]['key'];
 
-function matchesFilter(status: string, filter: FilterKey): boolean {
+function matchesFilter(status: string, filter: FilterKey, engagedAt?: string | null): boolean {
   if (filter === 'all') return true;
+  if (filter === 'engaged') return !!engagedAt;
   if (filter === 'scored') return status === 'scored';
   if (filter === 'enriched') return ['contact_found', 'contact_partial'].includes(status);
   if (filter === 'drafted') return ['draft_ready', 'angle_defined'].includes(status);
@@ -215,7 +221,7 @@ export function PipelineTable({
     // workable. Operator can enrich-by-domain elsewhere if they want
     // to chase a company without a contact.
     .filter(p => typeof p.contact_name === 'string' && p.contact_name.trim().length > 0)
-    .filter(p => matchesFilter(p.status, filter))
+    .filter(p => matchesFilter(p.status, filter, p.engaged_at))
     .filter(p => matchesSourceTier(p, sourceFilter))
     .filter(p => matchesSearch(p, search))
     .filter(p => typeFilter === 'all' || p.partner_type === typeFilter)
@@ -549,11 +555,12 @@ export function PipelineTable({
 
   const counts = {
     all: partners.length,
-    scored: partners.filter(p => matchesFilter(p.status, 'scored')).length,
-    enriched: partners.filter(p => matchesFilter(p.status, 'enriched')).length,
-    drafted: partners.filter(p => matchesFilter(p.status, 'drafted')).length,
-    sent: partners.filter(p => matchesFilter(p.status, 'sent')).length,
-    replied: partners.filter(p => matchesFilter(p.status, 'replied')).length,
+    scored: partners.filter(p => matchesFilter(p.status, 'scored', p.engaged_at)).length,
+    enriched: partners.filter(p => matchesFilter(p.status, 'enriched', p.engaged_at)).length,
+    drafted: partners.filter(p => matchesFilter(p.status, 'drafted', p.engaged_at)).length,
+    sent: partners.filter(p => matchesFilter(p.status, 'sent', p.engaged_at)).length,
+    replied: partners.filter(p => matchesFilter(p.status, 'replied', p.engaged_at)).length,
+    engaged: partners.filter(p => !!p.engaged_at).length,
   };
 
   return (

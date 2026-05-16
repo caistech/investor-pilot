@@ -145,6 +145,14 @@ export interface Partner {
   // dropdown match re-discoveries — partner surfaces if EITHER first_seen
   // OR last_seen matches the chosen run.
   last_seen_in_run_id: string | null;
+  // Engagement tracking (migration 024). Set when the prospect accepts
+  // a value offer — pilot started, brief downloaded, positive reply.
+  // Distinct from replied (any inbound) and meeting_booked
+  // (post-conversation). Drives the Warm-engaged filter + warmer
+  // follow-up cadence.
+  engaged_at: string | null;
+  engagement_type: string | null;
+  engagement_note: string | null;
   last_updated_at: string;
   created_at: string;
 }

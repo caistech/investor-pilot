@@ -9,6 +9,7 @@ import { CompanyLogo } from '@/components/company-logo';
 import { DraftEditor } from '@/components/partners/draft-editor';
 import AssignSequence from '@/components/partners/assign-sequence';
 import { NoteEditor } from '@/components/partners/note-editor';
+import { EngageButton } from '@/components/partners/engage-button';
 import PartnerCommunications, {
   type PendingApproval,
   type TimelineEvent,
@@ -323,6 +324,18 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
               <p className="text-dark-500">No contact found yet.</p>
             )}
           </div>
+
+          {/* Engagement marker — between sent and replied. Set when the
+              prospect accepts a value offer (pilot, brief, intro,
+              positive reply). Visible in the Warm engaged filter on
+              Prospects with a different cadence. */}
+          <EngageButton
+            partnerId={p.id}
+            partnerName={p.company_name}
+            engagedAt={(p as Partner & { engaged_at?: string | null }).engaged_at ?? null}
+            engagementType={(p as Partner & { engagement_type?: string | null }).engagement_type ?? null}
+            engagementNote={(p as Partner & { engagement_note?: string | null }).engagement_note ?? null}
+          />
 
           {/* Operator-injected evidence note. Read by the renderer as
               ground truth; lets the operator inject context Brave /
