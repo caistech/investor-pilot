@@ -57,6 +57,15 @@ export interface RunSequencerOptions {
   organisationId?: string;
   /** Skip warmup_day tick — irrelevant for one-shot render-now calls. */
   skipWarmupTick?: boolean;
+  /**
+   * How many steps to process in parallel. Default 1 (matches the
+   * sequential cron behaviour that respects per-provider rate limits).
+   * The operator-triggered render-now route passes 4 — small batch +
+   * impatient operator + Vercel's 60s function ceiling means 4 sequential
+   * Claude calls regularly blow the budget. 4 in parallel completes in
+   * ~max(call) rather than ~sum(calls).
+   */
+  concurrency?: number;
 }
 
 export async function runSequencer(opts: RunSequencerOptions = {}) {
@@ -108,7 +117,11 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
   // organisation_id even when the cron run processes hundreds of steps.
   const orgContextCache = createOrgContextCache(db);
 
-  for (const step of rows) {
+  // Inline-process one step. Pulled out so the outer driver can run them
+  // sequentially (default cron behaviour, respects per-provider rate
+  // limits) or in chunks of `concurrency` (render-now's 4-wide for the
+  // operator's "do it now" button).
+  async function processStep(step: SequenceStepRow) {
     try {
       // Lookup template + partner + a usable channel for this org.
       const [{ data: template }, { data: partner }, { data: channels }] = await Promise.all([
@@ -132,7 +145,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       if (!template || !partner) {
         await markStep(db, step.id, 'failed');
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: 'template or partner missing' });
-        continue;
+        return;
       }
 
       const tplRow = template as TemplateRow;
@@ -140,7 +153,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       if (!tplStep) {
         await markStep(db, step.id, 'failed');
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: `No template step at index ${step.step_index}` });
-        continue;
+        return;
       }
 
       // Map step channel to client_channels.channel_type. LinkedIn connect +
@@ -150,7 +163,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       if (!requiredChannelType) {
         await markStep(db, step.id, 'failed');
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: `Unsupported channel ${step.channel}` });
-        continue;
+        return;
       }
 
       const channel = (channels as ChannelRow[] | null)?.find(c => c.channel_type === requiredChannelType);
@@ -163,7 +176,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           outcome: 'skipped_no_channel',
           reason: `No active ${requiredChannelType} channel`,
         });
-        continue;
+        return;
       }
 
       // Pull KB URLs scoped to this partner's project (or product if the
@@ -199,14 +212,14 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         await markStep(db, step.id, 'compliance_blocked');
         const reason = err instanceof Error ? err.message : String(err);
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'compliance_blocked', reason });
-        continue;
+        return;
       }
 
       const stepTemplate = resolveStepTemplate(tplStep);
       if (!stepTemplate) {
         await markStep(db, step.id, 'failed');
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: `Unknown template_key: ${tplStep.template_key}` });
-        continue;
+        return;
       }
 
       const rendered = await renderStep(tplStep.template_key, renderPartner, context, stepTemplate);
@@ -222,7 +235,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           payload: { blocker: rendered.blocker, reason: rendered.reason, template_key: tplStep.template_key },
         });
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'compliance_blocked', reason: rendered.reason });
-        continue;
+        return;
       }
 
       const compliance = checkCompliance(
@@ -254,7 +267,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       if (msgErr || !msg) {
         await markStep(db, step.id, 'failed');
         results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'failed', reason: msgErr?.message || 'insert failed' });
-        continue;
+        return;
       }
 
       await db
@@ -290,6 +303,21 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         outcome: 'failed',
         reason: err instanceof Error ? err.message : String(err),
       });
+    }
+  }
+
+  const concurrency = Math.max(1, opts.concurrency ?? 1);
+  if (concurrency === 1) {
+    for (const step of rows) {
+      await processStep(step);
+    }
+  } else {
+    // Chunked parallelism. Each chunk awaits Promise.all before the next
+    // begins — keeps the in-flight count bounded while still letting
+    // small batches finish in ~max(step) instead of ~sum(step).
+    for (let i = 0; i < rows.length; i += concurrency) {
+      const chunk = rows.slice(i, i + concurrency);
+      await Promise.all(chunk.map(processStep));
     }
   }
 

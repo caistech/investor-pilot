@@ -169,6 +169,10 @@ export async function POST(request: Request) {
       ignoreSchedule: true,
       organisationId: profile.organisation_id,
       skipWarmupTick: true,
+      // 4-wide parallelism. With MAX_PARTNERS_PER_REQUEST=4, that's the
+      // whole batch in a single chunk → total time ≈ max(step) ≈ 12-15s
+      // instead of sum(step) ≈ 60s+ which was blowing Vercel's ceiling.
+      concurrency: 4,
     });
     // runSequencer returns a NextResponse — unwrap to inspect counts.
     runnerResult = await runnerResponse.json();
