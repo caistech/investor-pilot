@@ -8,8 +8,10 @@
  * Use this when the local script fails with "fetch failed" / connection
  * timeout to ElevenLabs (some ISPs block GCP IP ranges).
  *
- * Auth: requires a logged-in user whose email matches PLATFORM_ADMIN_EMAIL
- * (defaults to mcmdennis@gmail.com). Set the env var to override per-deploy.
+ * Auth: requires a logged-in user whose email appears in
+ * PLATFORM_ADMIN_EMAILS (comma-separated). Defaults to the two emails the
+ * operator currently uses to log into investor-pilot. Override via env to
+ * add/remove admins per-deploy.
  *
  * Body (optional):
  *   { mode: 'create' | 'update', agent_id?: string }
@@ -32,17 +34,26 @@ import {
   LANGUAGE,
 } from '@/lib/elevenlabs/agent-config';
 
-const DEFAULT_ADMIN_EMAIL = 'mcmdennis@gmail.com';
+const DEFAULT_ADMIN_EMAILS = ['mcmdennis@gmail.com', 'dennis@factory2key.com.au'];
 const ELEVENLABS_BASE = 'https://api.elevenlabs.io';
+
+function isPlatformAdmin(email: string | undefined): boolean {
+  if (!email) return false;
+  const list = (process.env.PLATFORM_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
+  const allowed = list.length > 0 ? list : DEFAULT_ADMIN_EMAILS.map((e) => e.toLowerCase());
+  return allowed.includes(email.toLowerCase());
+}
 
 export async function POST(request: Request) {
   const { user, error } = await authenticateAndGetDb();
   if (error) return error;
 
-  const adminEmail = process.env.PLATFORM_ADMIN_EMAIL || DEFAULT_ADMIN_EMAIL;
-  if (user!.email !== adminEmail) {
+  if (!isPlatformAdmin(user!.email)) {
     return NextResponse.json(
-      { error: `Forbidden — this route is restricted to ${adminEmail}` },
+      { error: `Forbidden — ${user!.email} is not on the platform admin list. Set PLATFORM_ADMIN_EMAILS env var to add yourself.` },
       { status: 403 },
     );
   }
