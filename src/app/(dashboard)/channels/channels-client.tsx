@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Send, Mail, Calendar, AlertTriangle, CheckCircle2, Pause, Play, ShieldAlert, Plus, RefreshCw } from 'lucide-react';
 
 interface Channel {
@@ -23,8 +24,10 @@ interface Props {
 }
 
 export default function ChannelsClient({ channels }: Props) {
+  const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [popupOpen, setPopupOpen] = useState<string | null>(null);
 
   async function connectChannel(provider: 'linkedin' | 'gmail' | 'outlook') {
     setBusy(provider);
@@ -40,7 +43,44 @@ export default function ChannelsClient({ channels }: Props) {
         setError(json.error || 'Failed to start OAuth');
         return;
       }
-      window.location.href = json.url;
+
+      // Open Unipile's hosted auth page in a popup so the user never leaves
+      // /channels. iframe is not viable — Unipile and the OAuth providers
+      // (LinkedIn / Google / Microsoft) set X-Frame-Options: DENY.
+      //
+      // Sizing: 600x720 is enough for LinkedIn's wider login + 2FA dialog
+      // without horizontal scroll. Centred on the parent viewport.
+      const width = 600;
+      const height = 720;
+      const left = window.screenX + (window.outerWidth - width) / 2;
+      const top = window.screenY + (window.outerHeight - height) / 2;
+      const popup = window.open(
+        json.url,
+        'unipile-auth',
+        `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes,status=no,menubar=no,toolbar=no`,
+      );
+
+      if (!popup) {
+        // Pop-up blocker fired — fall back to same-tab navigation so the
+        // user can still complete auth. Better than silently failing.
+        setError('Browser blocked the popup. Falling back to same-tab — click your back button after authenticating to return.');
+        window.location.href = json.url;
+        return;
+      }
+
+      setPopupOpen(provider);
+      // Poll for popup close. Unipile fires its webhook to /api/webhooks/
+      // unipile/account asynchronously; by the time the user closes the
+      // popup the channel row is usually already inserted. router.refresh()
+      // re-runs the server component so the new channel appears.
+      const interval = setInterval(() => {
+        if (popup.closed) {
+          clearInterval(interval);
+          setPopupOpen(null);
+          // Small delay so the webhook's INSERT lands before we re-fetch.
+          setTimeout(() => router.refresh(), 800);
+        }
+      }, 500);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
@@ -173,12 +213,20 @@ export default function ChannelsClient({ channels }: Props) {
       <div className="card mb-8">
         <h3 className="mb-2">Connect a new channel</h3>
         <p className="text-dark-400 text-sm mb-4">
-          Authentication completes on Unipile&apos;s hosted page. We never see or store your account password.
+          Authentication completes in a popup window on Unipile&apos;s hosted page. We never see or store your account password.
         </p>
+        {popupOpen && (
+          <div className="mb-4 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm text-blue-300">
+            <p>
+              <strong>Complete the {popupOpen} connection in the popup window</strong> — this page will refresh automatically once you close it.
+              If the popup didn&apos;t open, your browser may have blocked it; allow popups for this site and retry.
+            </p>
+          </div>
+        )}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
           <button
             onClick={() => connectChannel('linkedin')}
-            disabled={busy !== null}
+            disabled={busy !== null || popupOpen !== null}
             className="card-hover flex items-center gap-3 disabled:opacity-50 cursor-pointer"
           >
             <Send className="w-6 h-6 text-blue-400" />
@@ -189,7 +237,7 @@ export default function ChannelsClient({ channels }: Props) {
           </button>
           <button
             onClick={() => connectChannel('gmail')}
-            disabled={busy !== null}
+            disabled={busy !== null || popupOpen !== null}
             className="card-hover flex items-center gap-3 disabled:opacity-50 cursor-pointer"
           >
             <Mail className="w-6 h-6 text-red-400" />
@@ -200,7 +248,7 @@ export default function ChannelsClient({ channels }: Props) {
           </button>
           <button
             onClick={() => connectChannel('outlook')}
-            disabled={busy !== null}
+            disabled={busy !== null || popupOpen !== null}
             className="card-hover flex items-center gap-3 disabled:opacity-50 cursor-pointer"
           >
             <Mail className="w-6 h-6 text-blue-400" />
