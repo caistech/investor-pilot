@@ -281,18 +281,22 @@ function ApprovalCard({
 
       <div className="border-t border-dark-700 pt-4 mb-4">
         {hasTranslation && !editing && (
-          <div className="flex items-center gap-2 mb-3 text-xs">
-            <Languages className="w-3.5 h-3.5 text-blue-400" />
-            <span className="text-blue-400">
-              {showOriginal
-                ? `Showing English original — recipient will receive the ${item.target_language} version`
-                : `Translated to ${item.target_language} · sent in recipient's language`}
-            </span>
+          <div className="flex items-center justify-between gap-3 mb-3 px-3 py-2 rounded-lg bg-blue-500/10 border border-blue-500/30">
+            <div className="flex items-center gap-2 text-sm min-w-0">
+              <Languages className="w-4 h-4 text-blue-400 flex-shrink-0" />
+              <span className="text-blue-300 truncate">
+                {showOriginal
+                  ? <>Showing <b>English</b> · recipient will receive the <b>{item.target_language}</b> version below</>
+                  : <>Sent in <b>{item.target_language}</b> · this is what {item.partner_name.split(/\s—| at /)[0]} will read</>}
+              </span>
+            </div>
             <button
               onClick={() => setShowOriginal(s => !s)}
-              className="ml-2 text-dark-400 hover:text-white underline underline-offset-2"
+              className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-200 text-xs font-medium whitespace-nowrap transition-colors"
+              title={showOriginal ? `Switch back to the ${item.target_language} version that will be sent` : 'See the English version of what will be sent — useful for reviewers who don\'t read the target language'}
             >
-              {showOriginal ? `View ${item.target_language}` : 'View English original'}
+              <Languages className="w-3 h-3" />
+              {showOriginal ? `${item.target_language} version` : 'English version'}
             </button>
           </div>
         )}
