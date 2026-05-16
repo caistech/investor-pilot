@@ -14,7 +14,7 @@
  * add/remove admins per-deploy.
  *
  * Body (optional):
- *   { mode: 'create' | 'update', agent_id?: string }
+ *   { mode: 'create' | 'update' | 'inspect', agent_id?: string }
  *
  * Returns:
  *   { ok: true, agent_id: string }                    on success
@@ -68,14 +68,52 @@ export async function POST(request: Request) {
   }
 
   const body = await request.json().catch(() => ({}));
-  const mode: 'create' | 'update' = body.mode === 'update' ? 'update' : 'create';
+  const mode: 'create' | 'update' | 'inspect' =
+    body.mode === 'update' ? 'update' : body.mode === 'inspect' ? 'inspect' : 'create';
   const existingAgentId: string | undefined = body.agent_id;
 
-  if (mode === 'update' && !existingAgentId) {
+  if ((mode === 'update' || mode === 'inspect') && !existingAgentId) {
     return NextResponse.json(
-      { error: 'mode=update requires agent_id in body' },
+      { error: `mode=${mode} requires agent_id in body` },
       { status: 400 },
     );
+  }
+
+  // Inspect — GET the agent and return its current platform_settings so we
+  // can diagnose whether a previous update payload was accepted.
+  if (mode === 'inspect') {
+    try {
+      const res = await fetch(`${ELEVENLABS_BASE}/v1/convai/agents/${existingAgentId}`, {
+        method: 'GET',
+        headers: { 'xi-api-key': apiKey },
+        signal: AbortSignal.timeout(10_000),
+      });
+      const text = await res.text();
+      if (!res.ok) {
+        return NextResponse.json(
+          { error: `ElevenLabs ${res.status}: ${text.slice(0, 500)}` },
+          { status: 502 },
+        );
+      }
+      const json = JSON.parse(text);
+      return NextResponse.json({
+        ok: true,
+        mode: 'inspect',
+        agent_id: existingAgentId,
+        name: json.name,
+        platform_settings: json.platform_settings ?? null,
+        conversation_config_summary: {
+          first_message: json.conversation_config?.agent?.first_message,
+          language: json.conversation_config?.agent?.language,
+          prompt_chars: json.conversation_config?.agent?.prompt?.prompt?.length ?? 0,
+        },
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 502 },
+      );
+    }
   }
 
   const payload = {
