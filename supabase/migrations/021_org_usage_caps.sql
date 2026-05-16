@@ -29,14 +29,18 @@ CREATE TABLE IF NOT EXISTS usage_events (
   units                 INTEGER NOT NULL DEFAULT 1,    -- e.g. token count for llm_tokens, 1 for everything else
   cost_cents_estimate   INTEGER,                       -- optional — populated when caller knows the cost
   metadata              JSONB,                         -- e.g. { route: '/api/pipeline/discover-batch', model: 'claude-sonnet-4-5', query: '...' }
-  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
-  -- Generated column so the monthly aggregation index is fast even on a
-  -- table that grows by ~thousands of rows/day per active org.
-  billing_month         DATE GENERATED ALWAYS AS (date_trunc('month', created_at)::date) STORED
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now()
+  -- NOTE: an earlier draft of this migration had a `billing_month`
+  -- generated column (date_trunc('month', created_at)::date), but Postgres
+  -- rejects that expression as not-immutable when the source is TIMESTAMPTZ
+  -- (date_trunc on tz-aware values depends on the session timezone). The
+  -- monthly aggregations in src/lib/usage/events.ts already filter by
+  -- `.gte('created_at', billingMonth.toISOString())` so the column wasn't
+  -- needed — the composite index below covers those queries.
 );
 
-CREATE INDEX IF NOT EXISTS usage_events_org_month_type_idx
-  ON usage_events (organisation_id, billing_month, event_type);
+CREATE INDEX IF NOT EXISTS usage_events_org_type_created_idx
+  ON usage_events (organisation_id, event_type, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS usage_events_org_created_idx
   ON usage_events (organisation_id, created_at DESC);
