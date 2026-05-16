@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { Workflow, ArrowRight, Clock, Send, Mail } from 'lucide-react';
+import { SetupGate } from '@/components/layout/setup-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -42,6 +43,12 @@ export default async function SequencesPage() {
           <p className="text-dark-400 mt-1">Multi-touch outreach plans and per-prospect step state.</p>
         </div>
       </div>
+
+      <SetupGate
+        required={['hasActiveProduct']}
+        pageName="Sequences"
+        pageVerb="see your outreach templates"
+      >
 
       {/* Coming-soon notice about full template editing */}
       <div className="card mb-6 border-blue-500/20 bg-blue-500/5">
@@ -150,6 +157,8 @@ export default async function SequencesPage() {
           </div>
         )}
       </div>
+
+      </SetupGate>
     </div>
   );
 }

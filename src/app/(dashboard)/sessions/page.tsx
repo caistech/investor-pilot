@@ -6,6 +6,7 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { Plus, Play, Pause, CheckCircle, Clock, ChevronRight, Loader2, Package, Trash2 } from 'lucide-react';
 import type { SessionMode, AgentSession, Product } from '@/lib/types';
+import { SetupGate } from '@/components/layout/setup-gate';
 
 export default function SessionsPage() {
   const [showNew, setShowNew] = useState(false);
@@ -116,6 +117,12 @@ export default function SessionsPage() {
           New Session
         </button>
       </div>
+
+      <SetupGate
+        required={['hasActiveProduct', 'productPitchConfigured']}
+        pageName="Sessions"
+        pageVerb="start an AI research session"
+      >
 
       {showNew && (
         <div className="card mb-8">
@@ -276,6 +283,8 @@ export default function SessionsPage() {
           ))}
         </div>
       )}
+
+      </SetupGate>
     </div>
   );
 }
