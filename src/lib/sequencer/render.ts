@@ -10,19 +10,26 @@
  * Returns a discriminated union — the caller (sequencer cron) decides whether
  * to queue for approval or mark the step as compliance_blocked.
  *
- * Sprint 1 scope:
- *   - 6 template_keys for lender v3 sequence (see seed route)
- *   - Sender identity is hard-coded here. Move to organisations table when 2nd
- *     customer joins.
- *   - personalization_score is a heuristic over the rendered body, not an
- *     additional LLM call.
+ * Sender identity (Phase A of multi-tenant config layer) lives on the
+ * organisations row and is passed in via RenderContext. Callers fetch the
+ * organisation once per batch and reuse — never inside the per-partner loop.
+ *
+ * Templates themselves are still hardcoded here (Phase D will move them).
  */
 
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 
-// Hardcoded Sprint 1. Move to organisations table when multi-tenant ships.
-const SENDER_NAME = 'Dennis McMahon';
-const SENDER_ROLE = 'Development Manager, Factory2Key Pty Ltd | F2K Capital';
+/**
+ * Per-organisation context the renderer needs to fill `{sender_name}` and
+ * `{sender_role}` placeholders. Caller (cron / admin re-render route)
+ * fetches once per batch and passes through. Keeps render.ts free of any
+ * direct DB dependency.
+ */
+export interface RenderContext {
+  sender_name: string;
+  sender_role: string;
+  signature_block?: string | null;
+}
 
 export interface RenderPartner {
   id: string;
@@ -225,6 +232,7 @@ export function templateChannel(key: string): 'linkedin_connect' | 'linkedin_dm'
 export async function renderStep(
   templateKey: string,
   partner: RenderPartner,
+  context: RenderContext,
 ): Promise<RenderResult> {
   if (!(templateKey in TEMPLATES)) {
     return { ok: false, reason: `Unknown template_key: ${templateKey}`, blocker: 'unknown_template' };
@@ -281,8 +289,8 @@ export async function renderStep(
     credit_signal_lead_short: signal?.leadShort || '',
     warm_opener: warmOpener,
     project_urls_block: projectUrlsBlock,
-    sender_name: SENDER_NAME,
-    sender_role: SENDER_ROLE,
+    sender_name: context.sender_name,
+    sender_role: context.sender_role,
   };
 
   const subject = tpl.subject ? substitute(tpl.subject, vars) : null;

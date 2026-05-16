@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import { ShieldAlert, ShieldCheck, Plug, FileText } from 'lucide-react';
+import { SenderForm } from '@/components/settings/sender-form';
 
 export const dynamic = 'force-dynamic';
 
@@ -39,6 +40,13 @@ export default async function SettingsPage() {
             </div>
           </div>
         </div>
+
+        {/* Sender identity (used in every outbound DM + email) */}
+        <SenderForm
+          initialSenderName={(profile?.organisations as Record<string, string | null>)?.sender_name ?? null}
+          initialSenderRole={(profile?.organisations as Record<string, string | null>)?.sender_role ?? null}
+          initialSignatureBlock={(profile?.organisations as Record<string, string | null>)?.signature_block ?? null}
+        />
 
         {/* Profile */}
         <div className="card">

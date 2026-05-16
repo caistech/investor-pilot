@@ -21,6 +21,7 @@
 import { NextResponse } from 'next/server';
 import { createServiceClient } from '@/lib/supabase/server';
 import { renderStep, type RenderPartner } from '@/lib/sequencer/render';
+import { createOrgContextCache } from '@/lib/sequencer/context';
 import { checkCompliance } from '@/lib/compliance/filter';
 import { advanceAllWarmupDays } from '@/lib/channels/channel-guard';
 import type { ComplianceMode } from '@/lib/compliance/rules';
@@ -82,6 +83,10 @@ async function runSequencer() {
     outcome: 'queued' | 'compliance_blocked' | 'failed' | 'skipped_no_channel';
     reason?: string;
   }> = [];
+
+  // Per-batch cache so the per-org sender lookup hits the DB once per unique
+  // organisation_id even when the cron run processes hundreds of steps.
+  const orgContextCache = createOrgContextCache(db);
 
   for (const step of rows) {
     try {
@@ -167,7 +172,17 @@ async function runSequencer() {
         firm_named_deals: partner.firm_named_deals,
       };
 
-      const rendered = await renderStep(tplStep.template_key, renderPartner);
+      let context;
+      try {
+        context = await orgContextCache.get(step.organisation_id);
+      } catch (err) {
+        await markStep(db, step.id, 'compliance_blocked');
+        const reason = err instanceof Error ? err.message : String(err);
+        results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'compliance_blocked', reason });
+        continue;
+      }
+
+      const rendered = await renderStep(tplStep.template_key, renderPartner, context);
 
       if (!rendered.ok) {
         await markStep(db, step.id, 'compliance_blocked');

@@ -26,6 +26,7 @@
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { renderStep, type RenderPartner } from '@/lib/sequencer/render';
+import { createOrgContextCache } from '@/lib/sequencer/context';
 import { checkCompliance } from '@/lib/compliance/filter';
 import type { ComplianceMode } from '@/lib/compliance/rules';
 import { enrichPartner, type OrchestratorPartner } from '@/lib/enrichment/orchestrator';
@@ -56,6 +57,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
   const orgId = profile.organisation_id;
+
+  // Pre-fetch render context once (single-tenant route — orgId is constant
+  // across all steps). renderStep needs sender_name/sender_role from the
+  // organisations row.
+  const orgContextCache = createOrgContextCache(db);
+  let renderContext;
+  try {
+    renderContext = await orgContextCache.get(orgId);
+  } catch (err) {
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      { status: 400 },
+    );
+  }
 
   const scopeStatuses =
     body.scope === 'queued'
@@ -103,7 +118,7 @@ export async function POST(request: Request) {
   // Process in parallel batches.
   for (let i = 0; i < steps.length; i += CONCURRENCY) {
     const slice = steps.slice(i, i + CONCURRENCY);
-    const batch = await Promise.all(slice.map(s => rerenderOneStep(db, s, linkedinAccountId)));
+    const batch = await Promise.all(slice.map(s => rerenderOneStep(db, s, linkedinAccountId, renderContext)));
     results.push(...batch);
   }
 
@@ -151,6 +166,7 @@ async function rerenderOneStep(
   db: SupabaseClient,
   step: StepRow,
   linkedinAccountId: string | null,
+  renderContext: import('@/lib/sequencer/render').RenderContext,
 ): Promise<{
   step_id: string;
   partner_id: string;
@@ -239,7 +255,7 @@ async function rerenderOneStep(
     };
 
     // 3. Render via current pipeline.
-    const rendered = await renderStep(tplStep.template_key, renderPartner);
+    const rendered = await renderStep(tplStep.template_key, renderPartner, renderContext);
     if (!rendered.ok) {
       return {
         step_id: step.id,
