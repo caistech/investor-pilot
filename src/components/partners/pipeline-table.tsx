@@ -2,10 +2,11 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { CompanyLogo } from '@/components/company-logo';
 import { STATUS_COLORS } from '@/lib/types';
 import type { Partner, PartnerStatus } from '@/lib/types';
-import { Loader2, Search, X, Send } from 'lucide-react';
+import { Loader2, Search, X, Send, ArrowRight } from 'lucide-react';
 
 const FILTER_TABS = [
   { key: 'all', label: 'All' },
@@ -181,10 +182,23 @@ export function PipelineTable({
   // double-target. Can be toggled off to see the full list including
   // already-targeted rows.
   const [hideTargeted, setHideTargeted] = useState<boolean>(true);
+  const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  // Optional follow-up call-to-action shown beneath the status message —
+  // e.g. after Draft completes, link the operator straight to /approvals
+  // so there is no doubt about where the messages went.
+  const [nextCta, setNextCta] = useState<{ href: string; label: string } | null>(null);
   const filtered = partners
+    // Hide rows where the engine couldn't extract a contact_name. Brave
+    // sometimes saves listicle titles ("9 Best B2B Sales Prospecting
+    // Tools…") or company-only directory pages as partner rows with no
+    // person attached — those aren't actionable as prospects (nothing
+    // to draft to), so they pollute the view without ever being
+    // workable. Operator can enrich-by-domain elsewhere if they want
+    // to chase a company without a contact.
+    .filter(p => typeof p.contact_name === 'string' && p.contact_name.trim().length > 0)
     .filter(p => matchesFilter(p.status, filter))
     .filter(p => matchesSourceTier(p, sourceFilter))
     .filter(p => matchesSearch(p, search))
@@ -228,8 +242,14 @@ export function PipelineTable({
 
   async function batchAction(action: 'enrich' | 'draft') {
     if (selectedPartners.length === 0) return;
+    const n = selectedPartners.length;
     setLoading(action);
-    setMessage(null);
+    setNextCta(null);
+    setMessage(
+      action === 'enrich'
+        ? `Enriching ${n} prospect${n === 1 ? '' : 's'} now — looking up emails via Hunter.io…`
+        : `Drafting the first message for ${n} prospect${n === 1 ? '' : 's'} now — Claude is writing each one…`,
+    );
 
     try {
       const endpoint = `/api/pipeline/${action}`;
@@ -251,12 +271,31 @@ export function PipelineTable({
         const succeeded = data[verb] || 0;
         const errored = data.errors || 0;
         const skipped = data.skipped || data.unresolved || 0;
-        setMessage(`${succeeded} ${verb}, ${skipped} skipped, ${errored} errors`);
-        setSelected(new Set());
-        // Only reload if anything actually changed — avoids wiping the
-        // message text before the operator can read it.
+
+        // Use router.refresh() instead of window.location.reload() so the
+        // selection survives the server re-fetch — operators previously
+        // had to guess which rows they'd just enriched in order to move
+        // on to Step 2 (Assign Sequence). The server component re-runs;
+        // client state (selected, message) stays put.
         if (succeeded > 0) {
-          window.location.reload();
+          router.refresh();
+        }
+
+        if (action === 'enrich') {
+          setMessage(
+            `Enriched ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n` +
+            `Selection kept — click "2. Assign Sequence" next.`,
+          );
+          // Selection deliberately kept so the operator can flow into
+          // step 2 without re-ticking the same rows.
+        } else {
+          // Draft completed → the first message is in Approvals.
+          setMessage(
+            `Drafted ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n` +
+            `Your messages are ready for review.`,
+          );
+          setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
+          setSelected(new Set());
         }
       }
     } catch (err) {
@@ -276,8 +315,10 @@ export function PipelineTable({
       `Partners already on a sequence will be skipped.`;
     if (!confirm(confirmMsg)) return;
 
+    const n = selectedPartners.length;
     setLoading('assign');
-    setMessage(null);
+    setNextCta(null);
+    setMessage(`Sequencing ${n} prospect${n === 1 ? '' : 's'} now — assigning warm/cold templates and queuing steps…`);
 
     try {
       const res = await fetch('/api/sequences/assign-batch', {
@@ -305,16 +346,18 @@ export function PipelineTable({
         : '';
 
       setMessage(
-        `${s.assigned} assigned (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
-        (s.assigned > 0 ? ' Cron will render due steps within 15 min.' : '') +
+        `Sequenced ${s.assigned} of ${n} (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
+        (s.assigned > 0
+          ? '\nSelection kept — click "3. Draft" to generate the first message now, or wait up to 15 min for the cron.'
+          : '') +
         reasonsBlock,
       );
-      setSelected(new Set());
-      // Only auto-reload if we actually changed DB state — when assigned=0
-      // there's nothing new to show, and reloading wipes the skip-reasons
-      // message before the operator can read it.
+      // Selection kept so the operator can flow into Draft (step 3)
+      // without re-ticking. router.refresh() pulls the updated server
+      // state (in-flight badges, status changes) without dropping client
+      // state.
       if (s.assigned > 0) {
-        setTimeout(() => window.location.reload(), 1500);
+        router.refresh();
       }
     } catch (err) {
       setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -520,10 +563,31 @@ export function PipelineTable({
       )}
 
       {/* Status message — preserve newlines so multi-line skip-reason blocks
-          from assign-batch render properly. */}
+          from assign-batch render properly. Three visual states:
+          – loading: amber "doing X now" with spinner
+          – success: green with optional CTA link to the next stage
+          – error:   red. */}
       {message && (
-        <div className={`mb-4 p-3 rounded-lg text-sm whitespace-pre-line ${message.startsWith('Error') ? 'bg-red-500/10 text-red-400' : 'bg-corp-green-500/10 text-corp-green-400'}`}>
-          {message}
+        <div
+          className={`mb-4 p-3 rounded-lg text-sm whitespace-pre-line flex flex-wrap items-center gap-3 ${
+            message.startsWith('Error')
+              ? 'bg-red-500/10 text-red-400'
+              : loading
+                ? 'bg-amber-500/10 text-amber-300'
+                : 'bg-corp-green-500/10 text-corp-green-400'
+          }`}
+        >
+          {loading && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
+          <span className="flex-1">{message}</span>
+          {!loading && nextCta && (
+            <Link
+              href={nextCta.href}
+              className="btn-primary text-sm py-1 px-3 inline-flex items-center gap-1.5 shrink-0"
+            >
+              {nextCta.label}
+              <ArrowRight className="w-3 h-3" />
+            </Link>
+          )}
         </div>
       )}
 
