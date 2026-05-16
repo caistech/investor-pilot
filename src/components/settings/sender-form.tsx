@@ -7,6 +7,9 @@ interface SenderFormProps {
   initialSenderName: string | null;
   initialSenderRole: string | null;
   initialSignatureBlock: string | null;
+  initialSenderLinkedinUrl: string | null;
+  initialSenderBioOneLiner: string | null;
+  initialSenderCalendarUrl: string | null;
 }
 
 /**
@@ -22,11 +25,17 @@ export function SenderForm({
   initialSenderName,
   initialSenderRole,
   initialSignatureBlock,
+  initialSenderLinkedinUrl,
+  initialSenderBioOneLiner,
+  initialSenderCalendarUrl,
 }: SenderFormProps) {
   const [editing, setEditing] = useState(false);
   const [senderName, setSenderName] = useState(initialSenderName ?? '');
   const [senderRole, setSenderRole] = useState(initialSenderRole ?? '');
   const [signatureBlock, setSignatureBlock] = useState(initialSignatureBlock ?? '');
+  const [linkedinUrl, setLinkedinUrl] = useState(initialSenderLinkedinUrl ?? '');
+  const [bioOneLiner, setBioOneLiner] = useState(initialSenderBioOneLiner ?? '');
+  const [calendarUrl, setCalendarUrl] = useState(initialSenderCalendarUrl ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -41,6 +50,9 @@ export function SenderForm({
           sender_name: senderName.trim(),
           sender_role: senderRole.trim(),
           signature_block: signatureBlock.trim() || null,
+          sender_linkedin_url: linkedinUrl.trim() || null,
+          sender_bio_one_liner: bioOneLiner.trim() || null,
+          sender_calendar_url: calendarUrl.trim() || null,
         }),
       });
       const json = await res.json();
@@ -62,6 +74,9 @@ export function SenderForm({
     setSenderName(initialSenderName ?? '');
     setSenderRole(initialSenderRole ?? '');
     setSignatureBlock(initialSignatureBlock ?? '');
+    setLinkedinUrl(initialSenderLinkedinUrl ?? '');
+    setBioOneLiner(initialSenderBioOneLiner ?? '');
+    setCalendarUrl(initialSenderCalendarUrl ?? '');
     setError(null);
     setEditing(false);
   }
@@ -90,6 +105,28 @@ export function SenderForm({
             <span className="text-dark-400">Sender role</span>
             <span className="text-right max-w-md">
               {initialSenderRole || <em className="text-amber-400">not set</em>}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-dark-400">LinkedIn URL</span>
+            <span className="text-right max-w-md truncate">
+              {initialSenderLinkedinUrl
+                ? <a href={initialSenderLinkedinUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{initialSenderLinkedinUrl}</a>
+                : <em className="text-amber-400">not set — recipients will Google you</em>}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-dark-400">Bio one-liner</span>
+            <span className="text-right max-w-md">
+              {initialSenderBioOneLiner || <em className="text-dark-500">optional — richer who-I-am framing</em>}
+            </span>
+          </div>
+          <div className="flex justify-between">
+            <span className="text-dark-400">Calendar booking URL</span>
+            <span className="text-right max-w-md truncate">
+              {initialSenderCalendarUrl
+                ? <a href={initialSenderCalendarUrl} target="_blank" rel="noopener noreferrer" className="text-blue-400 hover:text-blue-300 underline">{initialSenderCalendarUrl}</a>
+                : <em className="text-amber-400">not set — recipients can&apos;t self-book</em>}
             </span>
           </div>
           {initialSignatureBlock && (
@@ -128,6 +165,45 @@ export function SenderForm({
             placeholder="e.g. Managing Director, Acme Capital"
             className="w-full bg-dark-900 border border-dark-700 rounded px-3 py-2 text-sm"
           />
+        </div>
+        <div>
+          <label className="block text-dark-400 mb-1">
+            LinkedIn URL <span className="text-dark-500">— recipients always look you up before responding</span>
+          </label>
+          <input
+            type="url"
+            value={linkedinUrl}
+            onChange={(e) => setLinkedinUrl(e.target.value)}
+            placeholder="https://www.linkedin.com/in/your-handle"
+            className="w-full bg-dark-900 border border-dark-700 rounded px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-dark-500 mt-1">Included in cold outreach so recipients can verify you in one click instead of Googling. Trust signal + basic courtesy.</p>
+        </div>
+        <div>
+          <label className="block text-dark-400 mb-1">
+            Bio one-liner <span className="text-dark-500">(optional)</span>
+          </label>
+          <input
+            type="text"
+            value={bioOneLiner}
+            onChange={(e) => setBioOneLiner(e.target.value)}
+            placeholder="e.g. Technical Director at LingoPure, ex-Founder Institute Country Director"
+            className="w-full bg-dark-900 border border-dark-700 rounded px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-dark-500 mt-1">Richer who-I-am context for the first cold email. The renderer uses this verbatim where it fits.</p>
+        </div>
+        <div>
+          <label className="block text-dark-400 mb-1">
+            Calendar booking URL <span className="text-dark-500">— self-serve the ask</span>
+          </label>
+          <input
+            type="url"
+            value={calendarUrl}
+            onChange={(e) => setCalendarUrl(e.target.value)}
+            placeholder="https://cal.com/your-handle or https://calendly.com/..."
+            className="w-full bg-dark-900 border border-dark-700 rounded px-3 py-2 text-sm"
+          />
+          <p className="text-xs text-dark-500 mt-1">Substituted into the ASK at the end of cold messages. Lets recipients self-book without an email volley — beats &ldquo;Does Thursday or Friday work?&rdquo;.</p>
         </div>
         <div>
           <label className="block text-dark-400 mb-1">

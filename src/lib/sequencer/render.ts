@@ -30,6 +30,12 @@ export interface RenderContext {
   sender_name: string;
   sender_role: string;
   signature_block?: string | null;
+  /** Sender's LinkedIn URL — included so recipients can verify the sender before clicking through. Trust signal. */
+  sender_linkedin_url?: string | null;
+  /** One-sentence sender bio for richer WHO-AM-I framing. */
+  sender_bio_one_liner?: string | null;
+  /** Calendar booking URL — substituted into the ASK-LAST element. */
+  sender_calendar_url?: string | null;
 }
 
 /**
@@ -131,6 +137,10 @@ export interface RenderPartner {
     geography: string | null;
     /** Recipient firm's country/region — used for cultural inferences. */
     recipient_geography?: string | null;
+    /** Public URL to the deck — surfaced as a value-offer attachment. */
+    pitch_deck_url?: string | null;
+    /** Public URL to the one-pager — cheaper deck alternative. */
+    one_pager_url?: string | null;
   };
 }
 
@@ -241,6 +251,16 @@ export async function renderStep(
     project_urls_block: projectUrlsBlock,
     sender_name: context.sender_name,
     sender_role: context.sender_role,
+    // Courtesy-contract placeholders (migration 025). Empty strings when
+    // not configured — substituted blank rather than left as literal
+    // {placeholder} text, so a missing calendar URL doesn't surface
+    // "<<<{sender_calendar_url}>>>" to the recipient.
+    sender_linkedin_url: context.sender_linkedin_url || '',
+    sender_bio_one_liner: context.sender_bio_one_liner || '',
+    sender_calendar_url: context.sender_calendar_url || '',
+    pitch_deck_url: partner.offering_context?.pitch_deck_url || '',
+    one_pager_url: partner.offering_context?.one_pager_url || '',
+    offering_name: partner.offering_context?.name || '',
   };
 
   const subject = tpl.subject ? substitute(tpl.subject, vars) : null;

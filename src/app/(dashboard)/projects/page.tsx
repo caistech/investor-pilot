@@ -40,6 +40,8 @@ const EMPTY_FORM: Omit<Project, 'id' | 'organisation_id' | 'created_at' | 'updat
   funding_target: '',
   geography: '',
   asset_class: '',
+  pitch_deck_url: '',
+  one_pager_url: '',
   core_mechanism: '',
   customer_outcomes: '',
   icp_company_size: '',
@@ -137,6 +139,8 @@ export default function ProjectsPage() {
       funding_target: project.funding_target || '',
       geography: project.geography || '',
       asset_class: project.asset_class || '',
+      pitch_deck_url: project.pitch_deck_url || '',
+      one_pager_url: project.one_pager_url || '',
       core_mechanism: project.core_mechanism || '',
       customer_outcomes: project.customer_outcomes || '',
       icp_company_size: project.icp_company_size || '',
@@ -436,6 +440,37 @@ export default function ProjectsPage() {
               className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none resize-y"
               placeholder="One-paragraph pitch describing what's being funded, terms, security, and structure — from the lender's perspective."
             />
+          </div>
+
+          {/* Courtesy-contract attachments — surfaced in outreach as the
+              value-offer link. Saves the recipient asking. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">
+                Pitch deck URL <span className="text-dark-600">— sent in cold outreach</span>
+              </label>
+              <input
+                type="url"
+                value={form.pitch_deck_url || ''}
+                onChange={(e) => setForm({ ...form, pitch_deck_url: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="https://docsend.com/view/... or Notion / Drive URL"
+              />
+              <p className="text-xs text-dark-500 mt-1">Surfaced directly in cold emails so investors can self-serve. Beats &ldquo;reply and I&apos;ll send the deck&rdquo; — they don&apos;t want to reply yet.</p>
+            </div>
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">
+                One-pager URL <span className="text-dark-600">— lighter-weight alternative</span>
+              </label>
+              <input
+                type="url"
+                value={form.one_pager_url || ''}
+                onChange={(e) => setForm({ ...form, one_pager_url: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="https://... — Notion page / PDF link"
+              />
+              <p className="text-xs text-dark-500 mt-1">Used in shorter messages (LinkedIn DMs) where the full deck is too much. Either alone or as the lead-in to the deck.</p>
+            </div>
           </div>
 
           {error && (

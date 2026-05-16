@@ -103,32 +103,70 @@ The 6 steps are FIXED in channel + delay (you do NOT change these):
   6. Closing-loop email (Day 14, with subject)
 
 Each step body MUST use these placeholder variables exactly (the renderer substitutes them per-prospect at send time):
-  {first_name}        — recipient first name
-  {firm}              — recipient firm / company name
-  {sender_name}       — sender's full name
-  {sender_role}       — sender's role / title
 
-You MAY use these per-prospect signal placeholders when natural — the renderer extracts them from each prospect's evidence per call:
-  {credit_signal}            — short one-clause reason this specific prospect fits (use in connect + DM steps)
-  {credit_signal_lead}       — opener-length narrative (use as the first sentence of cold email)
-  {credit_signal_lead_short} — one-sentence variant (use in short follow-ups)
+CORE:
+  {first_name}             — recipient first name
+  {firm}                   — recipient firm / company name
+  {sender_name}             — sender's full name
+  {sender_role}             — sender's role / title
 
-GIVE BEFORE TAKE — value-offer placeholders (USE THESE in step 3 + step 4 email bodies):
-  {value_offer}      — one-clause concrete give ("free pilot for your top customer" / "co-marketing post on our channel" / "referral commission write-up")
-  {value_offer_lead} — 1-2 sentence concrete offer of help BEFORE we ask for a meeting
-Every cold outreach MUST offer something specific to the recipient before
-asking for a call. The system extracts both per-prospect at render time
-based on what we know about them and what we're pitching. Incorporate
-the offer naturally — typically as the paragraph just before the closing ask.
+WHO-AM-I (recipients ALWAYS look up the sender on LinkedIn first —
+include the URL):
+  {sender_linkedin_url}     — sender's LinkedIn URL. Use in step 2 + 3.
+  {sender_bio_one_liner}    — sender's one-sentence bio. Use in step 3 email.
+
+WHY-YOU (specific to this recipient — required everywhere except the
+char-limited connect note):
+  {credit_signal}            — one-clause reason this specific partner fits
+  {credit_signal_lead}       — opener-length narrative ("Given {firm}'s focus on X…")
+  {credit_signal_lead_short} — one-sentence variant for short follow-ups
+
+WHAT-I-OFFER (give before take — REQUIRED in step 2, 3, 4):
+  {value_offer}        — one-clause concrete give ("free pilot for your top customer" / "co-marketing post" / "referral commission write-up")
+  {value_offer_lead}   — 1-2 sentence concrete offer
+
+ATTACHMENT placeholders (surface upfront — beats "reply and I'll send it"):
+  {pitch_deck_url}     — public URL to the deck. Use in step 3.
+  {one_pager_url}      — public URL to the one-pager.
+  {offering_name}      — the product's name.
+
+ASK-LAST (small, optional, self-serve):
+  {sender_calendar_url} — sender's calendar link. Use "calendar link below if useful: {sender_calendar_url}" rather than "Does Thursday or Friday work?".
+
+COURTESY CONTRACT — NON-NEGOTIABLE STRUCTURE FOR EVERY STEP
+
+Every step body MUST follow this 5-element order. Skipping any element
+is a failure of basic courtesy. The recipient is busy — earn the right
+to ask for their time:
+
+1. TIME-ACK    — one short line. "Quick one." / "Short note, know your
+                 day is full." Skip on the 300-char connect note.
+2. WHO-AM-I    — full identification. {sender_name}, {sender_role}, plus
+                 the relationship to the offering. Include
+                 {sender_linkedin_url} on first DM + first email so the
+                 recipient can verify you're real before clicking
+                 further. If the sender isn't the founder, NAME the
+                 relationship ("I work alongside the founder on the
+                 raise") — never hide it. Anonymous senders get
+                 archived.
+3. WHY-YOU     — specific reason for THIS prospect via
+                 {credit_signal_lead}. Generic vocabulary fails.
+4. WHAT-I-OFFER — concrete give BEFORE the ask via {value_offer_lead}.
+                  Surface {pitch_deck_url} / {one_pager_url} as a
+                  link, don't say "happy to send" without sending.
+5. ASK-LAST    — small, optional, self-serve. Use
+                 {sender_calendar_url} when present rather than
+                 "Does Thursday or Friday work?".
 
 WRITING RULES
 - Speak in the sender's voice: founder/principal, direct, no marketing fluff, no superlatives.
-- Lead with substance: what the product actually is and what the recipient gets out of a conversation. NOT "I'd love to chat".
 - Reference the product's concrete details (mechanism, outcomes, ticket size, asset class, geography) where it helps the recipient assess fit fast.
-- Match the recipient persona inferred from icp_buyer_title + partner_types + product type. e.g. for "VC partner" sound like a founder pitching; for "credit allocator" sound like a credit principal; for "channel partner" sound like a head of BD.
-- The CTA is always specific and low-friction: a 15–20 minute call, a brief reply, sharing a one-pager. Never "let me know your thoughts".
-- Stay under the step's char limit.
-- No emoji, no markdown, no hashtags.
+- Cite numbers wherever the KB / product page contains them — ARR / customer count / growth rate. Generic placeholder language signals "no traction" to readers.
+- DON'T open with "Appreciate the connect" then jump to the pitch — that's a velocity move toward the ask, not gratitude.
+- DON'T write in third person about the founder ("Operated by founder X") when the sender isn't the founder. Name the relationship instead.
+- DON'T list buzzwords ("unit economics, retention cohorts, enterprise pipeline" — every automated sender writes this). Specifics or nothing.
+- Match the recipient persona inferred from icp_buyer_title + partner_types + product type.
+- Stay under the step's char limit. No emoji, no markdown, no hashtags.
 
 Return ONLY this JSON shape (no prose, no markdown fences):
 {
@@ -219,36 +257,152 @@ The 6 steps are FIXED in channel + delay (you do NOT change these):
   6. Closing-loop email (Day 14, with subject)
 
 Each step body MUST use these placeholder variables exactly (the renderer substitutes them per-prospect at send time):
-  {first_name}        — recipient first name
-  {firm}              — recipient firm / fund / family office name
-  {sender_name}       — sender's full name
-  {sender_role}       — sender's role / title
 
-You MAY use these per-prospect signal placeholders when natural:
-  {credit_signal}            — one-clause reason this specific investor fits this raise (their thesis / a recent deal / their stated focus)
-  {credit_signal_lead}       — opener-length narrative version
-  {credit_signal_lead_short} — one-sentence variant for short follow-ups
+CORE — required in every step body:
+  {first_name}             — recipient first name
+  {firm}                   — recipient firm / fund / family office name
+  {sender_name}            — sender's full name
+  {sender_role}            — sender's role / title
 
-GIVE BEFORE TAKE — value-offer placeholders (USE THESE in step 3 + step 4 bodies):
-  {value_offer}      — one-clause concrete give ("free pilot for one portfolio co" / "one-pager on the raise + LP composition")
-  {value_offer_lead} — 1-2 sentence concrete offer of help BEFORE we ask for a meeting
-Every cold outreach MUST offer something specific to the recipient before
-asking for a call. The system extracts both per-prospect at render time
-based on what we know about them and what we're pitching. You incorporate
-the offer naturally into the message — typically as the paragraph just
-before the closing ask.
+WHO-AM-I placeholders (recipients ALWAYS look the sender up on LinkedIn
+before responding — including the URL is basic courtesy AND a trust
+signal):
+  {sender_linkedin_url}    — sender's LinkedIn URL. INCLUDE in step 2
+                              (LinkedIn DM) and step 3 (Email first).
+  {sender_bio_one_liner}   — sender's one-sentence bio. Use in step 3
+                              email when richer who-I-am is needed.
 
-WRITING RULES — INVESTOR-FACING (NOT SALES)
-- The recipient is an INVESTOR / CAPITAL ALLOCATOR — VC partner, growth equity principal, family office PM, private-credit allocator, fund-of-fund LP, depending on the project. Not a customer. Not a channel partner. Not a reseller. Speak founder-to-investor or GP-to-LP.
-- The project IS the offering. Describe what it actually is using the project's specific language (sector, business model, geography, traction). DO NOT describe the project as a "discovery tool", a "platform that helps operators", or any other generic SaaS pitch unless that is literally what the project does. Quote the investment thesis and KB verbatim wherever possible.
-- Lead with the deal-relevant fact, not pleasantries. e.g. "We're raising a $3M Series A for a Vietnam B2B EdTech operating in CEFR-certified English training since 2021" — not "I'd love to share what we're building".
-- The ask is investment-specific: a 20-min intro call, a one-pager / teaser, access to the data room, a deck. Never "let me know your thoughts".
-- Cite concrete numbers from the KB / investment thesis when present: revenue, ARR, growth rate, customer count, round size, valuation cap, lead status. Generic placeholder language signals "no traction" to investors.
+WHY-YOU placeholders (the hedged inference about why THIS specific
+recipient might care — required in every step except step 1 connect note
+which is char-limited):
+  {credit_signal}            — one-clause reason ("their thesis / recent deal / stated focus")
+  {credit_signal_lead}       — opener-length narrative ("Given {firm}'s focus on X, you've likely seen Y firsthand…")
+  {credit_signal_lead_short} — short variant for follow-ups
+
+WHAT-I-OFFER placeholders (the value we give BEFORE asking — REQUIRED in
+step 2, step 3, step 4):
+  {value_offer}        — one-clause concrete give
+  {value_offer_lead}   — 1-2 sentence concrete offer of help
+
+ATTACHMENT placeholders (use in step 3 onward — surfacing the deck
+link upfront beats "reply and I'll send it"):
+  {pitch_deck_url}     — public URL to the full deck. Include in step 3.
+  {one_pager_url}      — public URL to the one-pager. Use as the
+                          lighter-weight alternative when step 2's
+                          LinkedIn DM has char budget.
+  {offering_name}      — name of the project / raise (for clarity in
+                          subject lines and openers)
+
+ASK-LAST placeholders (the ask comes LAST, small and self-serve):
+  {sender_calendar_url} — sender's calendar booking link. When present,
+                           use "calendar link: {sender_calendar_url}"
+                           rather than "Does Thursday or Friday work?".
+
+COURTESY CONTRACT — NON-NEGOTIABLE STRUCTURE FOR EVERY STEP
+
+Every step body MUST follow this 5-element structure, in this order.
+Skipping any element is a failure of basic courtesy and the message
+will be regenerated by the operator. The recipient is busy — earn
+the right to ask for their time, in order:
+
+1. TIME-ACK   — one short line acknowledging their attention is finite.
+                Not "Hey, hope this finds you well" (every cold sender
+                writes that). Something like "Quick one — know your day
+                is packed" or "Short note, won't take long" or for the
+                connect-note skip this and go straight to (2).
+
+2. WHO-AM-I   — full identification on first contact. {sender_name},
+                {sender_role}, and the relationship to the offering /
+                {firm_name}. If the sender isn't the founder, name it
+                ("I work alongside the founder on the raise") — never
+                hide the relationship. Anonymous senders get archived.
+                On follow-ups, abbreviate: "{sender_name} again —"
+
+3. WHY-YOU    — the specific personal reason this prospect, not 100
+                others. Use {credit_signal_lead} which the renderer
+                fills with a hedged inference from their evidence —
+                "given {firm}'s stated focus on X, you've likely seen Y
+                firsthand". Generic vocabulary ("Vietnam SaaS", "Series
+                A investors broadly") fails this test. The reader must
+                feel "they did their homework on me specifically".
+
+4. WHAT-I-OFFER — concrete value with no commitment from them, BEFORE
+                  the ask. Use {value_offer_lead}. Free pilot, market
+                  brief, intro, one-pager, comp table — something the
+                  reader takes away regardless of whether they engage
+                  further. Required in step 2, 3, 4 — even when char
+                  budget is tight.
+
+5. ASK-LAST   — small, optional, specific. "Calendar link below if
+                useful" / "happy to share the deck if you want to read
+                first" / "20 minutes if a fit, no pressure if not".
+                Never "Does Thursday or Friday work?" — that
+                presumptuously books their calendar.
+
+EXAMPLES OF THE STRUCTURE (project / investor side)
+
+Step 2 (LinkedIn DM, ~200 words):
+"{first_name} — short note, know your day is packed.
+
+{sender_name} here, {sender_role} at the LingoPure raise (Daniel's the
+founder, I'm working alongside him on outreach + technical diligence).
+
+Reaching out because {credit_signal_lead}.
+
+{value_offer_lead}
+
+If it's useful, happy to send a one-pager + the cap table for context
+— no obligation either way. If not a fit right now, no follow-up.
+
+— {sender_name}"
+
+Step 3 (Email first, with subject, ~180 words):
+Subject: "{firm} ↔ LingoPure — quick note + one-pager if useful"
+
+Body:
+"{first_name},
+
+Short note — know inbound's heavy.
+
+I'm {sender_name}, {sender_role} at LingoPure (Vietnam B2B EdTech, CEFR
+certified, operating since 2021, raising a $3M Series A). Daniel
+Maneveld founded it; I'm working alongside him on the raise.
+
+{credit_signal_lead}
+
+{value_offer_lead}
+
+If timing's right for a brief conversation on traction + structure, my
+calendar link is below — pick whatever suits, including next month if
+this week's a wash.
+
+[Calendar link]
+
+— {sender_name}
+{sender_role}"
+
+ADDITIONAL RULES
+
+- The project IS the offering. Describe what it actually is using the
+  project's specific language (sector, business model, geography,
+  traction). DO NOT describe the project as a "discovery tool" or
+  "platform that helps operators" unless that is literally what it is.
+- Cite concrete numbers from the KB / investment thesis when present:
+  revenue, ARR, growth rate, customer count, round size, valuation cap,
+  lead status. Generic placeholder language signals "no traction".
+- The ASK is investment-specific: a 20-min call, a one-pager / teaser,
+  data room access, a deck. Never "let me know your thoughts".
+- DON'T write in third person about the founder when the founder isn't
+  the sender. Either the founder writes the message OR the sender names
+  their relationship to the founder explicitly. "Operated since 2021
+  by founder X" reads as a middleman press release; instead:
+  "I work alongside Daniel (founder) on the raise."
 - Match the persona inferred from icp_buyer_title + investor types:
     • VC partner → founder pitching their company; lead with traction + thesis fit
     • Private-credit allocator → credit principal pitching the facility; lead with first-mortgage / coverage / coupon
     • LP / family office → GP pitching the fund; lead with track record + strategy
-- Stay under the step's char limit. No emoji, no markdown, no hashtags. British/Australian spelling where natural.
+- Stay under the step's char limit. No emoji, no markdown, no hashtags.
+  British/Australian spelling where natural.
 
 Return ONLY this JSON shape (no prose, no markdown fences):
 {

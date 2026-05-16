@@ -34,7 +34,7 @@ export function createOrgContextCache(db: SupabaseClient): OrgContextCache {
 
       const { data: org, error } = await db
         .from('organisations')
-        .select('sender_name, sender_role, signature_block')
+        .select('sender_name, sender_role, signature_block, sender_linkedin_url, sender_bio_one_liner, sender_calendar_url')
         .eq('id', organisationId)
         .single();
 
@@ -53,6 +53,9 @@ export function createOrgContextCache(db: SupabaseClient): OrgContextCache {
         sender_name: org.sender_name,
         sender_role: org.sender_role,
         signature_block: org.signature_block ?? null,
+        sender_linkedin_url: (org.sender_linkedin_url as string) || null,
+        sender_bio_one_liner: (org.sender_bio_one_liner as string) || null,
+        sender_calendar_url: (org.sender_calendar_url as string) || null,
       };
       memo.set(organisationId, ctx);
       return ctx;

@@ -18,6 +18,9 @@ interface SenderPatchBody {
   sender_name?: string;
   sender_role?: string;
   signature_block?: string | null;
+  sender_linkedin_url?: string | null;
+  sender_bio_one_liner?: string | null;
+  sender_calendar_url?: string | null;
 }
 
 export async function PATCH(request: Request) {
@@ -34,6 +37,24 @@ export async function PATCH(request: Request) {
       : typeof body.signature_block === 'string'
         ? body.signature_block.trim() || null
         : undefined;
+
+  // Optional courtesy-contract fields (migration 025).
+  const nullableTrimmed = (v: unknown): string | null | undefined =>
+    v === null ? null : typeof v === 'string' ? (v.trim() || null) : undefined;
+  const senderLinkedinUrl = nullableTrimmed(body.sender_linkedin_url);
+  const senderBioOneLiner = nullableTrimmed(body.sender_bio_one_liner);
+  const senderCalendarUrl = nullableTrimmed(body.sender_calendar_url);
+
+  // Light URL validation — reject obviously malformed values so they
+  // don't surface as broken links in cold messages.
+  for (const [field, val] of [
+    ['sender_linkedin_url', senderLinkedinUrl],
+    ['sender_calendar_url', senderCalendarUrl],
+  ] as const) {
+    if (typeof val === 'string' && val.length > 0 && !/^https?:\/\//i.test(val)) {
+      return NextResponse.json({ error: `${field} must start with http:// or https://` }, { status: 400 });
+    }
+  }
 
   if (senderName !== undefined && senderName === '') {
     return NextResponse.json({ error: 'sender_name cannot be blank' }, { status: 400 });
@@ -56,6 +77,9 @@ export async function PATCH(request: Request) {
   if (senderName !== undefined) update.sender_name = senderName;
   if (senderRole !== undefined) update.sender_role = senderRole;
   if (signatureBlock !== undefined) update.signature_block = signatureBlock;
+  if (senderLinkedinUrl !== undefined) update.sender_linkedin_url = senderLinkedinUrl;
+  if (senderBioOneLiner !== undefined) update.sender_bio_one_liner = senderBioOneLiner;
+  if (senderCalendarUrl !== undefined) update.sender_calendar_url = senderCalendarUrl;
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });

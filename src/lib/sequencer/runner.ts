@@ -385,11 +385,13 @@ async function loadOfferingContext(
   sector: string | null;
   geography: string | null;
   recipient_geography: string | null;
+  pitch_deck_url: string | null;
+  one_pager_url: string | null;
 } | null> {
   if (ref.project_id) {
     const { data } = await db
       .from('projects')
-      .select('name, description, investment_thesis, asset_class, geography')
+      .select('name, description, investment_thesis, asset_class, geography, pitch_deck_url, one_pager_url')
       .eq('id', ref.project_id)
       .maybeSingle();
     if (!data) return null;
@@ -399,12 +401,14 @@ async function loadOfferingContext(
       sector: (data.asset_class as string) || null,
       geography: (data.geography as string) || null,
       recipient_geography: ref.recipient_category,
+      pitch_deck_url: (data.pitch_deck_url as string) || null,
+      one_pager_url: (data.one_pager_url as string) || null,
     };
   }
   if (ref.product_id) {
     const { data } = await db
       .from('products')
-      .select('name, one_sentence_description, product_pitch, asset_class, geography')
+      .select('name, one_sentence_description, product_pitch, asset_class, geography, pitch_deck_url, one_pager_url')
       .eq('id', ref.product_id)
       .maybeSingle();
     if (!data) return null;
@@ -414,6 +418,8 @@ async function loadOfferingContext(
       sector: (data.asset_class as string) || null,
       geography: (data.geography as string) || null,
       recipient_geography: ref.recipient_category,
+      pitch_deck_url: (data.pitch_deck_url as string) || null,
+      one_pager_url: (data.one_pager_url as string) || null,
     };
   }
   return null;

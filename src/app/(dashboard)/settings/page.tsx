@@ -73,6 +73,9 @@ export default async function SettingsPage() {
           initialSenderName={(profile?.organisations as Record<string, string | null>)?.sender_name ?? null}
           initialSenderRole={(profile?.organisations as Record<string, string | null>)?.sender_role ?? null}
           initialSignatureBlock={(profile?.organisations as Record<string, string | null>)?.signature_block ?? null}
+          initialSenderLinkedinUrl={(profile?.organisations as Record<string, string | null>)?.sender_linkedin_url ?? null}
+          initialSenderBioOneLiner={(profile?.organisations as Record<string, string | null>)?.sender_bio_one_liner ?? null}
+          initialSenderCalendarUrl={(profile?.organisations as Record<string, string | null>)?.sender_calendar_url ?? null}
         />
 
         {/* Product pitch + facilities (interpolated into draft system prompt) */}

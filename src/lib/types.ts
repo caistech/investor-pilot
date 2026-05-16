@@ -83,6 +83,10 @@ export interface Project {
   traction_customers: string | null;
   partner_types: string;
   exclusions: string | null;
+  // Courtesy-contract attachments (migration 025). Surfaced directly in
+  // cold outreach as the value-offer link — saves the recipient asking.
+  pitch_deck_url: string | null;
+  one_pager_url: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
