@@ -92,6 +92,11 @@ export interface Partner {
   id: string;
   organisation_id: string;
   product_id: string | null;
+  // Set when the partner was discovered for a fundraising project rather
+  // than a sales product (migration 007). Exactly one of (product_id,
+  // project_id) should be non-null per partner; the draft route routes
+  // off this column.
+  project_id: string | null;
   company_name: string;
   domain: string | null;
   logo_url: string | null;

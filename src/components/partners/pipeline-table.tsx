@@ -253,9 +253,20 @@ export function PipelineTable({
 
     try {
       const endpoint = `/api/pipeline/${action}`;
+      // For drafting, route by the offering on the first selected partner.
+      // Project-scoped partners (LingoPure Series A and the like) need
+      // project_id sent so the route picks the investor prompt rather
+      // than the product/lender prompt. Falls back to the page-level
+      // productId for legacy product-only rows.
+      const draftOffering = (() => {
+        const first = selectedPartners[0];
+        if (first?.project_id) return { project_id: first.project_id };
+        if (first?.product_id) return { product_id: first.product_id };
+        return { product_id: productId };
+      })();
       const body = action === 'enrich'
         ? { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId }
-        : { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId, product_id: productId };
+        : { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId, ...draftOffering };
 
       const res = await fetch(endpoint, {
         method: 'POST',

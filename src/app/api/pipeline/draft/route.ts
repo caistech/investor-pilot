@@ -3,7 +3,12 @@ import { saveDraft } from '@/lib/db/partners';
 import { getProductWebsiteUrl } from '@/lib/agent/sources';
 import { NextResponse } from 'next/server';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
-import { buildDraftPrompt, type DraftPromptProduct } from '@/lib/pipeline/draft-prompt';
+import {
+  buildDraftPrompt,
+  buildInvestorDraftPrompt,
+  type DraftPromptProduct,
+  type InvestorDraftPromptProject,
+} from '@/lib/pipeline/draft-prompt';
 import { checkCap, buildCapExceededResponse, meterTokens } from '@/lib/usage/events';
 
 export const maxDuration = 60;
@@ -19,14 +24,19 @@ export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
   if (error) return error;
 
-  const { partner_ids, organisation_id, product_id } = await request.json() as {
+  const body = await request.json() as {
     partner_ids: string[];
     organisation_id: string;
-    product_id: string;
+    product_id?: string | null;
+    project_id?: string | null;
   };
+  const { partner_ids, organisation_id, product_id, project_id } = body;
 
-  if (!partner_ids?.length || !organisation_id || !product_id) {
-    return NextResponse.json({ error: 'partner_ids[], organisation_id, and product_id required' }, { status: 400 });
+  if (!partner_ids?.length || !organisation_id || (!product_id && !project_id)) {
+    return NextResponse.json(
+      { error: 'partner_ids[], organisation_id, and one of (product_id, project_id) required' },
+      { status: 400 },
+    );
   }
 
   if (partner_ids.length > MAX_PARTNERS_PER_REQUEST) {
@@ -45,20 +55,12 @@ export async function POST(request: Request) {
   }
   const meterFor = { organisation_id, route: '/api/pipeline/draft' };
 
-  // Load product, sender identity (organisations row), and website URL in
-  // one round-trip. Pre-fetched here so the per-partner draft loop reuses
-  // the same buildDraftPrompt() output rather than re-querying per partner.
-  const [{ data: product }, { data: org }, productUrl] = await Promise.all([
-    db.from('products')
-      .select('name, one_sentence_description, core_mechanism, customer_outcomes, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms')
-      .eq('id', product_id)
-      .single(),
-    db.from('organisations')
-      .select('sender_name, sender_role')
-      .eq('id', organisation_id)
-      .single(),
-    getProductWebsiteUrl(product_id),
-  ]);
+  // Sender identity is shared across product/project branches.
+  const { data: org } = await db
+    .from('organisations')
+    .select('sender_name, sender_role')
+    .eq('id', organisation_id)
+    .single();
 
   if (!org?.sender_name || !org?.sender_role) {
     return NextResponse.json(
@@ -67,22 +69,62 @@ export async function POST(request: Request) {
     );
   }
 
+  // Branch on offering type. project_id wins when both are supplied —
+  // partners in fundraising mode should always get the investor prompt.
   let draftSystemPrompt: string;
-  try {
-    draftSystemPrompt = buildDraftPrompt(product as DraftPromptProduct, {
-      sender_name: org.sender_name,
-      sender_role: org.sender_role,
-    });
-  } catch (err) {
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 400 },
-    );
+  let contextSummary: string;
+
+  if (project_id) {
+    const { data: project } = await db
+      .from('projects')
+      .select('name, sponsor, description, investment_thesis, target_round, round_size_label, asset_class, geography')
+      .eq('id', project_id)
+      .single();
+
+    if (!project) {
+      return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+    }
+
+    try {
+      draftSystemPrompt = buildInvestorDraftPrompt(project as InvestorDraftPromptProject, {
+        sender_name: org.sender_name,
+        sender_role: org.sender_role,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 400 },
+      );
+    }
+
+    contextSummary = `Project: ${project.name}. ${project.description || ''}. Round: ${project.target_round || 'unspecified'}${project.round_size_label ? ` (${project.round_size_label})` : ''}.`;
+  } else {
+    const [{ data: product }, productUrl] = await Promise.all([
+      db.from('products')
+        .select('name, one_sentence_description, core_mechanism, customer_outcomes, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms')
+        .eq('id', product_id!)
+        .single(),
+      getProductWebsiteUrl(product_id!),
+    ]);
+
+    try {
+      draftSystemPrompt = buildDraftPrompt(product as DraftPromptProduct, {
+        sender_name: org.sender_name,
+        sender_role: org.sender_role,
+      });
+    } catch (err) {
+      return NextResponse.json(
+        { error: err instanceof Error ? err.message : String(err) },
+        { status: 400 },
+      );
+    }
+
+    contextSummary = product
+      ? `Product: ${product.name}. ${product.one_sentence_description || ''}. Core: ${product.core_mechanism || ''}. Outcomes: ${product.customer_outcomes || ''}.${productUrl ? ` Product website: ${productUrl}` : ''}`
+      : '';
   }
 
-  const productContext = product
-    ? `Product: ${product.name}. ${product.one_sentence_description || ''}. Core: ${product.core_mechanism || ''}. Outcomes: ${product.customer_outcomes || ''}.${productUrl ? ` Product website: ${productUrl}` : ''}`
-    : '';
+  const productContext = contextSummary;
 
   // Load partners
   const { data: partners } = await db

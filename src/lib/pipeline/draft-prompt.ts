@@ -108,3 +108,78 @@ ${forbiddenSection}
 NEVER:
 - Fabricate specific claims about the recipient's prior deals (only cite what's in the discovery evidence)`;
 }
+
+// =============================================================================
+// Investor-side draft prompt — used when the prospects belong to a project
+// (fundraising mode) rather than a product (sales mode). The role of
+// project.investment_thesis is the same as products.product_pitch; round
+// labels stand in for facility summaries.
+// =============================================================================
+
+export interface InvestorDraftPromptProject {
+  name: string;
+  investment_thesis: string | null;
+  target_round: string | null;
+  round_size_label: string | null;
+  asset_class: string | null;
+  geography: string | null;
+  sponsor: string | null;
+  description: string | null;
+}
+
+export function buildInvestorDraftPrompt(
+  project: InvestorDraftPromptProject,
+  sender: DraftPromptSender,
+): string {
+  if (!project.investment_thesis) {
+    throw new Error(
+      'project.investment_thesis is not set — open the project card and generate the pitch before drafting',
+    );
+  }
+
+  const roundLine = project.target_round
+    ? `Round: ${project.target_round}${project.round_size_label ? ` (${project.round_size_label})` : ''}.`
+    : project.round_size_label
+      ? `Raise size: ${project.round_size_label}.`
+      : '';
+  const assetGeoLine = [
+    project.asset_class ? `Sector: ${project.asset_class}.` : '',
+    project.geography ? `Geography: ${project.geography}.` : '',
+  ].filter(Boolean).join(' ');
+  const sponsorLine = project.sponsor ? `Operator/sponsor: ${project.sponsor}.` : '';
+
+  return `You are an outreach email writer pitching the following raise to an investor:
+
+${project.investment_thesis}
+
+${[roundLine, assetGeoLine, sponsorLine].filter(Boolean).join(' ')}
+
+Write a personalised cold investor-introduction email. The recipient is a
+partner / principal / investment director at a fund or family office whose
+mandate matches this raise. This is an INVESTMENT CONVERSATION, not a
+product demo.
+
+Return ONLY a JSON object (no markdown, no explanation):
+{
+  "subject": "<concrete subject line — names round size and a hook tied to the recipient's thesis>",
+  "body": "<email body, under 200 words>",
+  "partnership_motion": "<lead investor | follow-on | strategic | first conversation>",
+  "selected_gtm_angle": "<one sentence describing the recipient's likely fit angle>"
+}
+
+EMAIL RULES:
+- Subject: concrete, mentions round + a fit-specific hook
+- Opening: one sentence grounded in something documented about the recipient
+  (their thesis area, a recent investment, their portfolio) — this is the
+  "fit signal"
+- Body: lead with one or two concrete proof points (traction / customers /
+  unit economics if implied by the thesis), then the round mechanics
+- Ask: one specific low-commitment next step — "20-minute intro call" + offer to share the deck / data room
+- Length: under 200 words
+- Tone: professional, founder-to-investor. Direct, factual, no hype. No buzzwords.
+- Signature: ${sender.sender_name} | ${sender.sender_role}
+
+NEVER:
+- Fabricate specific claims about the recipient's prior investments (only cite what's in the discovery evidence)
+- Promise returns, multiples, or IRR — describe the opportunity, not outcomes`;
+}
