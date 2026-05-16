@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import ApprovalsClient from './approvals-client';
+import { SetupGate } from '@/components/layout/setup-gate';
 
 export const dynamic = 'force-dynamic';
 
@@ -67,5 +68,13 @@ export default async function ApprovalsPage() {
     });
   }
 
-  return <ApprovalsClient items={items} />;
+  return (
+    <SetupGate
+      required={['sequenceConfigured']}
+      pageName="Approvals"
+      pageVerb="review queued drafts"
+    >
+      <ApprovalsClient items={items} />
+    </SetupGate>
+  );
 }

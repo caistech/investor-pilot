@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { Search, Upload, Loader2, CheckCircle, XCircle, ArrowRight, Send, Globe2, Briefcase, Package } from 'lucide-react';
 import Link from 'next/link';
 import { createClient } from '@/lib/supabase/client';
+import { SetupGate } from '@/components/layout/setup-gate';
 
 type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 
@@ -148,6 +149,12 @@ export default function DiscoverPage() {
         <h1>Discover Prospects</h1>
         <p className="text-dark-400 mt-1">Find and score new investor prospects</p>
       </div>
+
+      <SetupGate
+        required={['hasActiveProduct', 'productPitchConfigured', 'rubricConfigured']}
+        pageName="Discover"
+        pageVerb="run discovery"
+      >
 
       {/* Product picker — drives scoring context. Without an active product
           discovery doesn't know what facility it's evaluating lenders for. */}
@@ -371,6 +378,8 @@ export default function DiscoverPage() {
           <p className="text-xs mt-2">Each candidate scored on capital, asset-class focus, track record, decision authority, and reachability per the v3 lender ICP.</p>
         </div>
       )}
+
+      </SetupGate>
     </div>
   );
 }

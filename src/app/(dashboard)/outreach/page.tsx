@@ -7,6 +7,7 @@ import {
   Mail, CheckCircle, AlertTriangle, Clock, XCircle,
   ChevronDown, ChevronRight, ExternalLink, RefreshCw,
 } from 'lucide-react';
+import { SetupGate } from '@/components/layout/setup-gate';
 
 interface OutreachEntry {
   id: string;
@@ -144,6 +145,12 @@ export default function OutreachPage() {
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
+
+      <SetupGate
+        required={['sequenceConfigured', 'channelConnected']}
+        pageName="Outreach"
+        pageVerb="track sent messages and replies"
+      >
 
       {/* Summary cards */}
       <div className="grid grid-cols-4 gap-4 mb-6">
@@ -295,6 +302,8 @@ export default function OutreachPage() {
           })}
         </div>
       )}
+
+      </SetupGate>
     </div>
   );
 }
