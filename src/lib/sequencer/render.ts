@@ -224,6 +224,13 @@ export async function renderStep(
     credit_signal: signal?.short || '',
     credit_signal_lead: signal?.lead || '',
     credit_signal_lead_short: signal?.leadShort || '',
+    // "Give before take" — every cold message carries a concrete offer.
+    // Templates can opt in by using {value_offer} / {value_offer_lead}.
+    // Backward-compat: when a template body doesn't include either
+    // placeholder, the renderer auto-injects value_offer_lead before
+    // the ask paragraph (see post-substitute injection below).
+    value_offer: signal?.valueOfferShort || '',
+    value_offer_lead: signal?.valueOfferLead || '',
     warm_opener: warmOpener,
     project_urls_block: projectUrlsBlock,
     sender_name: context.sender_name,
@@ -231,7 +238,18 @@ export async function renderStep(
   };
 
   const subject = tpl.subject ? substitute(tpl.subject, vars) : null;
-  const body = substitute(tpl.body, vars);
+  let body = substitute(tpl.body, vars);
+
+  // Backward-compat injection of the value offer for templates generated
+  // before {value_offer_lead} existed. If the body has no offer placeholder
+  // AND we have a value offer to give AND the body is an email or DM
+  // (not the ≤300 char LinkedIn connect note where there's no room),
+  // inject the offer as its own sentence before the final paragraph.
+  const hasOfferPlaceholder = /\{value_offer(?:_lead)?\}/.test(tpl.body);
+  const isShortConnect = templateKey.includes('connect') || (tpl.max_chars && tpl.max_chars <= 320);
+  if (!hasOfferPlaceholder && signal?.valueOfferLead && !isShortConnect) {
+    body = injectValueOffer(body, signal.valueOfferLead);
+  }
 
   // LinkedIn connect notes are hard-capped by LinkedIn at 300 chars. Reject
   // rather than truncate — truncating mid-sentence reads worse than re-rendering
@@ -273,11 +291,51 @@ function substitute(template: string, vars: Record<string, string>): string {
   return template.replace(/\{(\w+)\}/g, (_match, key) => vars[key] ?? `{${key}}`);
 }
 
+/**
+ * Inject a value-offer sentence into a rendered body that didn't use the
+ * {value_offer_lead} placeholder. Strategy: find the LAST paragraph break
+ * before the closing signature, and inject the offer as its own paragraph
+ * just before it. So the message ends:
+ *
+ *   …main pitch and ask…
+ *
+ *   <VALUE OFFER>
+ *
+ *   — Sender
+ *
+ * If we can't identify a signature paragraph, we append to the end before
+ * the sign-off. Always idempotent (no double-injection on re-render).
+ */
+function injectValueOffer(body: string, offerLead: string): string {
+  if (body.includes(offerLead.slice(0, 40))) return body; // already injected
+  // Look for a sign-off marker — common patterns: "— Name", "Best,", "Thanks,"
+  const trimmed = body.trimEnd();
+  const signoffPattern = /\n+(—|Best,|Thanks,|Kind regards|Regards,)/i;
+  const match = trimmed.match(signoffPattern);
+  if (match && match.index !== undefined) {
+    const before = trimmed.slice(0, match.index);
+    const after = trimmed.slice(match.index);
+    return `${before}\n\n${offerLead}${after}`;
+  }
+  // No clear signature — append before the final newline.
+  return `${trimmed}\n\n${offerLead}`;
+}
+
 interface CreditSignal {
   ok: true;
   short: string;       // ≤ 80 chars, slots into "{credit_signal} suggests fit"
   lead: string;        // ~1-2 sentences, opener for first email
   leadShort: string;   // ~1 sentence, opener for follow-up email
+  /**
+   * The value WE offer THEM, before asking for anything. Researcher
+   * principle: every cold outreach should give something — a free trial,
+   * a useful brief, an intro, a research summary — so we read as offerers
+   * not askers. Specific to the recipient where possible.
+   * - valueOfferShort: ≤ 80 chars chip that slots into "{value_offer} —"
+   * - valueOfferLead:  ~1-2 sentences for first email
+   */
+  valueOfferShort: string;
+  valueOfferLead: string;
   /**
    * Tier of grounding for the message. Drives personalization_score +
    * (in future) per-tier template language. Never returns failure — the
@@ -376,46 +434,61 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
 `
     : '';
 
-  const prompt = `You're a senior research analyst preparing personalised cold outreach to a ${recipientNoun}. Your job is to find the strongest plausible reason THIS specific recipient would care about THIS specific offering — and write it as an honest, humble opener.
+  const prompt = `You're a senior research analyst preparing personalised cold outreach to a ${recipientNoun}. Two outputs are required: (a) a personalised fit angle, and (b) a concrete value offer FROM US TO THEM, before we ask for anything. We must read as offerers, not takers.
 
-You have two information sources:
+INFORMATION SOURCES
 
 1. EVIDENCE about ${partner.company_name} (what we found via Brave / LinkedIn / discovery scoring):
 ${evidence}
 ${offeringSection}
 
+PART A — FIT ANGLE
 THINK LIKE A HUMAN RESEARCHER, NOT A TEMPLATE-FILLER. Examples of legitimate angles:
 - Named investment / named deal that fits the offering's sector  → strongest (tier 1)
 - Recipient's stated thesis matches the offering's market         → strong (tier 2)
 - Recipient's geography / culture / language suggests personal interest in the problem
   (e.g. "as a Vietnamese investor you've likely seen first-hand how English
    communication barriers limit portfolio companies' international ambitions" —
-   this is a LEGITIMATE inference from geography + offering sector, not a
-   fabricated fact)                                                → tier 2 / 3
-- Sector overlap without specifics ("SEA Series A investors broadly")  → tier 3
-- Nothing specific — humble explicit reach-out ("we found you in our
-  shortlist of plausible fits and thought worth a brief intro")     → tier 4
+   LEGITIMATE inference from geography + offering sector, not fabrication) → tier 2 / 3
+- Sector overlap without specifics ("SEA Series A investors broadly")     → tier 3
+- Nothing specific — humble explicit reach-out                            → tier 4
 
 Rules:
-- Never fabricate specifics (don't invent deals, don't quote things they
-  haven't said). Inferences from geography / sector / role are allowed
-  and should be hedged ("you've likely…", "given your firm's stated focus…").
-- Prefer the strongest tier you can defend with the available facts.
-- The opener should make the reader think "yes, that's a reasonable reason
-  to reach out to me" — not "this is generic" and not "this is fabricated".
-- For non-English-speaking markets (Vietnam, Korea, Japan, China, MENA, LATAM)
-  consider whether language / cultural friction with English-first products
-  is a relevant angle.
+- Never fabricate specifics (don't invent deals, don't quote things they haven't said).
+- Inferences from geography / sector / role are allowed if hedged ("likely…", "given your stated focus…").
+- For non-English-speaking markets (Vietnam, Korea, Japan, China, MENA, LATAM, Iberia, France, Germany etc.) consider whether language / cultural friction with English-first products is the angle.
+
+PART B — VALUE OFFER (the "give before asking" rule)
+EVERY outreach must offer something specific to THIS recipient before asking for a meeting. Brainstorm what we can plausibly give them based on what we are (the offering) and what they do (their firm / portfolio / thesis). Examples:
+- For an INVESTOR pitched a product/raise:
+    • "free pilot of <product> for one of your portfolio companies hitting this problem"
+    • "happy to send our <sector> market brief — useful for diligence even if not a fit"
+    • "intros to other founders we know in your portfolio's adjacent space"
+    • "I can share the cap-table + LP composition of our last round, useful comp"
+- For a CHANNEL PARTNER pitched a product:
+    • "free pilot for your top customer in <sector>"
+    • "co-marketing post on our channel"
+    • "referral commission structure write-up"
+- For a DIRECT LENDER pitched a debt facility:
+    • "credit memo + LVR sensitivity model upfront, no NDA"
+    • "warm intro to the developer's bank reference"
+- For a LP / family office pitched a fund:
+    • "track-record one-pager + co-investor list"
+    • "share our DDQ template"
+
+Pick the offer that's MOST RELEVANT to this specific recipient. If they appear to be a Vietnam investor and we're pitching an EdTech English platform, "free pilot for a portfolio company hitting English-scaling friction" is excellent. If they're a credit allocator, "credit memo + LVR sensitivity" is excellent. Don't generic-offer; tailor.
 
 Return ONLY JSON, no prose:
 {
-  "short": "<≤80 chars phrase that slots into 'X suggests fit'. e.g. 'your firm's lead in Owl Labs 2024' or 'your firm's Vietnam SaaS focus + likely first-hand experience of English barriers'>",
-  "lead": "<1-2 sentence opener for a cold email. Cite the specific evidence OR draw the named inference. Match tone to certainty.>",
+  "short": "<≤80 chars fit-angle phrase that slots into 'X suggests fit'>",
+  "lead": "<1-2 sentence opener for a cold email — the fit angle, hedged appropriately>",
   "leadShort": "<single sentence opener for a follow-up email>",
+  "valueOfferShort": "<≤80 chars chip describing the value we offer, e.g. 'free 3-month LingoPure pilot for one Vietnam portfolio co'>",
+  "valueOfferLead": "<1-2 sentences offering it concretely — e.g. 'Happy to set up a free 3-month pilot for any portfolio company hitting English-language scaling friction — no commitment beyond seeing if it moves the needle.'>",
   "specificity": "specific_deal | sector_evidence | generic"
 }
 
-If you genuinely cannot find ANY plausible angle (rare), return specificity="generic" and the system will substitute a humble explicit framing. Do not refuse — return something.`;
+If you genuinely cannot find ANY plausible angle (rare), return specificity="generic" and the system will substitute a humble explicit framing. STILL return a valueOffer — there's always something we can give.`;
 
   try {
     // Hard 12s per-call timeout. Without this, a hung OpenRouter request
@@ -450,11 +523,21 @@ If you genuinely cannot find ANY plausible angle (rare), return specificity="gen
       return buildHumbleFallback(partner);
     }
 
+    // If the LLM forgot the value offer, build a basic one from the
+    // offering itself so the "give before take" rule still holds.
+    const offering = partner.offering_context;
+    const fallbackOfferShort = offering ? `brief on ${offering.name}` : 'useful resource share';
+    const fallbackOfferLead = offering
+      ? `Happy to share a one-pager on ${offering.name} (sector / traction / terms) ahead of any call — useful for context even if it's not a fit right now.`
+      : 'Happy to share a brief one-pager ahead of any call — useful for context even if it isn\'t a fit right now.';
+
     return {
       ok: true,
       short: String(parsed.short || '').trim(),
       lead: String(parsed.lead || '').trim(),
       leadShort: String(parsed.leadShort || '').trim(),
+      valueOfferShort: String(parsed.valueOfferShort || fallbackOfferShort).trim(),
+      valueOfferLead: String(parsed.valueOfferLead || fallbackOfferLead).trim(),
       specificity: parsed.specificity === 'specific_deal' ? 'specific_deal' : 'sector_evidence',
     };
   } catch (err) {
@@ -530,11 +613,25 @@ function buildHumbleFallback(partner: RenderPartner): CreditSignal {
       ? 'sector_anchor'
       : 'humble_intro';
 
+  // Value offer — always include something. For project (investor)
+  // outreach the safest bet is a usable resource: market brief, deck,
+  // intro. For product (sales partner) outreach a pilot / trial is
+  // the natural give. Tailor where we can with the offering name.
+  const offerName = offering?.name || (kind === 'project' ? 'this raise' : 'the platform');
+  const valueOfferShort = kind === 'project'
+    ? `one-pager on ${offerName} (no NDA, useful comp regardless)`
+    : `free pilot of ${offerName} for your team or one customer`;
+  const valueOfferLead = kind === 'project'
+    ? `Happy to send a one-pager on ${offerName} (sector, traction, terms) ahead of any conversation — useful as a market comp even if it's not a fit for ${firm} right now.`
+    : `Happy to set up a free pilot of ${offerName} for ${firm} or one of your top customers — no commitment beyond seeing whether it actually moves the needle.`;
+
   return {
     ok: true,
     short,
     lead,
     leadShort,
+    valueOfferShort,
+    valueOfferLead,
     specificity: tier,
   };
 }
