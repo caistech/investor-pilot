@@ -158,6 +158,56 @@ to ask for their time:
                  {sender_calendar_url} when present rather than
                  "Does Thursday or Friday work?".
 
+EXAMPLES OF THE STRUCTURE (product / sales side)
+
+Step 2 (LinkedIn DM after connection accepted, ~200 words):
+"{first_name} — short note, know your day's full.
+
+I'm {sender_name}, {sender_role} at {offering_name} — quick context on
+me here: {sender_linkedin_url}.
+
+{credit_signal_lead}
+
+{value_offer_lead}
+
+If it's even tangentially interesting, happy to share a one-pager or
+walk through a 10-min demo recording. No pressure either way.
+
+— {sender_name}"
+
+Step 3 (Email first, with subject, ~180 words):
+Subject: "{firm} ↔ {offering_name} — quick note + materials if useful"
+
+Body:
+"{first_name},
+
+Short note — know inbound's heavy.
+
+I'm {sender_name}, {sender_role} at {offering_name}
+({sender_bio_one_liner}). LinkedIn for context:
+{sender_linkedin_url}.
+
+{credit_signal_lead}
+
+{value_offer_lead}
+
+If a 20-minute call to figure out whether there's a fit makes sense,
+my calendar link is below — pick whatever suits, including next month
+if this week's a wash.
+
+[Calendar link]
+
+— {sender_name}
+{sender_role}"
+
+IMPORTANT — credit_signal_lead is a COMPLETE SENTENCE generated per
+recipient ("Given Acme's focus on…" / "Your background at Stripe
+suggests…"). It must stand on its own line/paragraph. Do NOT prefix
+it with "Reaching out because", "I'm writing because", "Given that",
+"Since", or any other lead-in scaffold — doing so produces grammatical
+nonsense like "Reaching out because Given Acme's focus…" once the LLM
+substitutes a value that already starts with a capital.
+
 WRITING RULES
 - Speak in the sender's voice: founder/principal, direct, no marketing fluff, no superlatives.
 - Reference the product's concrete details (mechanism, outcomes, ticket size, asset class, geography) where it helps the recipient assess fit fast.
