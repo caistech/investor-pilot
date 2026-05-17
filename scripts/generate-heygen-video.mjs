@@ -132,6 +132,9 @@ async function main() {
   console.log('\nAdd this to your .env.local (and to Vercel env vars):');
   console.log(`  HEYGEN_VIDEO_ID=${videoId}`);
   console.log('\nThe /api/dashboard/heygen-video route uses HEYGEN_VIDEO_ID + HEYGEN_API_KEY to fetch a fresh playable URL on demand (Heygen URLs expire after 7 days).');
+  console.log('\n⚠ If you set this via `vercel env add` over a pipe, use printf NOT echo —');
+  console.log('  echo adds a trailing \\n that HeyGen rejects with "Video(s) not found".');
+  console.log('  Correct:   printf "' + videoId + '" | vercel env add HEYGEN_VIDEO_ID production');
 }
 
 main().catch((err) => {
