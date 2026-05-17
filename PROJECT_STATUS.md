@@ -51,6 +51,18 @@ per-member channels live as of 2026-05-18.
   added `client_channels.user_id` + `sequence_steps.created_by_user_id`,
   backfilled to existing owners so single-user orgs see zero
   behaviour change.
+- **Public pages reflect what shipped** — landing, playbook, about,
+  pricing all updated 2026-05-18 with Teams, Pool Summary as
+  sponsor deliverable, Resend bounce auto-handling, and the 14
+  auto-translation languages. Landing + playbook ported from inline
+  headers to the shared `<PublicHeader />` / `<PublicFooter />`
+  components so easy-claude-code's mobile work applies uniformly.
+- **HeyGen dashboard explainer video regenerated** — 60s narration
+  covering Projects/Products dual mode, tier modulation +
+  auto-translation, Pool Summary deliverable, Teams, human-approved
+  send + audit trail. New `HEYGEN_VIDEO_ID`
+  (`3dfc15c762484fd7997622d0e9e2fe92`) live on Vercel across all
+  three envs.
 
 ### Architecture
 
