@@ -60,7 +60,7 @@ const STAGES = [
     stage: 'Drafting',
     icon: PenSquare,
     title: 'Render with tier-modulated tone + courtesy contract',
-    body: 'Each draft is built around a 5-beat courtesy contract: Time-ack → Who-I-am → Why-you-personally → What-I-offer → Ask-last. High-fit prospects (score ≥7) get a direct ask. Mid-fit get a soft hedge. Low-fit get an exploratory "feel free to skip" frame. Translation for non-English markets is built and being validated in pilot; the English original always stays visible to the operator before send.',
+    body: 'Each draft is built around a 5-beat courtesy contract: Time-ack → Who-I-am → Why-you-personally → What-I-offer → Ask-last. High-fit prospects (score ≥7) get a direct ask. Mid-fit get a soft hedge. Low-fit get an exploratory "feel free to skip" frame. For non-English markets the draft is auto-translated at render time (14 languages — Vietnamese, Korean, Japanese, Chinese, Thai, Indonesian, Arabic, Portuguese, Spanish, French, German, Italian, Turkish, Russian); the English original stays in the audit trail and is one click away in /approvals so operators (and reviewers who don\'t read the target language) can verify before send.',
   },
   {
     n: 7,

@@ -69,8 +69,8 @@ export default function LandingPage() {
             },
             {
               icon: Languages,
-              title: 'Localisation (in pilot)',
-              desc: 'Translation at render time for non-English markets (Vietnam, Korea, Japan, China, Saudi, Brazil, France, Germany) is built and being validated. English original always kept for operator review before send — translation never replaces the audit trail.',
+              title: 'Auto-localisation — 14 languages',
+              desc: 'Vietnamese, Korean, Japanese, Chinese (Simplified + Traditional), Thai, Indonesian, Arabic, Brazilian Portuguese, Spanish, French, German, Italian, Turkish, Russian. Every prospect in a non-English market gets their first message in their language at render time. The English original is preserved in evidence_refs and shown in /approvals via a one-click toggle — operator verifies before send, the audit trail keeps both.',
             },
             {
               icon: MessageSquare,

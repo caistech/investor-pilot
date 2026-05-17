@@ -379,6 +379,16 @@ export default function DiscoverPage() {
         </div>
       )}
 
+      <div className="mt-6 p-4 rounded-lg bg-purple-500/5 border border-purple-500/20 flex items-start gap-3">
+        <Globe2 className="w-5 h-5 text-purple-400 flex-shrink-0 mt-0.5" />
+        <div className="text-sm">
+          <p className="text-purple-300 font-medium mb-1">Non-English markets are handled automatically</p>
+          <p className="text-dark-400 text-xs leading-relaxed">
+            Prospects from Vietnam, Korea, Japan, China, MENA, Brazil, LATAM, France, Germany, Italy, Turkey, Russia (14 languages) receive their first message in their native language — translated at render time from the English draft. The English original stays in the audit trail and is one click away in /approvals via the &quot;English version&quot; toggle, so reviewers who don&apos;t read the target language can still verify what&apos;s being sent.
+          </p>
+        </div>
+      </div>
+
       </SetupGate>
     </div>
   );

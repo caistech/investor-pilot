@@ -309,6 +309,15 @@ function ApprovalCard({
               {item.step_status === 'compliance_blocked' && (
                 <span className="badge-red" title="Compliance regex flagged this draft. Won't ship until you Edit it to remove the flagged term, Regenerate, or Skip. See the red flag block below for the exact match.">BLOCKED — needs edit</span>
               )}
+              {item.target_language && (
+                <span
+                  className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] uppercase tracking-wide bg-blue-500/15 text-blue-300 border border-blue-500/30"
+                  title={`Recipient will receive this draft in ${item.target_language}. Click 'English version' below to see what it says in English.`}
+                >
+                  <Languages className="w-2.5 h-2.5" />
+                  {item.target_language}
+                </span>
+              )}
             </div>
             <p className="text-dark-500 text-sm">
               {channelLabel} · scheduled <span suppressHydrationWarning>{new Date(item.scheduled_for).toLocaleString()}</span>
