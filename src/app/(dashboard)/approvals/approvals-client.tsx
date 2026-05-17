@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw, Languages } from 'lucide-react';
+import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw, Languages, Trash2 } from 'lucide-react';
 import type { ApprovalItem } from './page';
 
 interface Props {
@@ -109,15 +109,54 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
     }
   }
 
+  async function clearAllQueued() {
+    if (items.length === 0) return;
+    const confirmed = window.confirm(
+      `Skip all ${items.length} queued drafts? They'll be marked skipped — partners stay in the pipeline, you can re-render fresh drafts from /prospects. This is the right call when a template was just regenerated and these drafts are stale.`,
+    );
+    if (!confirmed) return;
+    setBusyId('__bulk__');
+    setError(null);
+    try {
+      const res = await fetch('/api/admin/clear-queued-approvals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const json = await res.json();
+      if (!res.ok) {
+        setError(json.error || 'Bulk clear failed');
+        return;
+      }
+      setItems([]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unknown error');
+    } finally {
+      setBusyId(null);
+    }
+  }
+
   return (
     <div>
-      <div className="flex items-center justify-between mb-8">
+      <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
         <div>
           <h1>Approval queue</h1>
           <p className="text-dark-400 mt-1">
             {items.length === 0 ? 'Nothing pending.' : `${items.length} item${items.length === 1 ? '' : 's'} awaiting your approval.`}
           </p>
         </div>
+        {items.length > 0 && (
+          <button
+            type="button"
+            onClick={clearAllQueued}
+            disabled={busyId === '__bulk__'}
+            className="btn-secondary flex items-center gap-2 disabled:opacity-60"
+            title="Skip every queued draft in one click — use after regenerating a template so stale drafts don't ship. Partners stay in the pipeline; re-render from /prospects."
+          >
+            <Trash2 className="w-4 h-4" />
+            {busyId === '__bulk__' ? `Clearing ${items.length}…` : `Clear all ${items.length} queued`}
+          </button>
+        )}
       </div>
 
       {error && (
