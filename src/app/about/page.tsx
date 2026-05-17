@@ -38,10 +38,10 @@ export default function AboutPage() {
             <li>Software you run. Discovery and scoring are AI-assisted; every send is human-approved.</li>
             <li>Dual-purpose. Same pipeline runs investor outreach for a raise and sales outreach for a product — only the templates, tone, and ICP shift per target.</li>
             <li>Multi-channel. LinkedIn connection requests and DMs (via Unipile) + email (via Resend).</li>
-            <li>Tier-modulated. High-fit prospects get a direct ask; low-fit get exploratory framing. Drafts to non-English markets auto-translate at render time.</li>
-            <li>Audit-logged. Every action — discovery, scoring, approval, send, reply — written to an audit trail.</li>
-            <li>Compliance-aware. Per-product compliance rulesets (standard, finance_au_senior_debt, custom) block unapproved language pre-send.</li>
-            <li>Operator-controlled. Daily caps, warmup curves, and a per-channel + global kill switch live on the platform, not on the third party.</li>
+            <li>Tier-modulated. High-fit prospects get a direct ask; low-fit get exploratory framing. Non-English-market translation is built and being validated in pilot.</li>
+            <li>Audit-logged. Every action — discovery, scoring, approval, send, manual reply mark — written to an audit trail.</li>
+            <li>Compliance-aware. Per-product compliance rulesets (standard + finance_au_senior_debt built in) block unapproved language pre-send.</li>
+            <li>Operator-controlled. Daily caps, warmup curves, and a per-channel kill switch live on the platform, not on the third party.</li>
           </ul>
 
           <h3 className="mt-8">What InvestorPilot is not</h3>

@@ -60,21 +60,21 @@ const STAGES = [
     stage: 'Drafting',
     icon: PenSquare,
     title: 'Render with tier-modulated tone + courtesy contract',
-    body: 'Each draft is built around a 5-beat courtesy contract: Time-ack → Who-I-am → Why-you-personally → What-I-offer → Ask-last. High-fit prospects (score ≥7) get a direct ask. Mid-fit get a soft hedge. Low-fit get an exploratory "feel free to skip" frame. Recipients in non-English markets get the message auto-translated; the English original stays visible to the operator before send.',
+    body: 'Each draft is built around a 5-beat courtesy contract: Time-ack → Who-I-am → Why-you-personally → What-I-offer → Ask-last. High-fit prospects (score ≥7) get a direct ask. Mid-fit get a soft hedge. Low-fit get an exploratory "feel free to skip" frame. Translation for non-English markets is built and being validated in pilot; the English original always stays visible to the operator before send.',
   },
   {
     n: 7,
     stage: 'Approval + Send',
     icon: Send,
     title: 'Human-in-the-loop, then ship',
-    body: 'Every draft goes to /approvals with its fit score, tier badge, compliance check, and personalisation score. Edit inline, regenerate, skip, or approve. Approved messages send via Resend (email) or Unipile (LinkedIn). Daily caps and the global kill switch are enforced server-side.',
+    body: 'Every draft goes to /approvals with its fit score, tier badge, compliance check, and personalisation score. Edit inline, regenerate, skip, or approve. Approved messages send via Resend (email) or Unipile (LinkedIn). Daily caps and per-channel kill switches are enforced server-side.',
   },
   {
     n: 8,
     stage: 'Track',
     icon: Reply,
-    title: 'Replies route back, follow-ups pause',
-    body: 'Inbound replies match back to the prospect and pause the rest of the sequence. Bounces clear the bad email and re-trigger enrichment. The full audit log — every discovery, scoring, draft, approval, send, reply — is written to audit_events for export and compliance review.',
+    title: 'Track replies + bounces (manual today, webhook auto-routing in build)',
+    body: 'Operator marks replies and bounces from the Track view; the system transitions partner.status accordingly and pauses downstream sends. Inbound-webhook auto-routing (Resend bounces + Unipile replies → automatic partner.status + step cancellation) is the next-up build. The full audit log — every discovery, scoring, draft, approval, send, manual reply mark — is written to audit_events for export and compliance review.',
   },
 ];
 

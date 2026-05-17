@@ -69,8 +69,8 @@ export default function LandingPage() {
             },
             {
               icon: Languages,
-              title: 'Auto-localisation',
-              desc: 'Drafts to investors in non-English markets — Vietnam, Korea, Japan, China, Saudi, Brazil, France, Germany and more — translate at render time. English original kept for operator review before send.',
+              title: 'Localisation (in pilot)',
+              desc: 'Translation at render time for non-English markets (Vietnam, Korea, Japan, China, Saudi, Brazil, France, Germany) is built and being validated. English original always kept for operator review before send — translation never replaces the audit trail.',
             },
             {
               icon: MessageSquare,
@@ -85,7 +85,7 @@ export default function LandingPage() {
             {
               icon: ShieldCheck,
               title: 'Pre-send compliance filter',
-              desc: 'Per-product compliance rulesets (standard, finance_au_senior_debt, or custom) run on every draft pre-send. Blocked drafts surface in /approvals with the exact flagged term — fix inline, status flips back to queued.',
+              desc: 'Per-product compliance rulesets (standard + finance_au_senior_debt built in) run on every draft pre-send. Blocked drafts surface in /approvals with the exact flagged term — fix inline, status flips back to queued.',
             },
             {
               icon: Inbox,
@@ -99,8 +99,8 @@ export default function LandingPage() {
             },
             {
               icon: Pause,
-              title: 'Caps + global kill switch',
-              desc: 'Daily send caps and warmup curves enforced server-side. Operator-triggered global pause halts every channel in seconds — full audit log of every send, reply, approval, and pause.',
+              title: 'Caps + per-channel kill switch',
+              desc: 'Daily send caps and warmup curves enforced server-side. Per-channel kill switch in /channels halts a misbehaving account in one click. Full audit log of every send, approval, edit, and pause.',
             },
           ].map((f) => (
             <div key={f.title} className="card-hover">
