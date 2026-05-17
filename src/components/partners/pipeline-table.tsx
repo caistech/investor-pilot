@@ -123,6 +123,14 @@ function matchesSearch(partner: Partner, query: string): boolean {
 // server runs 4-wide Claude calls; 8 partners = 2 chunks ≈ 32s inside
 // Vercel's 60s ceiling. Bumping this requires bumping the server cap too.
 const RENDER_NOW_MAX = 8;
+// Enrich cap matches MAX_PARTNERS_PER_REQUEST in /api/pipeline/enrich/route.ts.
+// Client chunks selection into batches of this size and runs them sequentially
+// — operator sees one click ≈ "all selected enriched", not a flat error.
+const ENRICH_MAX = 20;
+// Re-enrich evidence runs LinkedIn deep-read + Brave per partner (much
+// heavier than Hunter email lookup) — server cap is 10. Same client-side
+// chunking pattern as Enrich + Render & Queue.
+const REENRICH_MAX = 10;
 
 // Partner statuses that indicate the operator has already contacted the
 // person (first touch sent or beyond). Used by the "Hide already targeted"
@@ -288,132 +296,130 @@ export function PipelineTable({
 
   async function batchAction(action: 'enrich' | 'draft') {
     if (selectedPartners.length === 0) return;
-    const n = selectedPartners.length;
+    const allIds = selectedPartners.map(p => p.id);
+    const n = allIds.length;
 
-    // Render-now is wall-time bound (Claude calls + Vercel ceiling).
-    // Catch the cap on the client so the operator gets actionable
-    // guidance instead of a flat server 400. Enrich has no such cap —
-    // Hunter.io batch is fast and bounded at 100 server-side.
-    if (action === 'draft' && n > RENDER_NOW_MAX) {
-      setNextCta(null);
-      setMessage(
-        `Render & Queue processes up to ${RENDER_NOW_MAX} prospects per click (Vercel 60s ceiling). ` +
-        `You have ${n} selected. Untick ${n - RENDER_NOW_MAX} to bring the selection to ${RENDER_NOW_MAX} or fewer, ` +
-        `or wait for the 15-min cron to render the rest automatically.`,
-      );
-      return;
+    // Auto-chunk per the per-action server cap so the operator can click
+    // ONE button on a 50-prospect selection and have all 50 processed.
+    // Each batch is a separate API call, max chunkSize partners; we run
+    // them sequentially so each one finishes inside Vercel's 60s ceiling
+    // before the next starts. The user-facing message updates per batch
+    // ("Batch 2 of 3 — processed 40/54…") so progress is visible.
+    //
+    // Was: blocked the click with "trim selection" if n > cap. New
+    // behaviour matches the operator's mental model — one click = "do
+    // it to all selected".
+    const chunkSize = action === 'enrich' ? ENRICH_MAX : RENDER_NOW_MAX;
+    const chunks: string[][] = [];
+    for (let i = 0; i < allIds.length; i += chunkSize) {
+      chunks.push(allIds.slice(i, i + chunkSize));
     }
+
+    const endpoint = action === 'enrich'
+      ? '/api/pipeline/enrich'
+      : '/api/sequences/render-now';
 
     setLoading(action);
     setNextCta(null);
-    setMessage(
-      action === 'enrich'
-        ? `Enriching ${n} prospect${n === 1 ? '' : 's'} now — looking up emails via Hunter.io…`
-        : `Rendering the first sequence step for ${n} prospect${n === 1 ? '' : 's'} now — these will land in Approvals when done…`,
-    );
+
+    // Aggregated totals across all batches.
+    let totalSucceeded = 0;
+    let totalErrored = 0;
+    let totalSkipped = 0;
+    let totalAlreadyDone = 0;
+    const errorMessages: string[] = [];
+    // Render-now per-batch hint — keep the LAST one (latest state is
+    // freshest). Per-batch we accumulate the counts only.
+    let lastRenderHint = '';
 
     try {
-      // Enrich runs /api/pipeline/enrich (Hunter.io email lookup).
-      // Draft runs /api/sequences/render-now — synchronous trigger of the
-      // SAME render path the cron uses, so the rendered message lands in
-      // outbound_messages and the sequence_step transitions to
-      // queued_for_approval. That's what Approvals reads from. Earlier
-      // versions called /api/pipeline/draft which writes to
-      // partners.draft_body, which Approvals never sees — operators were
-      // promised "Go to Approvals" and arrived at an empty queue.
-      const endpoint = action === 'enrich'
-        ? '/api/pipeline/enrich'
-        : '/api/sequences/render-now';
-      const body = action === 'enrich'
-        ? { partner_ids: selectedPartners.map(p => p.id), organisation_id: organisationId }
-        : { partner_ids: selectedPartners.map(p => p.id) };
-
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
-
-      // Defensive parse — Vercel sometimes returns an HTML error page on
-      // timeouts / runtime crashes / 504s. Plain await res.json() throws
-      // "Unexpected token 'A'" and the operator gets a useless message.
-      // Surface the HTTP status + first slice of the body instead.
-      const rawBody = await res.text();
-      let data: { [k: string]: unknown };
-      try {
-        data = JSON.parse(rawBody);
-      } catch {
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        const batchLabel = chunks.length > 1
+          ? `Batch ${i + 1} of ${chunks.length} (${chunk.length} prospects) — `
+          : '';
         setMessage(
-          `Error: ${endpoint} returned HTTP ${res.status} ${res.statusText} with non-JSON body — ` +
-          `usually means a function timeout (>60s) or a runtime crash. First 200 chars: ${rawBody.slice(0, 200)}`,
+          action === 'enrich'
+            ? `${batchLabel}enriching now (Hunter.io email lookup)… ${totalSucceeded + totalErrored + totalSkipped}/${n} done so far.`
+            : `${batchLabel}rendering first sequence step now (Claude call per prospect)… ${totalSucceeded}/${n} queued so far.`,
         );
-        return;
+
+        const body = action === 'enrich'
+          ? { partner_ids: chunk, organisation_id: organisationId }
+          : { partner_ids: chunk };
+
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        // Defensive parse — Vercel sometimes returns an HTML error page on
+        // timeouts / runtime crashes / 504s. Plain await res.json() throws
+        // "Unexpected token 'A'" and the operator gets a useless message.
+        const rawBody = await res.text();
+        let data: { [k: string]: unknown };
+        try {
+          data = JSON.parse(rawBody);
+        } catch {
+          errorMessages.push(
+            `Batch ${i + 1}: HTTP ${res.status} ${res.statusText} (non-JSON body — likely function timeout). First 200 chars: ${rawBody.slice(0, 200)}`,
+          );
+          totalErrored += chunk.length;
+          continue;
+        }
+
+        if (!res.ok) {
+          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+          totalErrored += chunk.length;
+          continue;
+        }
+
+        if (action === 'enrich') {
+          totalSucceeded += (data.enriched as number) || 0;
+          totalErrored += (data.errors as number) || 0;
+          totalSkipped += (data.skipped as number) || (data.unresolved as number) || 0;
+        } else {
+          const counts = (data.counts as Record<string, number>) || {};
+          totalSucceeded += counts.queued || 0;
+          totalErrored += (counts.failed || 0) + (counts.blocked || 0);
+          totalSkipped += (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0);
+          totalAlreadyDone += counts.already_rendered || 0;
+          if (typeof data.hint === 'string') lastRenderHint = data.hint;
+        }
       }
-      if (!res.ok) {
-        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+
+      // Re-fetch server state so badges / status columns reflect the
+      // newly-enriched or newly-queued rows. Selection survives.
+      if (totalSucceeded > 0) {
+        router.refresh();
+      }
+
+      const errorTrailer = errorMessages.length > 0
+        ? `\n\n${errorMessages.length} batch error${errorMessages.length === 1 ? '' : 's'}:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …${errorMessages.length - 3} more` : ''}`
+        : '';
+
+      if (action === 'enrich') {
+        // Tailor the follow-up suggestion to whether anything actually
+        // got an email. Hunter only finds public business emails — for
+        // LinkedIn-2nd contacts it routinely returns 0, in which case
+        // the right next step is Re-enrich evidence (Brave/LinkedIn
+        // fit signal) not Assign Sequence.
+        const nextStepHint = totalSucceeded > 0
+          ? 'Selection kept — click "2. Assign Sequence" next.'
+          : 'No emails found (Hunter only works for contacts with public business emails). ' +
+            'For LinkedIn-only outreach, click "Re-enrich evidence" then "2. Assign Sequence" — the LinkedIn DM path doesn\'t need an email.';
+        setMessage(
+          `Enriched ${totalSucceeded} of ${n}. ${totalSkipped} skipped, ${totalErrored} errors. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${chunkSize}.) ` : ''}\n${nextStepHint}${errorTrailer}`,
+        );
       } else {
-        let succeeded: number;
-        let errored: number;
-        let skipped: number;
-
-        if (action === 'enrich') {
-          succeeded = (data.enriched as number) || 0;
-          errored = (data.errors as number) || 0;
-          skipped = (data.skipped as number) || (data.unresolved as number) || 0;
-        } else {
-          // render-now returns counts:
-          // { queued, already_rendered, no_pending_step, blocked, failed, skipped_no_channel }
-          const counts = (data.counts as Record<string, number>) || {};
-          succeeded = counts.queued || 0;
-          errored = (counts.failed || 0) + (counts.blocked || 0);
-          skipped = (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0);
+        setMessage(
+          `Rendered ${totalSucceeded} of ${n} (${totalAlreadyDone} already done). ${chunks.length > 1 ? `Ran in ${chunks.length} batches of up to ${chunkSize}. ` : ''}\n${lastRenderHint}${errorTrailer}`,
+        );
+        if (totalSucceeded > 0 || totalAlreadyDone > 0) {
+          setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
         }
-
-        // Use router.refresh() instead of window.location.reload() so the
-        // selection survives the server re-fetch — operators previously
-        // had to guess which rows they'd just enriched in order to move
-        // on to Step 2 (Assign Sequence). The server component re-runs;
-        // client state (selected, message) stays put.
-        if (succeeded > 0) {
-          router.refresh();
-        }
-
-        if (action === 'enrich') {
-          // Tailor the follow-up suggestion to whether anything actually
-          // got an email. "1. Enrich" is Hunter (email lookup) — for
-          // LinkedIn-2nd contacts it routinely returns 0 because they
-          // don't have public emails. In that case the operator does NOT
-          // want "click 2. Assign Sequence next" — they want either
-          // "Re-enrich evidence" (Brave/LinkedIn fit signal, different
-          // path) or to proceed on LinkedIn DM only.
-          const nextStepHint = succeeded > 0
-            ? 'Selection kept — click "2. Assign Sequence" next.'
-            : 'No emails found (Hunter only works for contacts with public business emails). ' +
-              'For LinkedIn-only outreach, click "Re-enrich evidence" then "2. Assign Sequence" — the LinkedIn DM path doesn\'t need an email.';
-          setMessage(
-            `Enriched ${succeeded} of ${n}. ${skipped} skipped, ${errored} errors.\n${nextStepHint}`,
-          );
-          // Selection deliberately kept so the operator can flow into
-          // step 2 without re-ticking the same rows.
-        } else {
-          // Render-now: use the route's `hint` string when present —
-          // it already explains the dominant outcome in one sentence
-          // ("3 messages ready for review" / "all already rendered, check
-          // Approvals" / "no sequence assigned, click 2 first").
-          const hint = (data.hint as string) || '';
-          const counts = (data.counts as Record<string, number>) || {};
-          const alreadyDone = counts.already_rendered || 0;
-          setMessage(
-            `Rendered ${succeeded} of ${n} (${alreadyDone} already done).\n${hint}`,
-          );
-          // Show the Approvals CTA whenever there's plausibly something
-          // there to look at — either we just queued some, or they were
-          // already queued from a previous attempt.
-          if (succeeded > 0 || alreadyDone > 0) {
-            setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
-          }
-          setSelected(new Set());
-        }
+        setSelected(new Set());
       }
     } catch (err) {
       setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
@@ -424,39 +430,68 @@ export function PipelineTable({
 
   async function reEnrichEvidence() {
     if (selectedPartners.length === 0) return;
-    const n = selectedPartners.length;
-    if (n > 10) {
-      setMessage(`Error: Re-enrich runs LinkedIn + Brave per partner — cap is 10 per call (selected: ${n}). Trim selection.`);
-      return;
+    const allIds = selectedPartners.map(p => p.id);
+    const n = allIds.length;
+
+    // Auto-chunk by REENRICH_MAX. Each batch is one call (LinkedIn deep-read
+    // + Brave per partner = ~30-50s wall), runs sequentially. One click =
+    // all selected re-enriched, regardless of count. Same pattern as
+    // batchAction — operator never sees a "trim selection" wall.
+    const chunks: string[][] = [];
+    for (let i = 0; i < allIds.length; i += REENRICH_MAX) {
+      chunks.push(allIds.slice(i, i + REENRICH_MAX));
     }
+
     setLoading('reenrich');
     setNextCta(null);
-    setMessage(`Re-enriching evidence for ${n} prospect${n === 1 ? '' : 's'} now — pulling fresh Brave firm news + LinkedIn posts…`);
+
+    let totalEnriched = 0;
+    let totalSkipped = 0;
+    let totalFailed = 0;
+    const errorMessages: string[] = [];
 
     try {
-      const res = await fetch('/api/partners/re-enrich-evidence', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
-      });
-      const rawBody = await res.text();
-      let data: { [k: string]: unknown };
-      try { data = JSON.parse(rawBody); } catch {
-        setMessage(`Error: /api/partners/re-enrich-evidence returned HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
-        return;
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        const batchLabel = chunks.length > 1
+          ? `Batch ${i + 1} of ${chunks.length} (${chunk.length} prospects) — `
+          : '';
+        setMessage(
+          `${batchLabel}re-enriching evidence now (Brave firm news + LinkedIn posts per prospect)… ${totalEnriched + totalSkipped + totalFailed}/${n} done so far.`,
+        );
+
+        const res = await fetch('/api/partners/re-enrich-evidence', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partner_ids: chunk }),
+        });
+        const rawBody = await res.text();
+        let data: { [k: string]: unknown };
+        try { data = JSON.parse(rawBody); } catch {
+          errorMessages.push(`Batch ${i + 1}: HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
+          totalFailed += chunk.length;
+          continue;
+        }
+        if (!res.ok) {
+          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+          totalFailed += chunk.length;
+          continue;
+        }
+        totalEnriched += (data.enriched as number) || 0;
+        totalSkipped += (data.skipped as number) || 0;
+        totalFailed += (data.failed as number) || 0;
       }
-      if (!res.ok) {
-        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
-        return;
-      }
-      const enriched = (data.enriched as number) || 0;
-      const skipped = (data.skipped as number) || 0;
-      const failed = (data.failed as number) || 0;
+
+      const errorTrailer = errorMessages.length > 0
+        ? `\n\n${errorMessages.length} batch error${errorMessages.length === 1 ? '' : 's'}:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …${errorMessages.length - 3} more` : ''}`
+        : '';
+
       setMessage(
-        `Re-enriched ${enriched} of ${n}. ${skipped} skipped (no LinkedIn URL / unsupported source), ${failed} failed.\n` +
-        (enriched > 0
+        `Re-enriched ${totalEnriched} of ${n}. ${totalSkipped} skipped (no LinkedIn URL / unsupported source), ${totalFailed} failed. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${REENRICH_MAX}.) ` : ''}\n` +
+        (totalEnriched > 0
           ? 'Selection kept — now click "Reset sequence" → "2. Assign Sequence" → "3. Render & Queue" to regenerate drafts with fresh evidence.'
-          : 'Nothing refreshed — check that the selected partners have a contact_linkedin URL or a Brave-discoverable domain.'),
+          : 'Nothing refreshed — check that the selected partners have a contact_linkedin URL or a Brave-discoverable domain.') +
+        errorTrailer,
       );
       router.refresh();
     } catch (err) {
@@ -799,12 +834,8 @@ export function PipelineTable({
           <button
             onClick={() => batchAction('draft')}
             disabled={loading !== null}
-            className={`btn-primary text-sm py-1 px-3 ${selected.size > RENDER_NOW_MAX ? 'opacity-60' : ''}`}
-            title={
-              selected.size > RENDER_NOW_MAX
-                ? `Render & Queue processes up to ${RENDER_NOW_MAX} prospects per click — you have ${selected.size} selected. Reduce the selection to ${RENDER_NOW_MAX} or fewer.`
-                : `Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run. Up to ${RENDER_NOW_MAX} per click.`
-            }
+            className="btn-primary text-sm py-1 px-3"
+            title={`Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run. Large selections auto-chunk into batches of ${RENDER_NOW_MAX} server-side.`}
           >
             {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
           </button>
