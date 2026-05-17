@@ -121,22 +121,14 @@
   }
 }
 
-/* ElevenLabs ConvAI widget — pin it visually inside the sidebar bottom
-   area. ElevenLabs renders the bubble via its own fixed positioning
-   inside a Shadow DOM; trying to make it flow inline with position:static
-   failed because the shadow-internal CSS reasserts fixed positioning.
-   Workaround: force fixed positioning targeted at the sidebar bottom,
-   so the widget visually overlays the sidebar's lower area between
-   the nav (ending at Sequences) and the Sign out block.
-   - bottom: 80px lifts it above the Sign out button (which is ~70px
-     tall including padding + border)
-   - left: 16px matches the sidebar's px-4 padding
-   - width: 224px = w-64 (256px) minus 32px total horizontal padding */
-.sidebar-elevenlabs elevenlabs-convai {
-  position: fixed !important;
-  bottom: 80px !important;
-  left: 16px !important;
-  width: 224px !important;
-  max-width: 224px !important;
-  z-index: 40 !important;
-}
+/* ElevenLabs ConvAI widget — positioning is controlled by the agent's
+   platform_settings.widget.placement field (currently 'bottom-left'),
+   pushed via scripts/update-elevenlabs-agent.mjs. The widget anchors
+   itself to the viewport corner inside its Shadow DOM, which is NOT
+   overridable from host CSS — earlier attempts to pin it inside the
+   sidebar (.sidebar-elevenlabs wrapper) lost a fight with the
+   shadow-internal positioning rules. ElevenLabs only supports the
+   four corner anchors; "between sidebar items" is not a placement
+   they expose. If we ever want it embedded properly, the move is to
+   kill the floating bubble and call their JS SDK from a custom
+   button — tracked separately. */
