@@ -367,9 +367,27 @@ export function PipelineTable({
     let totalErrored = 0;
     let totalSkipped = 0;
     let totalAlreadyDone = 0;
+    // Per-category render-now totals so the final summary can name every
+    // bucket the batches landed in. Previously the aggregator collapsed
+    // "blocked + failed" into totalErrored and showed only the last
+    // batch's hint, which meant a 4-batch run with 24 previously-skipped
+    // prospects + 2 compliance-blocked surfaced as "2 blocked by compliance
+    // regex" — losing 22 of 26 from the summary. Operator was left
+    // wondering what happened.
+    const renderTotals = {
+      queued: 0,
+      blocked: 0,
+      failed: 0,
+      skipped_no_channel: 0,
+      sent_or_replied: 0,
+      no_pending_step: 0,
+      previously_skipped: 0,
+      already_rendered: 0,
+    };
     const errorMessages: string[] = [];
-    // Render-now per-batch hint — keep the LAST one (latest state is
-    // freshest). Per-batch we accumulate the counts only.
+    // Render-now per-batch hint — kept for batches that report something
+    // the per-category totals can't (e.g. a first-batch failure reason).
+    // Final summary prefers the totals-driven message.
     let lastRenderHint = '';
 
     try {
@@ -423,8 +441,16 @@ export function PipelineTable({
           const counts = (data.counts as Record<string, number>) || {};
           totalSucceeded += counts.queued || 0;
           totalErrored += (counts.failed || 0) + (counts.blocked || 0);
-          totalSkipped += (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0);
+          totalSkipped += (counts.skipped_no_channel || 0) + (counts.no_pending_step || 0) + (counts.previously_skipped || 0);
           totalAlreadyDone += counts.already_rendered || 0;
+          renderTotals.queued += counts.queued || 0;
+          renderTotals.blocked += counts.blocked || 0;
+          renderTotals.failed += counts.failed || 0;
+          renderTotals.skipped_no_channel += counts.skipped_no_channel || 0;
+          renderTotals.sent_or_replied += counts.sent_or_replied || 0;
+          renderTotals.no_pending_step += counts.no_pending_step || 0;
+          renderTotals.previously_skipped += counts.previously_skipped || 0;
+          renderTotals.already_rendered += counts.already_rendered || 0;
           if (typeof data.hint === 'string') lastRenderHint = data.hint;
         }
       }
@@ -458,9 +484,9 @@ export function PipelineTable({
           `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} per Hunter API call.)` : ''}\n${nextStepHint}${errorTrailer}`,
         );
       } else {
-        // Render-now (Draft Messages Now). Headline in plain English,
-        // followed by the server's per-batch hint (which already
-        // explains blocked / no-channel / no-sequence cases in detail).
+        // Render-now (Draft Messages Now). Headline in plain English.
+        // Hint is built from per-category totals so a 4-batch run
+        // reports the full picture instead of just the last batch.
         const draftWord = (count: number) => `${count} draft${count === 1 ? '' : 's'}`;
         const headline = totalSucceeded === 0 && totalAlreadyDone === 0
           ? `Couldn't write any messages for the ${n} selected prospect${n === 1 ? '' : 's'}.`
@@ -469,8 +495,39 @@ export function PipelineTable({
             : totalAlreadyDone === 0
               ? `Wrote ${draftWord(totalSucceeded)} and sent to Approvals (out of ${n} selected).`
               : `Wrote ${draftWord(totalSucceeded)} and sent to Approvals. ${totalAlreadyDone} more were already there.`;
+
+        // Build the aggregated summary from totals. Every non-zero
+        // category gets a line so the operator can see exactly where
+        // every selected prospect landed. Order = highest-priority
+        // remediation first.
+        const summaryParts: string[] = [];
+        if (renderTotals.previously_skipped > 0) {
+          summaryParts.push(`${renderTotals.previously_skipped} have skipped drafts (likely from a bulk-clear) — click "2. Plan Outreach" to re-assign fresh sequences against the current active template before re-rendering.`);
+        }
+        if (renderTotals.no_pending_step > 0) {
+          summaryParts.push(`${renderTotals.no_pending_step} have no sequence assigned — click "2. Plan Outreach" first.`);
+        }
+        if (renderTotals.blocked > 0) {
+          summaryParts.push(`${renderTotals.blocked} blocked by compliance — open prospect detail to see the flagged terms.`);
+        }
+        if (renderTotals.failed > 0) {
+          summaryParts.push(`${renderTotals.failed} failed — open prospect detail for the per-step error trail.`);
+        }
+        if (renderTotals.skipped_no_channel > 0) {
+          summaryParts.push(`${renderTotals.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
+        }
+        if (renderTotals.sent_or_replied > 0) {
+          summaryParts.push(`${renderTotals.sent_or_replied} already sent or replied (historical).`);
+        }
+        if (renderTotals.already_rendered > 0 && totalSucceeded === 0) {
+          summaryParts.push(`${renderTotals.already_rendered} already rendered — check Approvals.`);
+        }
+        const aggregateHint = summaryParts.length > 0
+          ? summaryParts.join(' ')
+          : lastRenderHint;
+
         setMessage(
-          `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} prospects per Claude run.)` : ''}\n${lastRenderHint}${errorTrailer}`,
+          `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} prospects per Claude run.)` : ''}\n${aggregateHint}${errorTrailer}`,
         );
         if (totalSucceeded > 0 || totalAlreadyDone > 0) {
           setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
