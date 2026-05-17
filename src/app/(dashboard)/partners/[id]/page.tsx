@@ -110,6 +110,25 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     .eq('partner_id', params.id)
     .order('created_at', { ascending: true });
 
+  // Pool context — what project or product surfaced this prospect? Drives
+  // the "1 of N in {Name} Project Summary" cross-link in the sidebar so
+  // the operator (or sponsor over their shoulder) can jump straight into
+  // the full Summary page from any prospect they're inspecting.
+  let poolContext: { kind: 'project' | 'product'; id: string; name: string; siblingCount: number } | null = null;
+  if (p.project_id) {
+    const [{ data: proj }, { count }] = await Promise.all([
+      supabase.from('projects').select('id, name').eq('id', p.project_id).maybeSingle(),
+      supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', organisationId).eq('project_id', p.project_id),
+    ]);
+    if (proj) poolContext = { kind: 'project', id: proj.id, name: proj.name, siblingCount: count || 1 };
+  } else if (p.product_id) {
+    const [{ data: prod }, { count }] = await Promise.all([
+      supabase.from('products').select('id, name').eq('id', p.product_id).maybeSingle(),
+      supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', organisationId).eq('product_id', p.product_id),
+    ]);
+    if (prod) poolContext = { kind: 'product', id: prod.id, name: prod.name, siblingCount: count || 1 };
+  }
+
   // Pull active templates + any live (non-terminal) sequence_steps so we can
   // either show "Assign to sequence" or the current in-flight status.
   const [{ data: templates }, { data: liveStepsRaw }] = await Promise.all([
@@ -408,6 +427,22 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
 
         {/* Sidebar */}
         <div className="space-y-6">
+          {poolContext && (
+            <Link
+              href={poolContext.kind === 'project' ? `/projects/${poolContext.id}/pool` : `/products/${poolContext.id}/pool`}
+              className="card-hover border-blue-500/20 hover:border-blue-500/40 block"
+            >
+              <div className="text-xs uppercase tracking-wide text-blue-400 mb-2">
+                Part of {poolContext.kind === 'project' ? 'Project Summary' : 'Product Summary'}
+              </div>
+              <div className="font-medium mb-1 break-words">{poolContext.name}</div>
+              <div className="text-sm text-dark-300">
+                This prospect is 1 of <span className="text-white font-bold">{poolContext.siblingCount}</span> in the pool.
+              </div>
+              <div className="text-xs text-blue-300 mt-2">Open {poolContext.kind === 'project' ? 'Project' : 'Product'} Summary →</div>
+            </Link>
+          )}
+
           <div className="card">
             <h4 className="mb-4">Score Breakdown</h4>
             <RadarChart partner={p} />

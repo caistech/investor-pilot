@@ -8,6 +8,7 @@ import type { Product } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
+import { PoolStatChip } from '@/components/pool/pool-stat-chip';
 
 const DETAIL_FIELDS = [
   { key: 'core_mechanism', label: 'Core Mechanism' },
@@ -569,7 +570,8 @@ export default function ProductsPage() {
                   <p className="text-dark-400 text-sm truncate">{p.one_sentence_description || 'No description'}</p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  <span className="text-dark-600 text-xs">{p.partner_types}</span>
+                  <span className="text-dark-600 text-xs hidden lg:inline">{p.partner_types}</span>
+                  <PoolStatChip kind="product" ownerId={p.id} ownerName={p.name} />
                   {expandedProduct === p.id ? (
                     <ChevronDown className="w-4 h-4 text-dark-500" />
                   ) : (

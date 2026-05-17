@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
-import { Inbox, AlertCircle, Send, CheckCircle2, TrendingUp, Plug } from 'lucide-react';
+import { Inbox, AlertCircle, Send, CheckCircle2, TrendingUp, Plug, BarChart3, Languages, Globe } from 'lucide-react';
 import { STATUS_COLORS } from '@/lib/types';
 import type { PartnerStatus } from '@/lib/types';
 import { HeygenHero } from '@/components/dashboard/heygen-hero';
@@ -8,6 +8,7 @@ import { OnboardingSteps } from '@/components/dashboard/onboarding-steps';
 import { UsageBanner } from '@/components/dashboard/usage-banner';
 import { SampleToSelf } from '@/components/dashboard/sample-to-self';
 import { getMonthlyUsage } from '@/lib/usage/events';
+import { computePoolSummary, type PoolPartner } from '@/lib/pool/summary';
 
 export const dynamic = 'force-dynamic';
 
@@ -81,6 +82,43 @@ export default async function DashboardPage() {
     { label: 'Meetings booked', value: meetingsBooked || 0, icon: CheckCircle2, color: 'text-purple-400', href: '/partners?status=meeting_booked' },
   ];
 
+  // Featured Pool Summaries — surface up to 2 of the most-populated
+  // projects/products with their headline language/region stats so the
+  // operator (and their sponsor over their shoulder) sees the deliverable
+  // exists without having to drill into /projects or /products first.
+  // Skipped when total prospects < 5 (too thin to be meaningful).
+  type FeaturedOwner = { id: string; name: string; kind: 'project' | 'product'; count: number };
+  let featured: Array<{ owner: FeaturedOwner; summary: ReturnType<typeof computePoolSummary> }> = [];
+  if ((totalPartners || 0) >= 5) {
+    const [{ data: projectRows }, { data: productRows }] = await Promise.all([
+      supabase.from('projects').select('id, name').eq('organisation_id', orgId).eq('is_active', true),
+      supabase.from('products').select('id, name').eq('organisation_id', orgId).eq('is_active', true),
+    ]);
+    const owners: FeaturedOwner[] = [];
+    for (const p of (projectRows || []) as Array<{ id: string; name: string }>) {
+      const { count } = await supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('project_id', p.id);
+      if ((count || 0) > 0) owners.push({ id: p.id, name: p.name, kind: 'project', count: count || 0 });
+    }
+    for (const p of (productRows || []) as Array<{ id: string; name: string }>) {
+      const { count } = await supabase.from('partners').select('*', { count: 'exact', head: true }).eq('organisation_id', orgId).eq('product_id', p.id);
+      if ((count || 0) > 0) owners.push({ id: p.id, name: p.name, kind: 'product', count: count || 0 });
+    }
+    owners.sort((a, b) => b.count - a.count);
+    const top = owners.slice(0, 2);
+    const summaries = await Promise.all(top.map(async (o) => {
+      const filter = o.kind === 'project' ? { col: 'project_id', val: o.id } : { col: 'product_id', val: o.id };
+      const { data: partnersRaw } = await supabase
+        .from('partners')
+        .select('id, company_name, contact_name, weighted_score, category, status, source, network_distance, audience_overlap_notes, complementarity_notes, partner_readiness_notes')
+        .eq('organisation_id', orgId)
+        .eq(filter.col, filter.val)
+        .order('weighted_score', { ascending: false, nullsFirst: false })
+        .limit(500);
+      return { owner: o, summary: computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: o.kind }) };
+    }));
+    featured = summaries;
+  }
+
   return (
     <div>
       <div className="flex items-center justify-between mb-8">
@@ -132,6 +170,60 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </div>
+
+      {/* Featured Pool Summaries — top 1-2 most-populated project/product
+          summaries with the headline language/region narrative. The
+          deliverable that goes in a sponsor's inbox. */}
+      {featured.length > 0 && (
+        <div className="mb-8">
+          <h3 className="mb-1 flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-blue-400" /> Pool Summary — your sponsor deliverable
+          </h3>
+          <p className="text-dark-500 text-sm mb-4">
+            Auto-generated one-pager per project / product. Pass it on as-is to your sponsor, IC, or board. Print to PDF on the page itself.
+          </p>
+          <div className={`grid gap-4 ${featured.length > 1 ? 'md:grid-cols-2' : ''}`}>
+            {featured.map(({ owner, summary }) => (
+              <Link
+                key={`${owner.kind}-${owner.id}`}
+                href={owner.kind === 'project' ? `/projects/${owner.id}/pool` : `/products/${owner.id}/pool`}
+                className="card-hover border-blue-500/20 hover:border-blue-500/40"
+              >
+                <div className="flex items-center justify-between mb-2 gap-2">
+                  <span className="text-xs uppercase tracking-wide text-blue-400">
+                    {owner.kind === 'project' ? 'Project Summary' : 'Product Summary'}
+                  </span>
+                  <span className="text-xs text-dark-500">View →</span>
+                </div>
+                <h4 className="truncate mb-3">{owner.name}</h4>
+                <div className="grid grid-cols-3 gap-2 text-sm">
+                  <div>
+                    <div className="text-dark-500 text-xs">Scored</div>
+                    <div className="font-bold text-white">{summary.totals.discovered}</div>
+                  </div>
+                  <div>
+                    <div className="text-dark-500 text-xs flex items-center gap-1">
+                      <Languages className="w-3 h-3 text-purple-400" /> Non-EN
+                    </div>
+                    <div className="font-bold text-purple-300">{summary.non_english_count}</div>
+                  </div>
+                  <div>
+                    <div className="text-dark-500 text-xs flex items-center gap-1">
+                      <Globe className="w-3 h-3 text-blue-400" /> Regions
+                    </div>
+                    <div className="font-bold text-blue-300">{summary.geographic_distribution.length}</div>
+                  </div>
+                </div>
+                {summary.top_region && (
+                  <div className="mt-3 pt-3 border-t border-dark-800 text-xs text-dark-400">
+                    Top region: <span className="text-white font-medium">{summary.top_region.region}</span> ({summary.top_region.count} {owner.kind === 'project' ? 'investors' : 'partners'})
+                  </div>
+                )}
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Weekly funnel */}
       <div className="mb-8">

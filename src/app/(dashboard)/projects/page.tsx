@@ -9,6 +9,7 @@ import { FUNDING_TYPE_GROUPS, capitalProviderTerm, PARTNER_TYPE_OPTIONS, partner
 import SourceManager from '@/components/products/source-manager';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
+import { PoolStatChip } from '@/components/pool/pool-stat-chip';
 
 /**
  * Detail-field labels that adapt to the project's funding_type. An equity
@@ -763,15 +764,8 @@ export default function ProjectsPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {p.funding_target && <span className="text-dark-600 text-xs hidden md:inline">{p.funding_target.slice(0, 30)}</span>}
-                  <Link
-                    href={`/projects/${p.id}/pool`}
-                    onClick={(e) => e.stopPropagation()}
-                    className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 hidden md:inline"
-                    title="Open the auto-generated Investor Pool Profile for this project"
-                  >
-                    Pool profile →
-                  </Link>
+                  {p.funding_target && <span className="text-dark-600 text-xs hidden lg:inline">{p.funding_target.slice(0, 30)}</span>}
+                  <PoolStatChip kind="project" ownerId={p.id} ownerName={p.name} />
                   {expandedProject === p.id ? <ChevronDown className="w-4 h-4 text-dark-500" /> : <ChevronRight className="w-4 h-4 text-dark-500" />}
                 </div>
               </button>
