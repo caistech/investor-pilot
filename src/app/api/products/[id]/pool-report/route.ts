@@ -1,14 +1,10 @@
 /**
- * GET /api/projects/[id]/pool-report
+ * GET /api/products/[id]/pool-report
  *
- * Auto-generated market-research summary of the investor pool surfaced
- * for a project. Pure aggregation (no LLM call) — returns the same shape
- * the /projects/[id]/pool page renders. Useful for share / PDF export
- * paths that don't want SSR.
- *
- * Aggregation logic is shared with the product-side equivalent in
- * src/lib/pool/summary.ts so adding a new region / language / sector
- * tag updates both sides at once.
+ * Auto-generated market-research summary of the partner pool surfaced
+ * for a product (sales side). Mirror of /api/projects/[id]/pool-report
+ * — same aggregation, same shape, recipient noun is "partner" not
+ * "investor" in the narrative insights.
  */
 
 import { NextResponse } from 'next/server';
@@ -17,9 +13,9 @@ import { computePoolSummary, type PoolPartner, type PoolSummary } from '@/lib/po
 
 export const dynamic = 'force-dynamic';
 
-export interface ProjectPoolReport extends PoolSummary {
-  project_id: string;
-  project_name: string;
+export interface ProductPoolReport extends PoolSummary {
+  product_id: string;
+  product_name: string;
   generated_at: string;
 }
 
@@ -36,28 +32,28 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
-  const { data: project } = await db
-    .from('projects')
+  const { data: product } = await db
+    .from('products')
     .select('id, name, organisation_id')
     .eq('id', params.id)
     .eq('organisation_id', profile.organisation_id)
     .single();
-  if (!project) {
-    return NextResponse.json({ error: 'Project not found' }, { status: 404 });
+  if (!product) {
+    return NextResponse.json({ error: 'Product not found' }, { status: 404 });
   }
 
   const { data: partnersRaw } = await db
     .from('partners')
     .select('id, company_name, contact_name, weighted_score, category, status, source, network_distance, audience_overlap_notes, complementarity_notes, partner_readiness_notes')
-    .eq('project_id', params.id)
+    .eq('product_id', params.id)
     .eq('organisation_id', profile.organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
-  const summary = computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: 'project' });
+  const summary = computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: 'product' });
 
-  const report: ProjectPoolReport = {
-    project_id: project.id,
-    project_name: project.name,
+  const report: ProductPoolReport = {
+    product_id: product.id,
+    product_name: product.name,
     generated_at: new Date().toISOString(),
     ...summary,
   };
