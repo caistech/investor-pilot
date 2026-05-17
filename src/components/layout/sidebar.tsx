@@ -7,6 +7,7 @@ import {
   Settings, LogOut, Zap, Send, Inbox, Workflow, Plug, Briefcase,
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
+import { ElevenLabsWidget } from '@/components/layout/elevenlabs-widget';
 
 // Ordered by operator journey: Dashboard → Set up (Settings → Products →
 // Projects → Channels) → Find & approve (Discover → Prospects → Approvals)
@@ -102,6 +103,14 @@ export default function Sidebar() {
           <LogOut className="w-5 h-5" />
           Sign out
         </button>
+      </div>
+
+      {/* ElevenLabs voice-help widget docked at the bottom of the sidebar.
+          The widget is a Web Component that self-positions via fixed CSS by
+          default; the .sidebar-elevenlabs wrapper + global override in
+          globals.css forces it to flow inline and fit the sidebar width. */}
+      <div className="sidebar-elevenlabs p-3 border-t border-dark-700">
+        <ElevenLabsWidget />
       </div>
     </aside>
   );

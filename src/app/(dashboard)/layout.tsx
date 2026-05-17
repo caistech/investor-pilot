@@ -1,6 +1,5 @@
 import Sidebar from '@/components/layout/sidebar';
 import { PageGuide } from '@/components/layout/page-guide';
-import { ElevenLabsWidget } from '@/components/layout/elevenlabs-widget';
 import { SetupBanner } from '@/components/layout/setup-banner';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
@@ -61,7 +60,6 @@ export default async function DashboardLayout({
         <PageGuide />
         {children}
       </main>
-      <ElevenLabsWidget />
     </div>
   );
 }

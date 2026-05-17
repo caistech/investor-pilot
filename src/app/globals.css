@@ -120,3 +120,18 @@
     @apply block text-base text-white font-semibold mb-2;
   }
 }
+
+/* ElevenLabs ConvAI widget — dock it inside the sidebar bottom panel
+   instead of floating in a viewport corner. The widget element is a Web
+   Component; we can only style its HOST from the outside (the shadow DOM
+   is opaque). Forcing position:static + width:100% + display:block lets
+   the host flow inline within .sidebar-elevenlabs. If ElevenLabs later
+   uses position:fixed on internal shadow elements, this won't help —
+   in that case the WIDGET_PLACEMENT='bottom-left' fallback (set on the
+   ElevenLabs agent config) keeps it close to where the operator expects. */
+.sidebar-elevenlabs elevenlabs-convai {
+  position: static !important;
+  display: block !important;
+  width: 100% !important;
+  max-width: 100% !important;
+}

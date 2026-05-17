@@ -55,12 +55,16 @@ export const LANGUAGE = 'en';
 
 /**
  * Widget bubble placement on the page. ElevenLabs self-positions the
- * widget using fixed positioning on its own shadow root, so wrapping it
- * in a positioned div has no effect — the position must come from the
- * agent's platform_settings.widget config.
+ * widget using fixed positioning on its own shadow root by default;
+ * we override that via a CSS rule in globals.css so the widget renders
+ * INLINE inside the sidebar's .sidebar-elevenlabs container. This
+ * `bottom-left` value is the fallback — if the override fails (e.g.
+ * ElevenLabs updates the widget to ignore host positioning), the
+ * bubble at least lands close to where the operator expects it,
+ * down-left near the sidebar bottom.
  *
  * Options: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left'.
- * We use top-right so the bubble doesn't overlap the page-level CTAs
- * (which all live near the bottom or right side of cards).
+ * Changed from 'top-right' → 'bottom-left' on 2026-05-17 when the
+ * widget was moved into the sidebar.
  */
-export const WIDGET_PLACEMENT: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' = 'top-right';
+export const WIDGET_PLACEMENT: 'top-right' | 'top-left' | 'bottom-right' | 'bottom-left' = 'bottom-left';
