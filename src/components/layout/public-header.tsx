@@ -10,6 +10,8 @@ export default function PublicHeader() {
           <span className="text-xl font-bold">InvestorPilot</span>
         </Link>
         <div className="flex items-center gap-4">
+          <Link href="/playbook" className="nav-link hidden sm:inline">How it works</Link>
+          <Link href="/pricing" className="nav-link hidden sm:inline">Pricing</Link>
           <Link href="/about" className="nav-link hidden sm:inline">About</Link>
           <Link href="/contact" className="nav-link hidden sm:inline">Contact</Link>
           <Link href="/login" className="nav-link">Sign in</Link>

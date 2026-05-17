@@ -23,6 +23,7 @@ export default function LandingPage() {
           </Link>
           <div className="flex items-center gap-4">
             <Link href="/playbook" className="nav-link hidden sm:inline">How it works</Link>
+            <Link href="/pricing" className="nav-link hidden sm:inline">Pricing</Link>
             <Link href="/about" className="nav-link hidden sm:inline">About</Link>
             <Link href="/login" className="nav-link">Sign in</Link>
             <Link href="/signup" className="btn-primary">Get Started</Link>
@@ -139,6 +140,7 @@ export default function LandingPage() {
           </div>
           <div className="flex items-center gap-4 text-sm text-dark-500">
             <Link href="/playbook" className="hover:text-white">How it works</Link>
+            <Link href="/pricing" className="hover:text-white">Pricing</Link>
             <Link href="/about" className="hover:text-white">About</Link>
             <Link href="/contact" className="hover:text-white">Contact</Link>
             <Link href="/privacy" className="hover:text-white">Privacy</Link>

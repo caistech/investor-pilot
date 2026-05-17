@@ -88,6 +88,7 @@ export default function PlaybookPage() {
             <span className="text-xl font-bold">InvestorPilot</span>
           </Link>
           <div className="flex items-center gap-4">
+            <Link href="/pricing" className="nav-link hidden sm:inline">Pricing</Link>
             <Link href="/about" className="nav-link hidden sm:inline">About</Link>
             <Link href="/login" className="nav-link">Sign in</Link>
             <Link href="/signup" className="btn-primary">Get Started</Link>
