@@ -1,72 +1,128 @@
 # InvestorPilot — Project Status
 
-Last updated: 2026-04-12 AEST
+Last updated: 2026-05-18 AEST
 
 ## Current State
 
-Forked from PartnerPilot. Rebranded for investor sourcing (F2K Housing Development Fund).
-All migrations applied to new Supabase instance. Vercel project linked. Auth configured.
-Scoring dimensions updated for investor/advisor context.
+Live on https://investor-pilot-pi.vercel.app/. Forked from PartnerPilot for
+F2K Housing Development Fund — sourcing sophisticated/wholesale investors
+(s708(8) Corporations Act). Dual-mode: **Projects** (fundraising — investors)
+and **Products** (sales — channel partners), both first-class peers with
+shared infrastructure and dedicated tone.
 
-### What Works
-- Partner discovery: categories, search, screening, scoring (via agent sessions)
-- Partners page: filter tabs (All/Scored/Enriched/Drafted/Sent/Replied), search bar,
-  partner type filter, batch select with "Enrich Selected" / "Draft Selected"
-- Partner detail: radar chart, contact info, inline draft editor with send button
-- Pipeline API routes: /api/pipeline/discover, enrich, draft, send, track
-- Agent SSE endpoint: /api/agent/run with OpenRouter (Anthropic fallback)
-- Hunter.io email enrichment (HUNTER_API_KEY)
-- Brave Search company discovery (BRAVE_SEARCH_API_KEY)
-- Supabase auth, RLS, outreach_log table
-- Inline draft editor in session detail page (new: edit + send in-flow)
-- Premature completion guard (nudges agent to continue if no drafts yet)
-- 403/429 rate limit recovery with auto-resume
+### What works (operator-facing)
 
-### Known Issues (Fix Next Session)
-
-1. **Client-side crash on session page** — old draft_created events missing new fields
-   (domain, body, contact_name, contact_email). The InlineDraftCard component needs
-   null guards. Quick fix: add `|| ''` defaults to the event_data destructuring.
-
-2. **Agent sometimes stops after scoring** — premature completion guard added but needs
-   testing. The guard nudges the agent to continue from Phase 5 if no drafts exist.
-
-3. **Domain mismatch on save_contact/save_draft** — fuzzy matching added (tries exact,
-   then www. prefix, then ilike) but needs end-to-end testing.
-
-4. **Counter tracking** — now counts both 'created' and 'updated' saves, but still
-   sometimes shows 0 contacts when contacts were actually found.
+- **Discovery + scoring** — Brave web search + LinkedIn 1st/2nd-degree
+  (via Unipile), scored on 5 ICP dimensions, evidence linked back
+- **Enrichment** — Hunter.io email finder, LinkedIn profile pull
+- **Sequencer** — 6-step LinkedIn + email cadence, tier-modulated tone
+  (confident / qualified / exploratory), courtesy contract enforced,
+  value-offer DNA, signature handling, render-now concurrency
+- **Auto-localisation** — 14 languages (Vietnamese, Korean, Japanese,
+  Chinese, Thai, Indonesian, Arabic, Brazilian Portuguese, Spanish,
+  French, German, Italian, Turkish, Russian) at render time, English
+  original preserved in evidence_refs, one-click toggle in /approvals
+- **Approvals queue** — pending/blocked drafts visible org-wide, tier
+  and language badges in card headers, prominent English-version toggle
+  for translated drafts
+- **Send + track** — Resend for email (verified sender
+  `noreply@updates.corporateaisolutions.com`), Unipile for LinkedIn,
+  outreach_log + outbound_messages persist message IDs
+- **Resend webhook** at `/api/webhooks/resend` — bounce/complaint/
+  delivery-delayed handling with svix signature validation (operator
+  must configure endpoint URL + signing secret in Resend dashboard
+  before this is reachable)
+- **Pool Summary** — one-page auto-generated deliverable per project
+  and product. Surfaced as headline chips on list rows, featured cards
+  on the dashboard, and cross-linked from every partner detail page.
+  Print to PDF for sponsor delivery.
+- **Compliance** — per-project / per-product compliance rulesets
+  (standard + finance_au_senior_debt built-in) block unapproved
+  language pre-send
+- **Operator controls** — daily caps, warmup curves, per-channel
+  kill switch, channels page health monitoring
 
 ### Architecture
-- Agent sessions: SSE endpoint, Claude with tool_use, Kira memory pattern
-- Pipeline routes: deterministic API calls for manual batch operations
-- Both coexist: sessions for guided AI flow, pipeline routes for manual control
-- OpenRouter primary, Anthropic fallback for LLM
-- 60s Vercel timeout, 55s agent timeout with auto-continue
 
-## Key Files
-- `src/app/api/agent/run/route.ts` — SSE agent endpoint (with sanitiser + guards)
-- `src/app/api/pipeline/` — deterministic pipeline routes
-- `src/lib/agent/tools.ts` — tool definitions + execution with error handling
-- `src/lib/agent/system-prompt.ts` — discovery protocol (8 phases)
-- `src/lib/agent/context.ts` — forward-walk message sanitiser
-- `src/lib/agent/memory.ts` — Kira pattern context recovery
-- `src/lib/db/partners.ts` — partner upsert, contact, draft helpers
-- `src/lib/db/outreach.ts` — outreach tracking + status sync
-- `src/app/(dashboard)/sessions/[id]/page.tsx` — session detail + inline drafts
-- `src/components/partners/pipeline-table.tsx` — filter tabs, search, batch select
-- `src/components/partners/draft-editor.tsx` — draft editor on partner detail
-- `supabase/migrations/004_outreach_log.sql` — outreach tracking table + RLS
+- Next.js 14 on Vercel (corporate-ai-solutions team)
+- Supabase (auth + Postgres) — project ref `azelomanmlywwzbpkksy` (Seoul)
+- Sequencer renderer in `src/lib/sequencer/render.ts` — shared across
+  project + product flows
+- Pool Summary aggregation in `src/lib/pool/summary.ts` — shared across
+  both kinds; single source of truth for REGION_PATTERNS /
+  LANGUAGE_BY_REGION / SECTOR_PATTERNS
+- `@caistech/ai-client`, `@caistech/brave-search`,
+  `@caistech/hunter-email`, `@caistech/unipile-channels`
 
-## Environment
-- Vercel: investorpilot.vercel.app (corporate-ai-solutions org)
-- Supabase: azelomanmlywwzbpkksy (Seoul)
-- Env vars: OPENROUTER_API_KEY, ANTHROPIC_API_KEY, BRAVE_SEARCH_API_KEY,
-  HUNTER_API_KEY, SUPABASE_SERVICE_ROLE_KEY, NEXT_PUBLIC_SUPABASE_URL,
-  NEXT_PUBLIC_SUPABASE_ANON_KEY
+### Risk tier: REVENUE
 
-## Priority for Next Session
-1. Fix the client-side crash (null guards on draft event fields)
-2. Test full agent session end-to-end (all 8 phases)
-3. If agent is still flaky, fall back to batch pipeline on /partners page
-4. Either way: get 10 emails actually drafted, reviewed, and queued for send
+High read:edit discipline. Shared module changes require review of all
+consumers. Deployment errors must be resolved before moving to new
+features. No "simplest fix" shortcuts — pipeline correctness affects
+live email delivery.
+
+## Verify first thing next session
+
+1. **Auto-localisation end-to-end** — geography_hint fix shipped 2026-05-18
+   but not yet verified on a live Vietnamese prospect. Render one
+   Vietnam-category prospect (Tra Hoang, Duc Luu, Ngoc Nam Nguyen),
+   check Vercel logs for `[render] localisation check for X:
+   geography_hint=… → target_language=Vietnamese` and `translation to
+   Vietnamese succeeded`. Confirm VIETNAMESE badge in approvals queue
+   header and that clicking "English version" toggle works.
+2. **Resend webhook configuration** — operator action: in Resend
+   dashboard, add endpoint `https://investor-pilot-pi.vercel.app/api/webhooks/resend`,
+   enable events (`email.bounced`, `email.complained`,
+   `email.delivery_delayed`, `email.delivered`), copy signing secret
+   into Vercel env `RESEND_WEBHOOK_SECRET` for all envs.
+
+## Priority for next session
+
+1. **Teams / multi-tenant** (multi-day) — design fully locked, see
+   `.claude/projects/.../memory/project_teams_design_decisions.md`.
+   Per-member channels, shared partner pool, org-wide approvals,
+   Supabase Auth invite flow, channel-disconnect step-waits-and-flags.
+2. **Bounce → re-enrich auto-flow** — quarter-day
+3. **Operator-configurable compliance ruleset** — half-day
+4. **Global pause flag** (org-level) — 2-3 hours
+
+## Key files
+
+### Pipeline + sequencer
+- `src/lib/sequencer/render.ts` — renderer (tier, courtesy, value-offer,
+  localisation, signature handling); shared across project + product
+- `src/lib/sequencer/runner.ts` — step execution; geography_hint built here
+- `src/lib/sequencer/generate-from-product.ts` — sequence template
+  generation (SYSTEM_PROMPT for product, SYSTEM_PROMPT_PROJECT for
+  project; parity-synced 2026-05-18)
+- `src/app/api/pipeline/{discover,enrich,draft,send,track}/` —
+  deterministic pipeline routes
+
+### Pool summary
+- `src/lib/pool/summary.ts` — shared aggregation lib
+- `src/components/pool/{pool-summary-view,pool-stat-chip}.tsx` — views
+- `src/app/(dashboard)/{projects,products}/[id]/pool/page.tsx`
+- `src/app/api/{projects,products}/[id]/pool-report/route.ts`
+
+### Webhooks
+- `src/app/api/webhooks/resend/route.ts` — Resend events (svix)
+- `src/app/api/webhooks/unipile/account/route.ts` — Unipile channel events
+
+### UI surfaces
+- `src/app/(dashboard)/dashboard/page.tsx` — featured Pool Summary cards
+- `src/app/(dashboard)/approvals/approvals-client.tsx` — tier + language badges
+- `src/app/(dashboard)/partners/[id]/page.tsx` — pool context cross-link
+- `src/app/(dashboard)/projects/page.tsx`, `products/page.tsx` —
+  PoolStatChip on rows
+
+### Env
+
+```
+NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY,
+SUPABASE_SERVICE_ROLE_KEY
+OPENROUTER_API_KEY, ANTHROPIC_API_KEY, AGENT_MODEL
+BRAVE_API_KEY, HUNTER_API_KEY
+RESEND_API_KEY, RESEND_FROM_EMAIL, RESEND_WEBHOOK_SECRET
+UNIPILE_API_KEY, UNIPILE_BASE_URL, UNIPILE_WEBHOOK_SECRET
+NEXT_PUBLIC_APP_URL
+```
