@@ -141,10 +141,12 @@ const REENRICH_MAX = 10;
  * through verbatim so we never lose information.
  */
 function humaniseSkipReason(raw: string): string {
-  // ICP-score gate: "Weighted score 3.35 below MIN_ICP_SCORE (4) — low fit, not queuing"
+  // ICP-score gate (post-2026-05-17: floor lowered to 2.0; anything that
+  // hits this now is a genuine no-fit, not just "low confidence" — the
+  // 2-4 band now flows through to Approvals as exploratory-tier drafts).
   const scoreMatch = raw.match(/Weighted score ([\d.]+) below MIN_ICP_SCORE \(([\d.]+)\)/);
   if (scoreMatch) {
-    return `fit score ${scoreMatch[1]}/10 is below the ${scoreMatch[2]} minimum for this project — not enough confidence they're a good match`;
+    return `fit score ${scoreMatch[1]}/10 is below the ${scoreMatch[2]} floor — flagged as genuine no-fit during research, not worth sending to`;
   }
   // Out-of-scope category match
   if (/category is .*out[_ -]?of[_ -]?scope/i.test(raw)) {

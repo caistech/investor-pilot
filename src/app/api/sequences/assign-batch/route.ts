@@ -63,15 +63,19 @@ const TERMINAL_STATUSES = new Set([
 const MAX_BATCH_SIZE = 100;
 
 // ICP-score gate. Partners below this threshold or flagged as out_of_scope
-// during discovery should not be queued for outreach — the warm-DM template
-// has been firing on 1st-degree connections regardless of fit, dumping
-// low-score contacts into the Approvals queue (see session 2026-05-15 audit
-// of 13 stuck approvals, all scoring 1.1-2.0/10).
+// during discovery should not be queued for outreach.
 //
-// Threshold = 4.0: out-of-scope are score-capped at 2.0 by the scorer, and
-// legitimate-but-mediocre fits land in the 3-4 band — we'd rather let those
-// through with a warning than drop them.
-const MIN_ICP_SCORE = 4.0;
+// Threshold lowered from 4.0 → 2.0 on 2026-05-17 to feed the tier-driven
+// outreach modulation in render.ts. computeOutreachTier() now produces:
+//   - score ≥ 7   → confident tier (direct ask, no hedging)
+//   - 4 ≤ score < 7 → qualified tier (soft hedge in opener + ask)
+//   - 2 ≤ score < 4 → exploratory tier (explicit "not sure / no pressure" framing)
+//   - score < 2   → still rejected here (the scorer caps out_of_scope at 2.0,
+//                   so anything under 2 is a genuine no-fit)
+// Net effect: the 34-partner backlog of 2.0-3.9 prospects that previously
+// hit the floor silently now flows through to Approvals with appropriately
+// hedged copy. Operator can still bin them at approval time.
+const MIN_ICP_SCORE = 2.0;
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -299,7 +303,7 @@ export async function POST(request: Request) {
         partner_id: partnerId,
         partner_name: partner.company_name as string,
         outcome: 'skipped',
-        reason: `Weighted score ${partnerScore.toFixed(2)} below MIN_ICP_SCORE (${MIN_ICP_SCORE}) — low fit, not queuing`,
+        reason: `Weighted score ${partnerScore.toFixed(2)} below MIN_ICP_SCORE (${MIN_ICP_SCORE}) — genuine no-fit, not queuing`,
       });
       continue;
     }

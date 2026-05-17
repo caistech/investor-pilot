@@ -251,6 +251,15 @@ function ApprovalCard({
               {item.personalization_score !== null && (
                 <span className="badge-purple">P {item.personalization_score}/10</span>
               )}
+              {item.outreach_tier === 'confident' && (
+                <span className="badge-green" title="Score ≥ 7 — direct ask, no hedging language injected">Confident ask</span>
+              )}
+              {item.outreach_tier === 'qualified' && (
+                <span className="badge-amber" title="Score 4–7 — opener + ask softened with hedging language">Qualified — soft ask</span>
+              )}
+              {item.outreach_tier === 'exploratory' && (
+                <span className="badge-orange" title="Score 2–4 — explicit 'not sure / no pressure' framing in opener and ask">Exploratory — no pressure</span>
+              )}
             </div>
             <p className="text-dark-500 text-sm">
               {channelLabel} · scheduled <span suppressHydrationWarning>{new Date(item.scheduled_for).toLocaleString()}</span>

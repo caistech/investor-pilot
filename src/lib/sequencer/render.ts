@@ -150,6 +150,36 @@ export interface RenderedMessage {
   body: string;
   evidence_refs: Record<string, unknown>;
   personalization_score: number; // 1-10
+  /**
+   * Outreach tier derived from partner.weighted_score at render time.
+   * Surfaces to the Approvals queue as a badge so the operator can
+   * scan tone-appropriate batches before approving. See
+   * computeOutreachTier() for the score bands.
+   */
+  outreach_tier: OutreachTier;
+}
+
+/**
+ * Score-driven tone tier. Modulates opener hedging + ask directness so
+ * lower-confidence prospects get exploratory framing ("not sure if this
+ * is even your space, but…") and high-confidence prospects get a direct
+ * ask. Avoids the failure mode where MIN_ICP_SCORE silently drops
+ * tier-3 prospects we'd already paid to enrich — we send to them, but
+ * with appropriate tone.
+ *
+ * - confident   (score ≥ 7): direct ask, no hedging
+ * - qualified   (4 ≤ score < 7): soft hedge in opener + ask
+ * - exploratory (score < 4): explicit "not sure / no pressure" framing
+ *
+ * Null score falls back to qualified — safe middle ground.
+ */
+export type OutreachTier = 'confident' | 'qualified' | 'exploratory';
+
+export function computeOutreachTier(score: number | null | undefined): OutreachTier {
+  if (typeof score !== 'number' || Number.isNaN(score)) return 'qualified';
+  if (score >= 7) return 'confident';
+  if (score >= 4) return 'qualified';
+  return 'exploratory';
 }
 
 export interface RenderError {
@@ -303,6 +333,16 @@ export async function renderStep(
     body = injectSignatureBlock(body, context);
   }
 
+  // Tier-aware tone modulation. Qualified + Exploratory tiers wrap the
+  // rendered body with hedging language so the recipient sees an
+  // appropriate confidence level for the underlying fit score. We
+  // skip on short connect notes (no char budget for hedging) and
+  // on confident tier (no hedging needed — the message stands).
+  const outreachTier = computeOutreachTier(partner.weighted_score);
+  if (!isShortConnect && outreachTier !== 'confident') {
+    body = injectTierHedging(body, outreachTier, context.sender_name);
+  }
+
   // Localization. If the recipient's geography suggests a non-English
   // primary language, translate the rendered body + subject. Keeps the
   // English original in evidence_refs so the operator can verify in
@@ -359,6 +399,7 @@ export async function renderStep(
       partner_score: partner.weighted_score,
       warm,
       target_language: targetLanguage,
+      outreach_tier: outreachTier,
       // Keep the English original so the Approvals card can show a
       // "view English original" toggle for operator verification.
       original_subject: originalSubject,
@@ -367,7 +408,83 @@ export async function renderStep(
     personalization_score: warm
       ? warmPersonalizationScore(partner.weighted_score)
       : personalizationScore(signal!.specificity, partner.weighted_score),
+    outreach_tier: outreachTier,
   };
+}
+
+/**
+ * Wrap a rendered body with tier-appropriate hedging so a low-score
+ * prospect doesn't receive a confidently-worded ask. Two insertions:
+ *
+ * 1. **Opener hedge** — inserted as its own paragraph after the
+ *    greeting. Signals "I'm not 100% sure this is your space" up
+ *    front so the reader isn't asked to absorb a pitch under false
+ *    confidence pretences.
+ *
+ * 2. **Ask softener** — inserted as its own paragraph before the
+ *    signature block (em-dash or "Best,"/"Thanks," marker). Gives
+ *    the recipient permission to ignore without offense, which
+ *    reduces irritation-driven unsubscribes / replies.
+ *
+ * Idempotent: re-rendering an already-hedged body won't double-inject
+ * (each marker uses a distinctive enough phrase that includes() catches
+ * the prior insertion).
+ *
+ * Skipped on confident tier (caller checks before calling) — those
+ * messages stand as written.
+ */
+function injectTierHedging(body: string, tier: OutreachTier, _senderName: string): string {
+  const HEDGE_MARKERS = {
+    qualified: 'may be off-base on the precise fit',
+    exploratory: 'not sure if this is even in your remit',
+  } as const;
+  const SOFTENER_MARKERS = {
+    qualified: 'no offense taken if the timing or fit is off',
+    exploratory: 'feel free to ignore if this is outside your space',
+  } as const;
+
+  const hedgeMarker = HEDGE_MARKERS[tier as keyof typeof HEDGE_MARKERS];
+  const softenerMarker = SOFTENER_MARKERS[tier as keyof typeof SOFTENER_MARKERS];
+  if (!hedgeMarker || !softenerMarker) return body;
+
+  const hedgeSentence = tier === 'exploratory'
+    ? `Quick caveat up front — ${hedgeMarker}, so feel free to stop reading here if it's clearly not.`
+    : `Quick caveat — I ${hedgeMarker}, but wanted to flag this rather than skip over.`;
+
+  const softenerSentence = tier === 'exploratory'
+    ? `Truly ${softenerMarker} — I was hedging on the side of reaching out rather than not.`
+    : `If even tangentially relevant, happy to share more — ${softenerMarker}.`;
+
+  let out = body;
+
+  // 1) Inject hedge after greeting if not already present
+  if (!out.includes(hedgeMarker)) {
+    const trimmed = out.trim();
+    const firstBreak = trimmed.indexOf('\n\n');
+    if (firstBreak === -1) {
+      out = `${hedgeSentence}\n\n${trimmed}`;
+    } else {
+      const greeting = trimmed.slice(0, firstBreak);
+      const rest = trimmed.slice(firstBreak + 2);
+      out = `${greeting}\n\n${hedgeSentence}\n\n${rest}`;
+    }
+  }
+
+  // 2) Inject softener before signature if not already present
+  if (!out.includes(softenerMarker)) {
+    const trimmed = out.trimEnd();
+    const signoffPattern = /\n+(—|Best,|Thanks,|Kind regards|Regards,)/i;
+    const match = trimmed.match(signoffPattern);
+    if (match && match.index !== undefined) {
+      const before = trimmed.slice(0, match.index);
+      const after = trimmed.slice(match.index);
+      out = `${before}\n\n${softenerSentence}${after}`;
+    } else {
+      out = `${trimmed}\n\n${softenerSentence}`;
+    }
+  }
+
+  return out;
 }
 
 /**

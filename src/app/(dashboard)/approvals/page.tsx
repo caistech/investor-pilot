@@ -20,6 +20,13 @@ export interface ApprovalItem {
   target_language: string | null;
   original_subject: string | null;
   original_body: string | null;
+  /**
+   * Score-derived tone tier the renderer picked. Approvals UI surfaces
+   * this as a badge so the operator can spot exploratory-tier drafts
+   * (hedged copy) before approving them. See computeOutreachTier in
+   * src/lib/sequencer/render.ts.
+   */
+  outreach_tier: 'confident' | 'qualified' | 'exploratory' | null;
 }
 
 export default async function ApprovalsPage() {
@@ -73,6 +80,9 @@ export default async function ApprovalsPage() {
         original_subject: typeof evidenceRefs.original_subject === 'string' ? evidenceRefs.original_subject : null,
         original_body: typeof evidenceRefs.original_body === 'string' && evidenceRefs.original_body.length > 0
           ? evidenceRefs.original_body
+          : null,
+        outreach_tier: evidenceRefs.outreach_tier === 'confident' || evidenceRefs.outreach_tier === 'qualified' || evidenceRefs.outreach_tier === 'exploratory'
+          ? evidenceRefs.outreach_tier
           : null,
       };
     });
