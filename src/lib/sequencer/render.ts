@@ -327,10 +327,32 @@ export async function renderStep(
   // routinely ended at the value-offer paragraph with no signature,
   // which reads as anonymous. Skipped on short connect notes (no
   // budget) and when the body already ends with the sender's name.
-  const lastChunk = body.slice(-200);
-  const hasSignature = context.sender_name && lastChunk.includes(context.sender_name);
-  if (!hasSignature && !isShortConnect && context.sender_name) {
-    body = injectSignatureBlock(body, context);
+  // Signature handling has two cases:
+  //   1. No signature at all → append the full block (name + role + LinkedIn)
+  //   2. Bare "— Sender Name" signature → AUGMENT with role + LinkedIn lines
+  //      immediately after the name. This is the common case for
+  //      LLM-generated templates that closed with just "— {sender_name}"
+  //      — they DO have a signature, just an incomplete one. Previously
+  //      the renderer treated case 2 as "already has signature, skip"
+  //      and the recipient never saw the LinkedIn URL or role in the
+  //      structured closer (only buried in body text). Operator flagged
+  //      2026-05-17 — the LinkedIn URL is the trust signal that makes
+  //      cold replies safe to send.
+  const lastChunk = body.slice(-300);
+  const hasName = !!(context.sender_name && lastChunk.includes(context.sender_name));
+  const hasLinkedInLine = !!(
+    context.sender_linkedin_url && (
+      lastChunk.includes(context.sender_linkedin_url) ||
+      /\bLinkedIn\s*:/i.test(lastChunk)
+    )
+  );
+  const hasRoleLine = !!(context.sender_role && lastChunk.includes(context.sender_role));
+  if (!isShortConnect && context.sender_name) {
+    if (!hasName) {
+      body = injectSignatureBlock(body, context);
+    } else if (!hasLinkedInLine || !hasRoleLine) {
+      body = augmentMinimalSignature(body, context, { hasLinkedInLine, hasRoleLine });
+    }
   }
 
   // Tier-aware tone modulation. Qualified + Exploratory tiers wrap the
@@ -750,6 +772,54 @@ function injectSignatureBlock(body: string, context: RenderContext): string {
     }
   }
   return `${body.trimEnd()}\n\n${lines.join('\n')}`;
+}
+
+/**
+ * Augment a bare "— Sender Name" signature with role + LinkedIn lines.
+ * Used when the template body already includes the sender name in its
+ * closer (so injectSignatureBlock would skip), but the structured
+ * signature lines (role + verifiable LinkedIn URL) are missing — those
+ * are the trust signals that make cold replies safe to send.
+ *
+ * Finds the LAST occurrence of the sender's name in the body and
+ * inserts the missing lines on the next line break. Idempotent:
+ * caller has already checked which lines are missing and passes only
+ * those flags.
+ *
+ * Edge case: when the sender name appears MULTIPLE times in the body
+ * (e.g. once in the sender intro, once in the closer), we target the
+ * LAST occurrence — that's the signature, not the intro.
+ */
+function augmentMinimalSignature(
+  body: string,
+  context: RenderContext,
+  flags: { hasLinkedInLine: boolean; hasRoleLine: boolean },
+): string {
+  const additions: string[] = [];
+  if (!flags.hasRoleLine && context.sender_role) {
+    additions.push(context.sender_role);
+  }
+  if (!flags.hasLinkedInLine && context.sender_linkedin_url) {
+    additions.push(`LinkedIn: ${context.sender_linkedin_url}`);
+  }
+  if (additions.length === 0) return body;
+
+  // Find the LAST occurrence of the sender name — that's the closer,
+  // not the intro mention.
+  const trimmed = body.trimEnd();
+  const nameIdx = trimmed.lastIndexOf(context.sender_name);
+  if (nameIdx === -1) return body; // shouldn't happen — caller checked hasName
+
+  // Find the end of the line containing the name. Insert the new lines
+  // right after it so they sit immediately under "— Sender Name".
+  const lineEnd = trimmed.indexOf('\n', nameIdx);
+  if (lineEnd === -1) {
+    // Name is on the last line with no trailing newline — append after.
+    return `${trimmed}\n${additions.join('\n')}`;
+  }
+  const before = trimmed.slice(0, lineEnd);
+  const after = trimmed.slice(lineEnd);
+  return `${before}\n${additions.join('\n')}${after}`;
 }
 
 interface CreditSignal {
