@@ -306,6 +306,9 @@ function ApprovalCard({
               {item.outreach_tier === 'exploratory' && (
                 <span className="badge-orange" title="Score 2–4 — explicit 'not sure / no pressure' framing in opener and ask">Exploratory — no pressure</span>
               )}
+              {item.step_status === 'compliance_blocked' && (
+                <span className="badge-red" title="Compliance regex flagged this draft. Won't ship until you Edit it to remove the flagged term, Regenerate, or Skip. See the red flag block below for the exact match.">BLOCKED — needs edit</span>
+              )}
             </div>
             <p className="text-dark-500 text-sm">
               {channelLabel} · scheduled <span suppressHydrationWarning>{new Date(item.scheduled_for).toLocaleString()}</span>

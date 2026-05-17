@@ -230,9 +230,54 @@ export async function renderStep(
     };
   }
 
-  const firstName = partner.contact_name.trim().split(/\s+/)[0];
+  // Detect job-descriptor values masquerading as the contact_name.
+  // Happens with LinkedIn search results where the LI 2nd-degree result's
+  // "headline" line ("Seed", "Pre-seed", "Advisor", "Founder") got
+  // ingested into contact_name instead of an actual person. Without
+  // this guard the renderer would happily produce "Hi Seed, …" / "Hi
+  // Advisor, …" in cold outreach — embarrassing and amateur. Surfacing
+  // it as missing_contact (rather than no_credit_signal) so the operator
+  // sees a clear "name needs fixing" message in /approvals.
+  const GARBAGE_NAMES = new Set([
+    'seed', 'pre-seed', 'preseed', 'series-a', 'series a', 'series-b', 'series b',
+    'advisor', 'founder', 'partner', 'investor', 'analyst', 'principal', 'associate',
+    'director', 'manager', 'ceo', 'cfo', 'cto', 'coo', 'vp', 'gp', 'lp',
+    'angel', 'mentor', 'speaker', 'consultant',
+  ]);
+  const cleanedFullName = partner.contact_name.trim();
+  if (GARBAGE_NAMES.has(cleanedFullName.toLowerCase())) {
+    return {
+      ok: false,
+      reason: `contact_name "${cleanedFullName}" looks like a job title, not a person — re-enrich this partner from /prospects to fix.`,
+      blocker: 'missing_contact',
+    };
+  }
+
+  // Strip honorifics so "Ts. Mohammad Hazani Hassan" → "Mohammad",
+  // not "Ts.". Same for Dr., Prof., Mr., Ms., Mrs., Eng., Sr., Jr., etc.
+  // Operator flagged 2026-05-17 after a Malaysian MTDC contact's draft
+  // opened "Ts. — short note…" — reads as obviously templated by a
+  // system that doesn't know the recipient.
+  const HONORIFICS = new Set([
+    'ts.', 'ts', 'dr.', 'dr', 'prof.', 'prof', 'professor',
+    'mr.', 'mr', 'ms.', 'ms', 'mrs.', 'mrs', 'mx.', 'mx',
+    'eng.', 'eng', 'engineer', 'sir', 'madam',
+  ]);
+  // Prefer parenthetical Western name when present:
+  // "Dang Quoc Tuan (Thomas)" → "Thomas" beats "Dang", since the
+  // recipient has self-presented the Western-friendly version.
+  const parenMatch = cleanedFullName.match(/\(([A-Za-z][A-Za-z\-']{1,30})\)/);
+  let firstName: string;
+  if (parenMatch) {
+    firstName = parenMatch[1];
+  } else {
+    const tokens = cleanedFullName.split(/\s+/).filter(Boolean);
+    let i = 0;
+    while (i < tokens.length && HONORIFICS.has(tokens[i].toLowerCase())) i += 1;
+    firstName = tokens[i] || '';
+  }
   if (!firstName) {
-    return { ok: false, reason: 'contact_name empty after trim', blocker: 'missing_contact' };
+    return { ok: false, reason: 'contact_name was only honorifics — no actual name found.', blocker: 'missing_contact' };
   }
 
   const warm = template.is_warm;

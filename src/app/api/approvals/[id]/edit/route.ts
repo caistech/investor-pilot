@@ -68,9 +68,12 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .single();
 
   if (!step) return NextResponse.json({ error: 'Step not found' }, { status: 404 });
-  if (step.status !== 'queued_for_approval') {
+  // Allow editing on compliance_blocked too — that's the natural fix
+  // path when a draft trips a regex. Edit re-runs compliance check
+  // and (if clean) transitions the step back to queued_for_approval.
+  if (step.status !== 'queued_for_approval' && step.status !== 'compliance_blocked') {
     return NextResponse.json(
-      { error: `Step is ${step.status}; only queued_for_approval messages can be edited` },
+      { error: `Step is ${step.status}; only queued_for_approval or compliance_blocked messages can be edited` },
       { status: 400 },
     );
   }
@@ -119,6 +122,26 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   if (updateError) {
     return NextResponse.json({ error: `Update failed: ${updateError.message}` }, { status: 500 });
+  }
+
+  // Status transition: a compliance_blocked step that now passes
+  // compliance flips back to queued_for_approval so the operator can
+  // Approve & send. Conversely, an edit to a queued draft that NOW
+  // trips a flag flips to compliance_blocked. Without these flips, a
+  // fixed draft stays blocked forever and a newly-broken draft would
+  // silently ship.
+  const newStepStatus = complianceResult.blocked ? 'compliance_blocked' : 'queued_for_approval';
+  if (newStepStatus !== step.status) {
+    const { error: stepUpdateError } = await db
+      .from('sequence_steps')
+      .update({ status: newStepStatus })
+      .eq('id', step.id);
+    if (stepUpdateError) {
+      return NextResponse.json(
+        { error: `Compliance updated but step status transition failed: ${stepUpdateError.message}` },
+        { status: 500 },
+      );
+    }
   }
 
   await db.from('audit_events').insert({

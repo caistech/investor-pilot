@@ -27,6 +27,13 @@ export interface ApprovalItem {
    * src/lib/sequencer/render.ts.
    */
   outreach_tier: 'confident' | 'qualified' | 'exploratory' | null;
+  /**
+   * sequence_steps.status as fetched — distinguishes 'queued_for_approval'
+   * (normal) from 'compliance_blocked' (regex flagged it, needs operator
+   * Edit/Skip before it can ship). Drives the prominent "BLOCKED" badge
+   * on the card.
+   */
+  step_status: 'queued_for_approval' | 'compliance_blocked';
 }
 
 export default async function ApprovalsPage() {
@@ -48,13 +55,20 @@ export default async function ApprovalsPage() {
         id,
         channel,
         scheduled_for,
+        status,
         partner_id,
         outbound_message_id,
         partners ( id, company_name, weighted_score ),
         outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score, evidence_refs )
       `)
       .eq('organisation_id', profile.organisation_id)
-      .eq('status', 'queued_for_approval')
+      // Show BOTH queued + compliance_blocked. Previously compliance_blocked
+      // drafts were invisible from /approvals — the operator had to drill
+      // into each prospect's detail page to see why a draft didn't ship.
+      // Now they appear inline with the compliance flag rendered on the
+      // card, so the fix path is one click (Edit / Skip / Regenerate)
+      // instead of three. Operator flagged 2026-05-17.
+      .in('status', ['queued_for_approval', 'compliance_blocked'])
       .order('scheduled_for', { ascending: true })
       .limit(50);
 
@@ -84,6 +98,7 @@ export default async function ApprovalsPage() {
         outreach_tier: evidenceRefs.outreach_tier === 'confident' || evidenceRefs.outreach_tier === 'qualified' || evidenceRefs.outreach_tier === 'exploratory'
           ? evidenceRefs.outreach_tier
           : null,
+        step_status: s.status === 'compliance_blocked' ? 'compliance_blocked' : 'queued_for_approval',
       };
     });
   }
