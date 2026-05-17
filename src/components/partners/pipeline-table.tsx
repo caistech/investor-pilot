@@ -132,6 +132,39 @@ const ENRICH_MAX = 20;
 // chunking pattern as Enrich + Render & Queue.
 const REENRICH_MAX = 10;
 
+/**
+ * Translate skip reasons coming back from /api/sequences/assign-batch
+ * into plain operator-facing English. The server's phrasing uses
+ * internal terminology ("MIN_ICP_SCORE", "weighted_score", "out_of_scope
+ * per v3 ICP") that doesn't read clearly. This helper pattern-matches
+ * the most common reasons and rewrites them; anything unmatched falls
+ * through verbatim so we never lose information.
+ */
+function humaniseSkipReason(raw: string): string {
+  // ICP-score gate: "Weighted score 3.35 below MIN_ICP_SCORE (4) — low fit, not queuing"
+  const scoreMatch = raw.match(/Weighted score ([\d.]+) below MIN_ICP_SCORE \(([\d.]+)\)/);
+  if (scoreMatch) {
+    return `fit score ${scoreMatch[1]}/10 is below the ${scoreMatch[2]} minimum for this project — not enough confidence they're a good match`;
+  }
+  // Out-of-scope category match
+  if (/category is .*out[_ -]?of[_ -]?scope/i.test(raw)) {
+    return `marked out-of-scope during research (different sector / stage / role than this project targets)`;
+  }
+  // Already on a sequence
+  if (/Already has live steps on/i.test(raw)) {
+    return raw.replace(/Already has live steps on "(.+?)"/, 'already on the "$1" sequence — skipped to avoid double-contact');
+  }
+  // No contact_name
+  if (/No contact_name on partner/i.test(raw)) {
+    return `missing the contact's name — can't address the message. Run "1. Find Emails" first or enrich via LinkedIn.`;
+  }
+  // No template
+  if (/No (project|product)-side sequence template exists/i.test(raw)) {
+    return raw; // server already wrote this one in plain English
+  }
+  return raw;
+}
+
 // Partner statuses that indicate the operator has already contacted the
 // person (first touch sent or beyond). Used by the "Hide already targeted"
 // filter so we don't accidentally double-send.
@@ -340,8 +373,8 @@ export function PipelineTable({
           : '';
         setMessage(
           action === 'enrich'
-            ? `${batchLabel}enriching now (Hunter.io email lookup)… ${totalSucceeded + totalErrored + totalSkipped}/${n} done so far.`
-            : `${batchLabel}rendering first sequence step now (Claude call per prospect)… ${totalSucceeded}/${n} queued so far.`,
+            ? `${batchLabel}looking up email addresses via Hunter.io… ${totalSucceeded + totalErrored + totalSkipped} of ${n} prospect${n === 1 ? '' : 's'} checked so far.`
+            : `${batchLabel}writing the first message for each prospect… ${totalSucceeded} of ${n} ready in Approvals so far.`,
         );
 
         const body = action === 'enrich'
@@ -363,14 +396,14 @@ export function PipelineTable({
           data = JSON.parse(rawBody);
         } catch {
           errorMessages.push(
-            `Batch ${i + 1}: HTTP ${res.status} ${res.statusText} (non-JSON body — likely function timeout). First 200 chars: ${rawBody.slice(0, 200)}`,
+            `Batch ${i + 1}: server didn't respond properly (HTTP ${res.status} ${res.statusText} — usually a timeout). Try the same batch again in a minute.`,
           );
           totalErrored += chunk.length;
           continue;
         }
 
         if (!res.ok) {
-          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
           totalErrored += chunk.length;
           continue;
         }
@@ -396,25 +429,41 @@ export function PipelineTable({
       }
 
       const errorTrailer = errorMessages.length > 0
-        ? `\n\n${errorMessages.length} batch error${errorMessages.length === 1 ? '' : 's'}:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …${errorMessages.length - 3} more` : ''}`
+        ? `\n\nThere ${errorMessages.length === 1 ? 'was 1 problem' : `were ${errorMessages.length} problems`} during this run:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …and ${errorMessages.length - 3} more` : ''}`
         : '';
 
       if (action === 'enrich') {
         // Tailor the follow-up suggestion to whether anything actually
         // got an email. Hunter only finds public business emails — for
         // LinkedIn-2nd contacts it routinely returns 0, in which case
-        // the right next step is Re-enrich evidence (Brave/LinkedIn
-        // fit signal) not Assign Sequence.
+        // the right next step is Refresh research (LinkedIn/Brave
+        // fit signal) not Plan Outreach.
         const nextStepHint = totalSucceeded > 0
           ? 'Selection kept — click "2. Plan Outreach" next.'
-          : 'No emails found (Hunter only works for contacts with public business emails). ' +
-            'For LinkedIn-only outreach, click "Refresh research" then "2. Plan Outreach" — the LinkedIn DM path doesn\'t need an email.';
+          : 'These prospects don\'t have public business email addresses in Hunter\'s database — usually means they\'re LinkedIn-only contacts. ' +
+            'For LinkedIn DM outreach (no email needed), click "Refresh research" to gather LinkedIn signal, then "2. Plan Outreach".';
+        const headline = totalSucceeded === 0
+          ? `Looked up ${n} prospect${n === 1 ? '' : 's'} — no emails found.`
+          : totalSucceeded === n
+            ? `Found emails for all ${n} prospect${n === 1 ? '' : 's'}.`
+            : `Found emails for ${totalSucceeded} of ${n} prospects. The other ${n - totalSucceeded} had no public business email on record${totalErrored > 0 ? ` (${totalErrored} also hit lookup errors)` : ''}.`;
         setMessage(
-          `Enriched ${totalSucceeded} of ${n}. ${totalSkipped} skipped, ${totalErrored} errors. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${chunkSize}.) ` : ''}\n${nextStepHint}${errorTrailer}`,
+          `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} per Hunter API call.)` : ''}\n${nextStepHint}${errorTrailer}`,
         );
       } else {
+        // Render-now (Draft Messages Now). Headline in plain English,
+        // followed by the server's per-batch hint (which already
+        // explains blocked / no-channel / no-sequence cases in detail).
+        const draftWord = (count: number) => `${count} draft${count === 1 ? '' : 's'}`;
+        const headline = totalSucceeded === 0 && totalAlreadyDone === 0
+          ? `Couldn't write any messages for the ${n} selected prospect${n === 1 ? '' : 's'}.`
+          : totalSucceeded === 0 && totalAlreadyDone > 0
+            ? `${draftWord(totalAlreadyDone)} were already in Approvals — nothing new to write.`
+            : totalAlreadyDone === 0
+              ? `Wrote ${draftWord(totalSucceeded)} and sent to Approvals (out of ${n} selected).`
+              : `Wrote ${draftWord(totalSucceeded)} and sent to Approvals. ${totalAlreadyDone} more were already there.`;
         setMessage(
-          `Rendered ${totalSucceeded} of ${n} (${totalAlreadyDone} already done). ${chunks.length > 1 ? `Ran in ${chunks.length} batches of up to ${chunkSize}. ` : ''}\n${lastRenderHint}${errorTrailer}`,
+          `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} prospects per Claude run.)` : ''}\n${lastRenderHint}${errorTrailer}`,
         );
         if (totalSucceeded > 0 || totalAlreadyDone > 0) {
           setNextCta({ href: '/approvals', label: 'Go to Approvals now' });
@@ -422,7 +471,7 @@ export function PipelineTable({
         setSelected(new Set());
       }
     } catch (err) {
-      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Couldn't finish the request: ${err instanceof Error ? err.message : String(err)}. Try again — if it keeps failing, the system or your network may be having a moment.`);
     } finally {
       setLoading(null);
     }
@@ -457,7 +506,7 @@ export function PipelineTable({
           ? `Batch ${i + 1} of ${chunks.length} (${chunk.length} prospects) — `
           : '';
         setMessage(
-          `${batchLabel}re-enriching evidence now (Brave firm news + LinkedIn posts per prospect)… ${totalEnriched + totalSkipped + totalFailed}/${n} done so far.`,
+          `${batchLabel}researching prospects now — pulling firm news from Brave web search + recent posts from LinkedIn… ${totalEnriched + totalSkipped + totalFailed} of ${n} done so far.`,
         );
 
         const res = await fetch('/api/partners/re-enrich-evidence', {
@@ -468,12 +517,12 @@ export function PipelineTable({
         const rawBody = await res.text();
         let data: { [k: string]: unknown };
         try { data = JSON.parse(rawBody); } catch {
-          errorMessages.push(`Batch ${i + 1}: HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
+          errorMessages.push(`Batch ${i + 1}: server didn't respond properly (HTTP ${res.status} — usually a timeout). Try again in a minute.`);
           totalFailed += chunk.length;
           continue;
         }
         if (!res.ok) {
-          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
           totalFailed += chunk.length;
           continue;
         }
@@ -483,19 +532,24 @@ export function PipelineTable({
       }
 
       const errorTrailer = errorMessages.length > 0
-        ? `\n\n${errorMessages.length} batch error${errorMessages.length === 1 ? '' : 's'}:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …${errorMessages.length - 3} more` : ''}`
+        ? `\n\nThere ${errorMessages.length === 1 ? 'was 1 problem' : `were ${errorMessages.length} problems`} during this run:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …and ${errorMessages.length - 3} more` : ''}`
         : '';
 
+      const headline = totalEnriched === 0
+        ? `Couldn't refresh research for any of the ${n} selected prospect${n === 1 ? '' : 's'}.`
+        : totalEnriched === n
+          ? `Refreshed research on all ${n} prospect${n === 1 ? '' : 's'}.`
+          : `Refreshed research on ${totalEnriched} of ${n} prospects. ${n - totalEnriched} ${n - totalEnriched === 1 ? 'was' : 'were'} skipped or failed (${totalSkipped} had no LinkedIn URL or other lookup path, ${totalFailed} hit an error).`;
       setMessage(
-        `Re-enriched ${totalEnriched} of ${n}. ${totalSkipped} skipped (no LinkedIn URL / unsupported source), ${totalFailed} failed. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${REENRICH_MAX}.) ` : ''}\n` +
+        `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${REENRICH_MAX} prospects per pass.)` : ''}\n` +
         (totalEnriched > 0
-          ? 'Selection kept — now click "Restart plan" → "2. Plan Outreach" → "3. Draft Messages Now" to regenerate drafts with fresh evidence.'
-          : 'Nothing refreshed — check that the selected partners have a contact_linkedin URL or a Brave-discoverable domain.') +
+          ? 'Selection kept — now click "Restart plan" → "2. Plan Outreach" → "3. Draft Messages Now" to write fresh drafts using the new research.'
+          : 'Nothing was refreshed — these prospects need either a LinkedIn URL or a discoverable company website for research to work.') +
         errorTrailer,
       );
       router.refresh();
     } catch (err) {
-      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Couldn't finish the request: ${err instanceof Error ? err.message : String(err)}. Try again — if it keeps failing, the system or your network may be having a moment.`);
     } finally {
       setLoading(null);
     }
@@ -504,13 +558,15 @@ export function PipelineTable({
   async function resetSequences() {
     if (selectedPartners.length === 0) return;
     const n = selectedPartners.length;
-    const confirmMsg = `Reset sequences for ${n} prospect${n === 1 ? '' : 's'}?\n\n` +
-      `This deletes the current sequence assignment AND any draft / queued / blocked messages. Sent + replied messages stay (history is preserved). Use when you've assigned the wrong template and want to start clean.`;
+    const confirmMsg = `Restart the outreach plan for ${n} prospect${n === 1 ? '' : 's'}?\n\n` +
+      `This clears the current template assignment and removes any queued or blocked drafts. ` +
+      `Messages you've already sent — and any replies you've received — stay in your history. ` +
+      `Use this when you assigned the wrong template (e.g. a sales sequence got picked instead of an investor one) and want to redo Plan Outreach cleanly.`;
     if (!confirm(confirmMsg)) return;
 
     setLoading('reset');
     setNextCta(null);
-    setMessage(`Resetting sequences for ${n} prospect${n === 1 ? '' : 's'}…`);
+    setMessage(`Restarting the outreach plan for ${n} prospect${n === 1 ? '' : 's'}…`);
 
     try {
       const res = await fetch('/api/sequences/reset', {
@@ -521,22 +577,26 @@ export function PipelineTable({
       const rawBody = await res.text();
       let data: { [k: string]: unknown };
       try { data = JSON.parse(rawBody); } catch {
-        setMessage(`Error: /api/sequences/reset returned HTTP ${res.status} non-JSON. First 200 chars: ${rawBody.slice(0, 200)}`);
+        setMessage(`Something went wrong contacting the server (HTTP ${res.status}). It returned a non-JSON response — usually a timeout. Try again, or contact support if it persists.`);
         return;
       }
       if (!res.ok) {
-        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+        setMessage(`Couldn't restart the plan: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
         return;
       }
+      const partnersReset = (data.partners_reset as number) || 0;
+      const stepsDeleted = (data.steps_deleted as number) || 0;
+      const draftsDeleted = (data.messages_deleted as number) || 0;
       setMessage(
-        `Reset ${data.partners_reset} prospect${data.partners_reset === 1 ? '' : 's'}: ` +
-        `${data.steps_deleted} sequence step${data.steps_deleted === 1 ? '' : 's'} + ` +
-        `${data.messages_deleted} draft${data.messages_deleted === 1 ? '' : 's'} deleted.\n` +
-        `Selection kept — click "2. Plan Outreach" to re-assign to the correct template.`,
+        `Cleared the plan for ${partnersReset} prospect${partnersReset === 1 ? '' : 's'}. ` +
+        `Removed ${stepsDeleted} scheduled step${stepsDeleted === 1 ? '' : 's'}` +
+        (draftsDeleted > 0 ? ` and ${draftsDeleted} queued draft${draftsDeleted === 1 ? '' : 's'}` : '') +
+        `. Sent and replied messages are untouched.\n` +
+        `Selection kept — click "2. Plan Outreach" to assign a fresh template.`,
       );
       router.refresh();
     } catch (err) {
-      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Couldn't restart the plan: ${err instanceof Error ? err.message : String(err)}`);
     } finally {
       setLoading(null);
     }
@@ -546,16 +606,16 @@ export function PipelineTable({
     if (selectedPartners.length === 0) return;
     const firstDegreeCount = selectedPartners.filter(p => p.network_distance === '1st').length;
     const otherCount = selectedPartners.length - firstDegreeCount;
-    const confirmMsg = `Assign sequences to ${selectedPartners.length} partner${selectedPartners.length === 1 ? '' : 's'}?\n\n` +
-      `  • ${firstDegreeCount} 1st-degree → warm DM sequence (3 steps over 9 days)\n` +
-      `  • ${otherCount} other → cold sequence (6 steps over 14 days, requires Brave evidence for credit signal)\n\n` +
-      `Partners already on a sequence will be skipped.`;
+    const confirmMsg = `Plan outreach for ${selectedPartners.length} prospect${selectedPartners.length === 1 ? '' : 's'}?\n\n` +
+      `  • ${firstDegreeCount} 1st-degree LinkedIn connection${firstDegreeCount === 1 ? '' : 's'} → warm sequence (3 messages over 9 days)\n` +
+      `  • ${otherCount} other prospect${otherCount === 1 ? '' : 's'} → cold sequence (6 messages over 14 days, with personalised research per recipient)\n\n` +
+      `Prospects already on a sequence will be left alone. Low-fit prospects (below the project's ICP threshold) will be skipped with a reason.`;
     if (!confirm(confirmMsg)) return;
 
     const n = selectedPartners.length;
     setLoading('assign');
     setNextCta(null);
-    setMessage(`Sequencing ${n} prospect${n === 1 ? '' : 's'} now — assigning warm/cold templates and queuing steps…`);
+    setMessage(`Planning outreach for ${n} prospect${n === 1 ? '' : 's'} now — picking the right template per prospect and scheduling each step…`);
 
     try {
       const res = await fetch('/api/sequences/assign-batch', {
@@ -566,25 +626,25 @@ export function PipelineTable({
       const rawBody = await res.text();
       let data: { [k: string]: unknown };
       try { data = JSON.parse(rawBody); } catch {
-        setMessage(`Error: /api/sequences/assign-batch returned HTTP ${res.status} non-JSON (function timeout or runtime crash). First 200 chars: ${rawBody.slice(0, 200)}`);
+        setMessage(`Something went wrong contacting the server (HTTP ${res.status}). It returned a non-JSON response — usually means the request took too long. Try again with fewer prospects, or wait a minute.`);
         return;
       }
       if (!res.ok) {
-        setMessage(`Error: ${(data.error as string) || `${res.status} ${res.statusText}`}`);
+        setMessage(`Couldn't plan outreach: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
         return;
       }
       const s = (data.summary as { assigned: number; skipped: number; errored: number; total_steps: number }) || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
 
-      // Surface up to 3 skip reasons inline. The most common reasons we
-      // hit are ICP-gate rejections ("Weighted score 1.4 below MIN_ICP_SCORE")
-      // and out-of-scope category matches — the operator needs to see those
-      // to understand why nothing got queued.
+      // Surface up to 3 skip reasons inline, translated from the
+      // server's technical phrasing to plain English. Most common
+      // reasons: ICP-gate rejections (low weighted_score) and
+      // out_of_scope category matches.
       const skipReasons = ((data.results || []) as Array<{ outcome: string; partner_name: string; reason?: string }>)
         .filter(r => r.outcome === 'skipped' && r.reason)
         .slice(0, 3)
-        .map(r => `• ${r.partner_name}: ${r.reason}`);
+        .map(r => `• ${r.partner_name} — ${humaniseSkipReason(r.reason!)}`);
       const reasonsBlock = skipReasons.length > 0
-        ? `\n\nFirst ${skipReasons.length} of ${s.skipped} skips:\n${skipReasons.join('\n')}`
+        ? `\n\nWhy ${s.skipped} ${s.skipped === 1 ? 'was' : 'were'} skipped (showing first ${skipReasons.length}):\n${skipReasons.join('\n')}`
         : '';
 
       // Researcher rule: when 0 assigned and skips look like "low ICP /
@@ -631,10 +691,15 @@ export function PipelineTable({
         }
       }
 
+      const headline = s.assigned === 0
+        ? `Couldn't plan outreach for any of the ${n} selected prospect${n === 1 ? '' : 's'} — ${s.skipped} skipped, ${s.errored} hit errors.`
+        : s.assigned === n
+          ? `Planned outreach for all ${n} prospect${n === 1 ? '' : 's'} (${s.total_steps} total message${s.total_steps === 1 ? '' : 's'} scheduled across the sequences).`
+          : `Planned outreach for ${s.assigned} of ${n} prospects (${s.total_steps} scheduled messages). ${s.skipped} skipped${s.errored > 0 ? `, ${s.errored} hit errors` : ''}.`;
       setMessage(
-        `Sequenced ${s.assigned} of ${n} (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
+        `${headline}` +
         (s.assigned > 0
-          ? '\nSelection kept — click "3. Draft Messages Now" to generate the first message now, or wait up to 15 min for the cron.'
+          ? '\nSelection kept — click "3. Draft Messages Now" to write the first message for each now, or wait up to 15 min for the system to do it in the background.'
           : '') +
         reasonsBlock +
         betterHint,
@@ -647,7 +712,7 @@ export function PipelineTable({
         router.refresh();
       }
     } catch (err) {
-      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+      setMessage(`Couldn't finish the request: ${err instanceof Error ? err.message : String(err)}. Try again — if it keeps failing, the system or your network may be having a moment.`);
     } finally {
       setLoading(null);
     }
