@@ -236,6 +236,12 @@ export default function ProjectsPage() {
   }
 
   function finishDraft() {
+    // Capture the new project id BEFORE clearing draft state so we can
+    // auto-expand its card after the list reloads. Without this the
+    // operator gets dumped at the top of the projects list and has to
+    // hunt for the project they just created — three extra clicks
+    // before they can hit Auto-fill, Generate Rubric, etc.
+    const newId = draftProjectId;
     setShowForm(false);
     setDraftProjectId(null);
     setDraftProjectName('');
@@ -243,6 +249,13 @@ export default function ProjectsPage() {
     setDraftDescription('');
     setDraftSponsor('');
     loadProjects();
+    if (newId) {
+      setExpandedProject(newId);
+      // Defer scroll until React paints the expanded card.
+      setTimeout(() => {
+        document.getElementById(`project-${newId}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 100);
+    }
   }
 
   // Find Investors state
@@ -678,7 +691,7 @@ export default function ProjectsPage() {
       {projects.length > 0 ? (
         <div className="space-y-3">
           {projects.map((p) => (
-            <div key={p.id} className="card-hover">
+            <div key={p.id} id={`project-${p.id}`} className="card-hover scroll-mt-6">
               <button
                 onClick={() => setExpandedProject(expandedProject === p.id ? null : p.id)}
                 className="flex items-center gap-3 w-full text-left"
@@ -720,8 +733,8 @@ export default function ProjectsPage() {
                       { label: 'Asset Class', value: p.asset_class },
                     ].filter(f => f.value).map(f => (
                       <div key={f.label}>
-                        <span className="text-dark-600 text-xs uppercase tracking-wide">{f.label}</span>
-                        <p className="text-dark-300">{f.value}</p>
+                        <span className="text-dark-200 text-sm uppercase tracking-wide font-semibold">{f.label}</span>
+                        <p className="text-white text-base mt-1">{f.value}</p>
                       </div>
                     ))}
                   </div>
@@ -737,8 +750,8 @@ export default function ProjectsPage() {
                       .filter(f => f.value)
                       .map(f => (
                         <div key={f.label}>
-                          <span className="text-dark-600 text-xs">{f.label}</span>
-                          <p className="text-dark-300">{String(f.value)}</p>
+                          <span className="text-dark-200 text-sm font-semibold">{f.label}</span>
+                          <p className="text-white text-base mt-1">{String(f.value)}</p>
                         </div>
                       ))}
                   </div>
@@ -756,7 +769,7 @@ export default function ProjectsPage() {
                       <span className="flex items-center justify-center w-5 h-5 rounded-full bg-purple-500/20 text-purple-400 text-[10px] font-bold">0</span>
                       <p className="text-sm font-medium text-purple-300">Investment materials — upload first</p>
                     </div>
-                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                    <p className="text-dark-200 text-sm mt-1 mb-3 ml-7">
                       Upload pitch deck, financials, data room links, term sheets, market memo. Step 1 and 2 read from this — the more attached, the more accurately the AI describes the deal to investors.
                     </p>
                     <div className="ml-7">
@@ -772,7 +785,7 @@ export default function ProjectsPage() {
                         Investor scoring rubric {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? '— configured ✓' : '— not configured'}
                       </p>
                     </div>
-                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                    <p className="text-dark-200 text-sm mt-1 mb-3 ml-7">
                       The rubric the discovery scorer uses to rank candidate investors 1–10 across capital fit, asset-class alignment, ticket band, track record and reachability. <strong className="text-amber-300">Required before Find Investors can run.</strong>
                     </p>
                     <div className="ml-7">
@@ -799,7 +812,7 @@ export default function ProjectsPage() {
                       <span className="flex items-center justify-center w-5 h-5 rounded-full bg-blue-500/20 text-blue-400 text-[10px] font-bold">2</span>
                       <p className="text-sm font-medium text-blue-400">Investor outreach sequence</p>
                     </div>
-                    <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
+                    <p className="text-dark-200 text-sm mt-1 mb-3 ml-7">
                       Generate a 6-step LinkedIn + email sequence in credit-conversation / IC-meeting tone (not sales pitch). Tailored to this project&apos;s deal structure and investor audience.
                     </p>
                     <div className="ml-7">
@@ -830,7 +843,7 @@ export default function ProjectsPage() {
                           <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/20 text-corp-green-400' : 'bg-dark-700 text-dark-500'}`}>3</span>
                           <p className={`text-sm font-medium ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'text-corp-green-400' : 'text-dark-400'}`}>Find investors for this project</p>
                         </div>
-                        <p className="text-dark-500 text-xs mt-0.5 ml-7">
+                        <p className="text-dark-200 text-sm mt-1 ml-7">
                           {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
                             ? 'Generates targeted queries from the Knowledge Base, runs them across selected sources. Tier-prioritised: your 1st-degree connections surface first.'
                             : 'Complete Step 1 above (generate the investor scoring rubric) to unlock discovery.'}
