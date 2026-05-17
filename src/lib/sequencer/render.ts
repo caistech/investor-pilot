@@ -290,6 +290,19 @@ export async function renderStep(
     body = injectValueOffer(body, signal.valueOfferLead);
   }
 
+  // Backward-compat injection of the signature block. The courtesy
+  // contract requires every step to close with sender identification —
+  // name + role + LinkedIn URL (so recipients can verify the sender
+  // before responding). Templates pre-dating strict enforcement
+  // routinely ended at the value-offer paragraph with no signature,
+  // which reads as anonymous. Skipped on short connect notes (no
+  // budget) and when the body already ends with the sender's name.
+  const lastChunk = body.slice(-200);
+  const hasSignature = context.sender_name && lastChunk.includes(context.sender_name);
+  if (!hasSignature && !isShortConnect && context.sender_name) {
+    body = injectSignatureBlock(body, context);
+  }
+
   // Localization. If the recipient's geography suggests a non-English
   // primary language, translate the rendered body + subject. Keeps the
   // English original in evidence_refs so the operator can verify in
@@ -526,6 +539,35 @@ function injectSenderIntro(body: string, context: RenderContext): string {
   const greeting = trimmed.slice(0, firstBreak);
   const rest = trimmed.slice(firstBreak + 2);
   return `${greeting}\n\n${intro}\n\n${rest}`;
+}
+
+/**
+ * Backward-compat injection of a signature block. Constructs the closing
+ * lines from the sender context: name + role + LinkedIn URL (so the
+ * recipient can verify the sender in one click) + optional signature
+ * block from /settings if the operator has filled it in.
+ *
+ * The em-dash separator is the conventional cold-outreach closing
+ * cue. Format:
+ *
+ *   — Dennis McMahon
+ *   Technical Director, Corporate AI Solutions
+ *   LinkedIn: https://www.linkedin.com/in/dennis-mcmahon
+ *   [signature_block lines if set]
+ *
+ * Idempotent — caller checks the body doesn't already contain the
+ * sender's name in the last 200 chars before calling.
+ */
+function injectSignatureBlock(body: string, context: RenderContext): string {
+  const lines: string[] = [`— ${context.sender_name}`];
+  if (context.sender_role) lines.push(context.sender_role);
+  if (context.sender_linkedin_url) lines.push(`LinkedIn: ${context.sender_linkedin_url}`);
+  if (context.signature_block) {
+    // signature_block may itself span multiple lines (org name, phone,
+    // website). Append verbatim — operator owns the formatting.
+    lines.push(context.signature_block);
+  }
+  return `${body.trimEnd()}\n\n${lines.join('\n')}`;
 }
 
 interface CreditSignal {

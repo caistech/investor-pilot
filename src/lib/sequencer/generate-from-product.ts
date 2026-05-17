@@ -697,6 +697,17 @@ function validateCourtesyContract(steps: GeneratedStep[]): string[] {
       errors.push(`Step ${idx} (${step.template_key}) missing {first_name}`);
     }
 
+    // Banned anti-patterns — explicitly named in the system prompt as
+    // courtesy-contract violations but still appearing in generated
+    // output. "Thursday or Friday" presumptuously books the recipient's
+    // calendar; use {sender_calendar_url} for self-serve instead.
+    const askedSpecificDays = /\b(thursday|friday|monday|tuesday|wednesday)\s+or\s+(thursday|friday|monday|tuesday|wednesday)\b/i.test(body)
+      || /does\s+(this|next)\s+week\s+work/i.test(body)
+      || /work\s+on\s+your\s+end\?/i.test(body);
+    if (askedSpecificDays) {
+      errors.push(`Step ${idx} (${step.template_key}) uses a presumptuous date-pinning close ("Thursday or Friday?" style). Use {sender_calendar_url} for self-serve booking instead.`);
+    }
+
     // Step 1 is the short connect note — exempt from heavier rules.
     if (idx === 1) continue;
 
@@ -714,9 +725,37 @@ function validateCourtesyContract(steps: GeneratedStep[]): string[] {
     // WHAT-I-OFFER — required on steps 2-4 (give-before-take cadence).
     // Follow-ups 5+ can omit to keep the chase light.
     if (idx >= 2 && idx <= 4) {
-      const hasOffer = body.includes('{value_offer_lead}') || body.includes('{value_offer}');
+      const offerIdx = Math.min(
+        ...['{value_offer_lead}', '{value_offer}'].map(p => {
+          const i = body.indexOf(p);
+          return i === -1 ? Infinity : i;
+        }),
+      );
+      const hasOffer = offerIdx !== Infinity;
       if (!hasOffer) {
         errors.push(`Step ${idx} (${step.template_key}) missing WHAT-I-OFFER — body must include {value_offer_lead} or {value_offer}`);
+      } else {
+        // Ordering enforcement: offer MUST appear before any ask
+        // phrasing in the body. The courtesy contract calls this out
+        // explicitly ("concrete value… BEFORE the ask") but the LLM
+        // routinely placed the offer paragraph after the ask anyway.
+        const askPatterns = [
+          /happy to walk/i,
+          /happy to chat/i,
+          /20-?minute/i,
+          /quick call/i,
+          /brief conversation/i,
+          /\{sender_calendar_url\}/,
+        ];
+        const askIdx = Math.min(
+          ...askPatterns.map(p => {
+            const m = body.match(p);
+            return m && typeof m.index === 'number' ? m.index : Infinity;
+          }),
+        );
+        if (askIdx !== Infinity && offerIdx > askIdx) {
+          errors.push(`Step ${idx} (${step.template_key}) places WHAT-I-OFFER after ASK-LAST. The offer must appear before the ask paragraph — earn the right to ask by giving first.`);
+        }
       }
     }
   }
