@@ -109,34 +109,56 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
     setAdding(false);
   }
 
-  async function uploadFile(file: File) {
+  /**
+   * Single-file uploader — kept as the primitive for the multi-file
+   * wrapper below. Throws (rather than swallowing) so the wrapper's
+   * Promise.allSettled can isolate per-file failures.
+   */
+  async function uploadOneFile(file: File): Promise<void> {
     if (file.size > MAX_FILE_SIZE) {
-      setError(`File too large (${(file.size / 1024 / 1024).toFixed(1)}MB). Max 10MB.`);
-      return;
+      throw new Error(`${file.name}: too large (${(file.size / 1024 / 1024).toFixed(1)}MB, max 10MB)`);
     }
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append(parentKey, parentValue);
+    const res = await fetch('/api/sources', { method: 'POST', body: formData });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({} as { error?: string; error_message?: string }));
+      throw new Error(`${file.name}: ${data.error_message || data.error || `HTTP ${res.status}`}`);
+    }
+  }
 
+  /**
+   * Multi-file uploader. Runs uploads in chunks of 3 (concurrency cap so
+   * a big drop doesn't fan out to 20 simultaneous Vercel function
+   * invocations + burn through browser fetch slots). Per-file failures
+   * are collected and surfaced together — operator sees "3 of 7 failed"
+   * with specifics rather than "upload failed" with no detail.
+   */
+  async function uploadFiles(files: File[]) {
+    if (files.length === 0) return;
     setAdding(true);
     setError(null);
-
-    try {
-      const formData = new FormData();
-      formData.append('file', file);
-      formData.append(parentKey, parentValue);
-
-      const res = await fetch('/api/sources', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error_message || data.error || 'Failed to upload file');
+    const errors: string[] = [];
+    const concurrency = 3;
+    for (let i = 0; i < files.length; i += concurrency) {
+      const batch = files.slice(i, i + concurrency);
+      const results = await Promise.allSettled(batch.map(uploadOneFile));
+      for (const r of results) {
+        if (r.status === 'rejected') {
+          errors.push(r.reason instanceof Error ? r.reason.message : String(r.reason));
+        }
       }
-      setAddMode(null);
-      loadSources();
-    } catch {
-      setError('Failed to upload file');
+      // Refresh between batches so the operator sees uploaded sources
+      // appearing progressively rather than all at once at the end.
+      await loadSources();
     }
+    if (errors.length > 0) {
+      const head = errors.slice(0, 3).join('\n• ');
+      const more = errors.length > 3 ? `\n• …${errors.length - 3} more` : '';
+      setError(`${errors.length} of ${files.length} files failed:\n• ${head}${more}`);
+    }
+    setAddMode(null);
     setAdding(false);
   }
 
@@ -223,13 +245,16 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
   function handleDrop(e: React.DragEvent) {
     e.preventDefault();
     setDragOver(false);
-    const file = e.dataTransfer.files[0];
-    if (file) uploadFile(file);
+    const files = Array.from(e.dataTransfer.files);
+    if (files.length > 0) uploadFiles(files);
   }
 
   function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) uploadFile(file);
+    const files = Array.from(e.target.files || []);
+    if (files.length > 0) uploadFiles(files);
+    // Reset the input value so selecting the same file again triggers
+    // onChange (browsers suppress the event if the value is unchanged).
+    e.target.value = '';
   }
 
   function getSourceIcon(source: ProductSource) {
@@ -426,10 +451,10 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
               <div className="flex flex-col items-center gap-2">
                 <Upload className="w-8 h-8 text-dark-500" />
                 <span className="text-sm text-dark-300">
-                  Drop a file here or <span className="text-corp-green-400">browse</span>
+                  Drop file(s) here or <span className="text-corp-green-400">browse</span>
                 </span>
                 <span className="text-xs text-dark-600">
-                  PDF, DOCX, TXT, CSV, MD, JSON — up to 10MB
+                  PDF, DOCX, PNG, JPG, TXT, CSV, MD, JSON — up to 10MB each · multi-select supported
                 </span>
               </div>
             )}
@@ -438,6 +463,7 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
             ref={fileInputRef}
             type="file"
             accept={FILE_ACCEPT}
+            multiple
             onChange={handleFileSelect}
             className="hidden"
           />
