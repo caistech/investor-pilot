@@ -471,17 +471,30 @@ export async function generateSequenceFromProduct(
     );
   }
 
-  const response = await client.messages.create(
-    {
-      model: MODEL,
-      max_tokens: 4000,
-      system: SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: buildUserMessage(product, sender, kb) }],
-    },
-    // 45s timeout — long generation with KB attached can take 20–30s on
-    // OpenRouter. Route maxDuration=60 is the hard ceiling above us.
-    { signal: AbortSignal.timeout(45_000) },
-  );
+  let response;
+  try {
+    response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 3000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: buildUserMessage(product, sender, kb) }],
+      },
+      // 55s timeout, 5s under Vercel's 60s ceiling. Bumped from 45s after
+      // operator hit the abort path on a heavy generation (LingoPure with
+      // 2 KB PDFs attached, 2026-05-17). max_tokens cut from 4000 → 3000
+      // to reduce expected wall time without affecting output quality
+      // (6 short LinkedIn+email steps don't need more).
+      { signal: AbortSignal.timeout(55_000) },
+    );
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw new Error(
+        'The LLM took longer than 55s to generate the sequence — usually means OpenRouter is congested or the KB attached is very large. Retry now (often clears on the second attempt), trim the largest KB source, or wait a minute.',
+      );
+    }
+    throw err;
+  }
 
   meterTokens(meterFor, response, MODEL);
 
@@ -553,19 +566,40 @@ export async function generateSequenceFromProject(
     );
   }
 
-  const response = await client.messages.create(
-    {
-      model: MODEL,
-      max_tokens: 4000,
-      // Investor-side prompt — not SYSTEM_PROMPT (which is for sales).
-      // Same call previously used SYSTEM_PROMPT, producing drafts like
-      // "we've built a tool that collapses weeks of research" for a
-      // VC-targeted raise. Fixed when SYSTEM_PROMPT_PROJECT landed.
-      system: SYSTEM_PROMPT_PROJECT,
-      messages: [{ role: 'user', content: buildProjectUserMessage(project, sender, kb) }],
-    },
-    { signal: AbortSignal.timeout(45_000) },
-  );
+  // 55s abort with 3000 max_tokens. The old 45s/4000 budget was tight
+  // for Sonnet 4.5 via OpenRouter (saw ~50s wall-time with the LingoPure
+  // KB attached on 2026-05-17). 55s sits 5s under Vercel's 60s ceiling
+  // (set as the route's maxDuration) so the abort fires BEFORE Vercel
+  // kills the function — gives us a clean catch-and-rethrow path.
+  // 3000 tokens is plenty for 6 short LinkedIn + email steps; 4000 was
+  // generous and just bought us extra wall-time on slow days.
+  let response;
+  try {
+    response = await client.messages.create(
+      {
+        model: MODEL,
+        max_tokens: 3000,
+        // Investor-side prompt — not SYSTEM_PROMPT (which is for sales).
+        // Same call previously used SYSTEM_PROMPT, producing drafts like
+        // "we've built a tool that collapses weeks of research" for a
+        // VC-targeted raise. Fixed when SYSTEM_PROMPT_PROJECT landed.
+        system: SYSTEM_PROMPT_PROJECT,
+        messages: [{ role: 'user', content: buildProjectUserMessage(project, sender, kb) }],
+      },
+      { signal: AbortSignal.timeout(55_000) },
+    );
+  } catch (err) {
+    // AbortSignal.timeout produces a DOMException-shaped error whose
+    // message is the unhelpful "This operation was aborted" — translate
+    // into something the operator can act on. Same shape for both the
+    // SDK's AbortError and a plain timeout error.
+    if (isAbortError(err)) {
+      throw new Error(
+        'The LLM took longer than 55s to generate the sequence — usually means OpenRouter is congested or the KB attached is very large. Retry now (often clears on the second attempt), trim the largest KB source, or wait a minute.',
+      );
+    }
+    throw err;
+  }
 
   meterTokens(meterFor, response, MODEL);
 
@@ -611,4 +645,19 @@ export async function generateSequenceFromProject(
     vertical: parsed.vertical?.trim() || 'auto_generated_investor',
     steps,
   };
+}
+
+/**
+ * Detect whether an error came from AbortSignal.timeout firing. Covers
+ * both the SDK's AbortError (DOMException-shape) and a thrown Error whose
+ * message literally says "aborted". The default message — "This
+ * operation was aborted" — is not actionable on its own; callers
+ * translate it to operator-readable copy before throwing onward.
+ */
+function isAbortError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { name?: string; message?: string };
+  if (e.name === 'AbortError' || e.name === 'TimeoutError') return true;
+  if (typeof e.message === 'string' && /aborted|timeout/i.test(e.message)) return true;
+  return false;
 }

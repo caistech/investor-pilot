@@ -113,9 +113,11 @@ export async function POST(request: Request) {
       { organisation_id, route: '/api/sequences/generate-from-product' },
     );
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const isTimeout = /aborted|timeout|took longer than/i.test(message);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 502 },
+      { error: message, retryable: isTimeout },
+      { status: isTimeout ? 504 : 502 },
     );
   }
 

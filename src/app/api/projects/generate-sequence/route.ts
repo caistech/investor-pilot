@@ -98,9 +98,16 @@ export async function POST(request: Request) {
       { organisation_id, route: '/api/projects/generate-sequence' },
     );
   } catch (err) {
+    // Pass the underlying message through verbatim — the generator now
+    // translates AbortSignal timeouts into operator-readable copy before
+    // throwing, so this is already actionable when it surfaces.
+    const message = err instanceof Error ? err.message : String(err);
+    // 504-shaped errors (timeout / abort) are user-recoverable (retry);
+    // everything else is a 502 (upstream LLM failure).
+    const isTimeout = /aborted|timeout|took longer than/i.test(message);
     return NextResponse.json(
-      { error: err instanceof Error ? err.message : String(err) },
-      { status: 502 },
+      { error: message, retryable: isTimeout },
+      { status: isTimeout ? 504 : 502 },
     );
   }
 

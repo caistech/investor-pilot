@@ -75,6 +75,11 @@ export default function ProjectsPage() {
   // immediately, before the operator even uploads source docs. Falls back
   // to null (editable later via Edit) if the operator skips it.
   const [draftFundingType, setDraftFundingType] = useState<FundingType | ''>('');
+  // Description captured at create-time. Required by both Generate Rubric
+  // and Generate Sequence — if it's blank, the project lands with both
+  // unlock paths deadlocked on "no description yet" until the operator
+  // notices the Edit-and-fix flow. Capturing here removes that trap.
+  const [draftDescription, setDraftDescription] = useState<string>('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -183,6 +188,7 @@ export default function ProjectsPage() {
     setDraftProjectId(null);
     setDraftProjectName('');
     setDraftFundingType('');
+    setDraftDescription('');
   }
 
   async function createDraftProject() {
@@ -196,6 +202,7 @@ export default function ProjectsPage() {
     const placeholderName = draftProjectName.trim() || `Draft project (${new Date().toLocaleString('en-AU')})`;
     const insertPayload: Record<string, unknown> = { organisation_id: orgId, name: placeholderName };
     if (draftFundingType) insertPayload.funding_type = draftFundingType;
+    if (draftDescription.trim()) insertPayload.description = draftDescription.trim();
     const { data, error: insertError } = await supabase
       .from('projects')
       .insert(insertPayload)
@@ -215,6 +222,7 @@ export default function ProjectsPage() {
     setDraftProjectId(null);
     setDraftProjectName('');
     setDraftFundingType('');
+    setDraftDescription('');
     loadProjects();
   }
 
@@ -373,6 +381,30 @@ export default function ProjectsPage() {
                       placeholder="e.g. Branscombe Estate — Senior Construction Debt"
                     />
                   </div>
+
+                  {/* Description / investment thesis. Gates Generate Rubric +
+                      Generate Sequence — without one, the project lands
+                      blocked on both. Auto-fill from KB fills it in once
+                      docs are uploaded, but for operators who want to
+                      start writing the pitch now (or who have a clear
+                      one-paragraph thesis already), capturing it here
+                      removes a downstream blocker. */}
+                  <div>
+                    <label className="block text-base text-white font-semibold mb-2">
+                      Description / Investment thesis
+                      <span className="text-sm text-dark-300 font-normal ml-2">(optional now — required before Generate Rubric / Sequence; Auto-fill from KB will fill it in if you skip)</span>
+                    </label>
+                    <textarea
+                      value={draftDescription}
+                      onChange={(e) => setDraftDescription(e.target.value)}
+                      rows={4}
+                      className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none resize-y"
+                      placeholder="One paragraph: what's being funded, structure (debt/equity/mezz), size, geography, and the angle that makes it interesting to an investor."
+                    />
+                    <p className="text-sm text-dark-300 mt-2">
+                      Two paths: write it now if your thesis is already clear, OR leave blank and let Auto-fill from KB extract it from your uploaded materials. Either way, this must exist before you can generate the rubric or sequence.
+                    </p>
+                  </div>
                 </div>
               </div>
 
@@ -497,6 +529,28 @@ export default function ProjectsPage() {
                   placeholder="e.g. Claremont, Tasmania"
                 />
               </div>
+
+              {/* DESCRIPTION lives in Essentials, not down with the
+                  optional fields, because Generate Rubric AND Generate
+                  Sequence both refuse to run without it. Burying it
+                  was the cause of the "no description yet" deadlock
+                  the operator hit on LingoPure Seed (2026-05-17). */}
+              <div className="md:col-span-2">
+                <label className="block text-base text-white font-semibold mb-2">
+                  Description / Investment thesis <span className="text-corp-green-400">*</span>
+                  <span className="text-sm text-dark-300 font-normal ml-2">— one paragraph, what's being funded + why an investor cares</span>
+                </label>
+                <textarea
+                  value={form.description || ''}
+                  onChange={(e) => setForm({ ...form, description: e.target.value })}
+                  rows={4}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none resize-y"
+                  placeholder="e.g. F2K Capital is raising $18.7M senior debt across two AU property development projects (Branscombe Estate TAS + Seafields Estate WA). First-mortgage, wholesale, fixed-term. Indicative 8-8.5% p.a., ~22mo. Anchor offtake to Homes Tasmania on the Branscombe facility."
+                />
+                <p className="text-sm text-dark-300 mt-2">
+                  Required before Step 1 (Generate scoring rubric) and Step 2 (Generate sequence) will run. Auto-fill from KB populates this from your uploaded docs — but a manual one-paragraph version always works.
+                </p>
+              </div>
             </div>
           </div>
 
@@ -514,17 +568,6 @@ export default function ProjectsPage() {
                 placeholder="e.g. Residential modular construction (37 dwellings)"
               />
             </div>
-          </div>
-
-          <div className="mb-6">
-            <label className="block text-sm text-dark-300 mb-1">Description <span className="text-dark-600">(pitch to the lender)</span></label>
-            <textarea
-              value={form.description || ''}
-              onChange={(e) => setForm({ ...form, description: e.target.value })}
-              rows={3}
-              className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none resize-y"
-              placeholder="One-paragraph pitch describing what's being funded, terms, security, and structure — from the lender's perspective."
-            />
           </div>
 
           {/* Compliance ruleset — per-project, picked from the four
