@@ -51,7 +51,7 @@ export async function GET() {
   }
 
   if (memoCache && memoCache.expiresAt > Date.now()) {
-    return NextResponse.json({ ok: true, url: memoCache.url, gif_url: memoCache.gif_url });
+    return NextResponse.json({ ok: true, url: memoCache.url, gif_url: memoCache.gif_url, video_id: videoId });
   }
 
   try {
@@ -83,7 +83,7 @@ export async function GET() {
       gif_url: json.data?.gif_url ?? null,
       expiresAt: Date.now() + CACHE_TTL_MS,
     };
-    return NextResponse.json({ ok: true, url, gif_url: memoCache.gif_url });
+    return NextResponse.json({ ok: true, url, gif_url: memoCache.gif_url, video_id: videoId });
   } catch (err) {
     return NextResponse.json(
       {

@@ -3,12 +3,18 @@
 import { useEffect, useState } from 'react';
 import { X, PlayCircle } from 'lucide-react';
 
-const DISMISS_KEY = 'investorpilot:dashboard-heygen-dismissed-at';
+// Per-video dismiss key. When the operator regenerates the narration
+// (new HEYGEN_VIDEO_ID), the key changes too — so a 'dismissed' state
+// on the old video doesn't suppress the new one. Bumping the video
+// is the right trigger for re-showing because that's the only time
+// the content actually changes.
+const DISMISS_KEY_BASE = 'investorpilot:dashboard-heygen-dismissed-at';
 const SHOW_AGAIN_AFTER_DAYS = 30;
 
 interface VideoState {
   loading: boolean;
   url: string | null;
+  videoId: string | null;
   unconfigured: boolean;
 }
 
@@ -25,44 +31,48 @@ interface VideoState {
  *   - The video state hasn't loaded yet (avoids a flash of empty hero)
  */
 export function HeygenHero() {
-  const [video, setVideo] = useState<VideoState>({ loading: true, url: null, unconfigured: false });
-  const [dismissed, setDismissed] = useState<boolean>(true); // start dismissed; re-evaluate on mount
+  const [video, setVideo] = useState<VideoState>({ loading: true, url: null, videoId: null, unconfigured: false });
+  const [dismissed, setDismissed] = useState<boolean>(true); // start dismissed; re-evaluate after video loads
 
   useEffect(() => {
-    // Read dismissal state from localStorage. SSR-safe — useEffect only runs client-side.
-    try {
-      const stored = window.localStorage.getItem(DISMISS_KEY);
-      if (stored) {
-        const dismissedAt = new Date(stored).getTime();
-        const ageDays = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
-        setDismissed(ageDays < SHOW_AGAIN_AFTER_DAYS);
-      } else {
-        setDismissed(false);
-      }
-    } catch {
-      setDismissed(false);
-    }
-
     // Fetch the playable URL from the server (which calls Heygen status endpoint).
     fetch('/api/dashboard/heygen-video')
       .then((r) => r.json())
-      .then((data: { ok: boolean; url?: string; status?: string }) => {
+      .then((data: { ok: boolean; url?: string; status?: string; video_id?: string }) => {
         if (data.ok && data.url) {
-          setVideo({ loading: false, url: data.url, unconfigured: false });
+          setVideo({ loading: false, url: data.url, videoId: data.video_id ?? null, unconfigured: false });
+
+          // Read dismissal state keyed to THIS video. New video_id =
+          // fresh dismiss state. SSR-safe — only runs client-side.
+          try {
+            const key = `${DISMISS_KEY_BASE}:${data.video_id ?? 'default'}`;
+            const stored = window.localStorage.getItem(key);
+            if (stored) {
+              const dismissedAt = new Date(stored).getTime();
+              const ageDays = (Date.now() - dismissedAt) / (1000 * 60 * 60 * 24);
+              setDismissed(ageDays < SHOW_AGAIN_AFTER_DAYS);
+            } else {
+              setDismissed(false);
+            }
+          } catch {
+            setDismissed(false);
+          }
         } else {
           setVideo({
             loading: false,
             url: null,
+            videoId: null,
             unconfigured: data.status === 'unconfigured',
           });
         }
       })
-      .catch(() => setVideo({ loading: false, url: null, unconfigured: false }));
+      .catch(() => setVideo({ loading: false, url: null, videoId: null, unconfigured: false }));
   }, []);
 
   function dismiss() {
     try {
-      window.localStorage.setItem(DISMISS_KEY, new Date().toISOString());
+      const key = `${DISMISS_KEY_BASE}:${video.videoId ?? 'default'}`;
+      window.localStorage.setItem(key, new Date().toISOString());
     } catch {
       // localStorage may be blocked (incognito with strict settings) — ignore.
     }

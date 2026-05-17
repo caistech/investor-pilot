@@ -42,8 +42,18 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Protect API routes (except auth callback)
-  if (path.startsWith('/api') && !path.startsWith('/api/auth')) {
+  // Protect API routes — but allow auth callbacks AND inbound webhooks.
+  // Webhooks come from third-party servers (Resend, Unipile) with no
+  // Supabase auth cookie; they validate themselves via svix signature
+  // (Resend) or shared-secret header (Unipile) inside the route handler.
+  // Without this exclusion every webhook POST 401'd at the middleware
+  // before its own signature check ever ran — silent failure mode where
+  // bounces / channel events never made it through.
+  if (
+    path.startsWith('/api') &&
+    !path.startsWith('/api/auth') &&
+    !path.startsWith('/api/webhooks')
+  ) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
