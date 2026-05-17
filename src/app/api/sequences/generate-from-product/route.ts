@@ -121,21 +121,28 @@ export async function POST(request: Request) {
     );
   }
 
-  // Upsert into sequence_templates. Match on (organisation_id, vertical)
-  // so re-runs for the same product replace the prior auto-generated copy
-  // rather than piling up.
+  // Pin the vertical slug deterministically to the product so re-running
+  // ALWAYS finds and updates the same row. Mirror of the project-side
+  // fix shipped same day — see /api/projects/generate-sequence for the
+  // full context (LLM-picked verticals were drifting per regen, the
+  // upsert key never matched, templates accumulated).
+  const deterministicVertical = `auto_product_${productId}`;
+  const llmVertical = result.vertical;
+
   const { data: existing } = await db
     .from('sequence_templates')
     .select('id')
     .eq('organisation_id', organisation_id)
-    .eq('vertical', result.vertical)
+    .eq('vertical', deterministicVertical)
     .maybeSingle();
 
   const templateRow = {
     organisation_id,
     name: result.template_name,
-    description: result.template_description,
-    vertical: result.vertical,
+    description: result.template_description
+      ? `${result.template_description}${llmVertical && llmVertical !== deterministicVertical ? ` (LLM category: ${llmVertical})` : ''}`
+      : null,
+    vertical: deterministicVertical,
     // Inherits from product.compliance_mode (migration 026). Operator
     // picks per-product in the product edit form; brand-new rows
     // default to 'standard' (light-touch).

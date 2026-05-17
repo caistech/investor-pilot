@@ -111,20 +111,31 @@ export async function POST(request: Request) {
     );
   }
 
-  // Upsert on (organisation_id, vertical). Re-running for the same
-  // project replaces the prior auto-generated template.
+  // Pin the vertical slug deterministically to the project so re-running
+  // ALWAYS finds and updates the same template row. The LLM-supplied
+  // result.vertical was being different per run (vc_series_a_sea →
+  // vc_series_a_edtech_vietnam → seed_safe_b2b_saas_sea → ...) so the
+  // upsert key (organisation_id, vertical) never matched and templates
+  // accumulated. An operator hit this on 2026-05-17 with 9 stacked
+  // LingoPure templates. The LLM's vertical is kept in description so
+  // operators can still see what the model thought the category was.
+  const deterministicVertical = `auto_project_${projectId}`;
+  const llmVertical = result.vertical;
+
   const { data: existing } = await db
     .from('sequence_templates')
     .select('id')
     .eq('organisation_id', organisation_id)
-    .eq('vertical', result.vertical)
+    .eq('vertical', deterministicVertical)
     .maybeSingle();
 
   const templateRow = {
     organisation_id,
     name: result.template_name,
-    description: result.template_description,
-    vertical: result.vertical,
+    description: result.template_description
+      ? `${result.template_description}${llmVertical && llmVertical !== deterministicVertical ? ` (LLM category: ${llmVertical})` : ''}`
+      : null,
+    vertical: deterministicVertical,
     // Compliance mode inherits from the project row (migration 026 ─
     // operators pick the appropriate ruleset per project). Fallback to
     // 'standard' (light-touch) when the column is null on legacy rows.

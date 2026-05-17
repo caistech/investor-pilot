@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { ChevronLeft } from 'lucide-react';
 import { TemplateStepEditor } from '@/components/settings/template-step-editor';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
+import { TemplateControls } from '@/components/settings/template-controls';
 
 export const dynamic = 'force-dynamic';
 
@@ -77,7 +78,7 @@ export default async function TemplatesSettingsPage() {
       <div className="space-y-8 max-w-4xl">
         {rows.map((tpl) => (
           <div key={tpl.id}>
-            <div className="flex items-center gap-3 mb-3">
+            <div className="flex items-center gap-3 mb-3 flex-wrap">
               <h3>{tpl.name}</h3>
               {tpl.is_active ? (
                 <span className="badge-green">Active</span>
@@ -85,6 +86,13 @@ export default async function TemplatesSettingsPage() {
                 <span className="badge-amber">Inactive</span>
               )}
               {tpl.vertical && <code className="text-dark-500 text-xs">{tpl.vertical}</code>}
+              <div className="ml-auto">
+                <TemplateControls
+                  templateId={tpl.id}
+                  templateName={tpl.name}
+                  isActive={tpl.is_active}
+                />
+              </div>
             </div>
             {tpl.description && (
               <p className="text-dark-400 text-sm mb-4">{tpl.description}</p>
