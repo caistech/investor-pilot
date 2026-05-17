@@ -424,7 +424,9 @@ export async function renderStep(
   // Approvals before sending. Skips translation when the offering's own
   // geography matches the recipient's (both English-speaking, or both
   // same locale) or when target language detection returns null.
-  const targetLanguage = detectTargetLanguage(partner.offering_context?.recipient_geography);
+  const geographyInput = partner.offering_context?.recipient_geography;
+  const targetLanguage = detectTargetLanguage(geographyInput);
+  console.log(`[render] localisation check for ${partner.company_name}: geography_hint=${JSON.stringify((geographyInput || '').slice(0, 200))} → target_language=${targetLanguage ?? 'none'}`);
   let originalSubject = subject;
   let originalBody = body;
   let finalSubject = subject;
@@ -437,8 +439,19 @@ export async function renderStep(
         targetLanguage,
         recipientName: partner.contact_name,
       });
-      finalSubject = translated.subject;
-      finalBody = translated.body;
+      // Sanity guard: translation LLM occasionally returns the English source
+      // verbatim when it decides the input was already in the target language
+      // or when the prompt parse failed silently. Detect by comparing first
+      // 80 chars; on match, log + keep English (the original was already
+      // English so nothing was lost) so we can see this in logs.
+      const translatedLooksLikeSource = translated.body.slice(0, 80).trim() === body.slice(0, 80).trim();
+      if (translatedLooksLikeSource) {
+        console.warn(`[render] translation to ${targetLanguage} for ${partner.company_name} returned the English source verbatim — LLM likely failed to translate. Keeping English.`);
+      } else {
+        finalSubject = translated.subject;
+        finalBody = translated.body;
+        console.log(`[render] translation to ${targetLanguage} succeeded for ${partner.company_name} (body length: ${body.length} → ${finalBody.length})`);
+      }
     } catch (err) {
       // Translation failed — fall back to English rather than blocking.
       // Operator sees English in Approvals; better than an empty message.

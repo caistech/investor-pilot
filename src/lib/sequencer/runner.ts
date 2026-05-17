@@ -191,10 +191,29 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       // fit-signal extractor can reason about WHY this specific
       // recipient might care — geography / sector / cultural angles —
       // not just regurgitate evidence facts.
+      //
+      // Geography hint is built from multiple partner fields rather than
+      // just .category, because .category often contains the persona
+      // label ("Series A Investor", "Family Office") with no country
+      // token, while the geography string ("Vietnam Series A B2B SaaS
+      // investor") actually lives in the scoring notes. Vietnamese
+      // prospects were rendering English drafts because the regex in
+      // detectTargetLanguage saw "Series A Investor" with no
+      // country word to match.
+      const geographyHint = [
+        partner.category,
+        partner.audience_overlap_notes,
+        partner.complementarity_notes,
+        partner.partner_readiness_notes,
+        partner.last_session_notes,
+      ]
+        .filter(Boolean)
+        .join(' | ')
+        .slice(0, 600);
       const offeringContext = await loadOfferingContext(db, {
         project_id: partner.project_id || null,
         product_id: partner.product_id || null,
-        recipient_category: partner.category || null,
+        recipient_category: geographyHint || null,
       });
 
       const renderPartner: RenderPartner = {
