@@ -1,6 +1,6 @@
 # InvestorPilot — Project Status
 
-Last updated: 2026-05-18 AEST
+Last updated: 2026-05-18 AEST (end of day — includes teams iteration)
 
 ## Current State
 
@@ -8,7 +8,8 @@ Live on https://investor-pilot-pi.vercel.app/. Forked from PartnerPilot for
 F2K Housing Development Fund — sourcing sophisticated/wholesale investors
 (s708(8) Corporations Act). Dual-mode: **Projects** (fundraising — investors)
 and **Products** (sales — channel partners), both first-class peers with
-shared infrastructure and dedicated tone.
+shared infrastructure and dedicated tone. **Multi-tenant teams** with
+per-member channels live as of 2026-05-18.
 
 ### What works (operator-facing)
 
@@ -41,6 +42,15 @@ shared infrastructure and dedicated tone.
   language pre-send
 - **Operator controls** — daily caps, warmup curves, per-channel
   kill switch, channels page health monitoring
+- **Teams** — owner/admin invites teammates via Supabase Auth
+  invite-email (branded "InvestorPilot" via Resend SMTP). Each
+  member connects their own LinkedIn + email; sequencer picks the
+  right member's channel by step ownership. Shared dataroom
+  (templates, products, projects, KB, prospects) across the org.
+  `/settings/team` for member + role management. Migration 028
+  added `client_channels.user_id` + `sequence_steps.created_by_user_id`,
+  backfilled to existing owners so single-user orgs see zero
+  behaviour change.
 
 ### Architecture
 
@@ -70,7 +80,14 @@ live email delivery.
    geography_hint=… → target_language=Vietnamese` and `translation to
    Vietnamese succeeded`. Confirm VIETNAMESE badge in approvals queue
    header and that clicking "English version" toggle works.
-2. **Resend webhook configuration** — operator action: in Resend
+2. **Teams smoke test** — code + routes + Supabase email templates all
+   verified, but no real human invite has been accepted yet. At
+   `/settings/team`, invite a test email (alt address), confirm the
+   email arrives branded "InvestorPilot", set password, land joined
+   to the org as member, connect a LinkedIn via /channels, run
+   render-now and confirm the sequencer uses the new member's
+   account (not the owner's).
+3. **Resend webhook configuration** — operator action: in Resend
    dashboard, add endpoint `https://investor-pilot-pi.vercel.app/api/webhooks/resend`,
    enable events (`email.bounced`, `email.complained`,
    `email.delivery_delayed`, `email.delivered`), copy signing secret
@@ -78,13 +95,13 @@ live email delivery.
 
 ## Priority for next session
 
-1. **Teams / multi-tenant** (multi-day) — design fully locked, see
-   `.claude/projects/.../memory/project_teams_design_decisions.md`.
-   Per-member channels, shared partner pool, org-wide approvals,
-   Supabase Auth invite flow, channel-disconnect step-waits-and-flags.
-2. **Bounce → re-enrich auto-flow** — quarter-day
-3. **Operator-configurable compliance ruleset** — half-day
-4. **Global pause flag** (org-level) — 2-3 hours
+1. **Bounce → re-enrich auto-flow** — quarter-day
+2. **Operator-configurable compliance ruleset** — half-day
+3. **Global pause flag** (org-level) — 2-3 hours
+4. **Teams follow-ups** (if usage surfaces friction):
+   - /approvals UI surface for steps stuck on disconnected channels
+   - Channels filter "show only mine" (today shows all org channels)
+   - Step reassignment without waiting for channel reconnect
 
 ## Key files
 
@@ -114,6 +131,16 @@ live email delivery.
 - `src/app/(dashboard)/partners/[id]/page.tsx` — pool context cross-link
 - `src/app/(dashboard)/projects/page.tsx`, `products/page.tsx` —
   PoolStatChip on rows
+- `src/app/(dashboard)/settings/team/page.tsx` — team members + invites
+
+### Teams
+- `src/app/api/team/invite/route.ts` — Supabase Auth invite-by-email
+- `src/app/api/team/members/route.ts` — list org members with channel counts
+- `src/app/api/team/members/[id]/route.ts` — PATCH role, DELETE member
+- `src/app/auth/callback/route.ts` — joins invited members to their org
+- `src/lib/channels/unipile.ts` — auth-link encodes `org_id:user_id`
+- `src/app/api/webhooks/unipile/account/route.ts` — parses + lands channel
+  with right user_id
 
 ### Env
 
