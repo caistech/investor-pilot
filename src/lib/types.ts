@@ -170,6 +170,31 @@ export const FUNDING_TYPE_BY_VALUE: Record<FundingType, { label: string; describ
     return acc;
   }, {} as Record<FundingType, { label: string; describe: string; category: string }>);
 
+/**
+ * The noun used to refer to the capital provider for a given funding type.
+ * Drives field labels in the project UI, the perspective framing in the
+ * auto-fill prompt, and the sequence generator tone.
+ *
+ *   Equity rounds            → "Investor"
+ *   Real-estate debt         → "Lender"
+ *   Business debt            → "Lender"
+ *   Alternative              → "Investor" (most common) or generic
+ *
+ * Falls back to "Investor" when funding_type is null — equity is the
+ * platform-wide default tone (was "Lender" before migration 027, when
+ * the system assumed F2K debt fund only).
+ */
+export function capitalProviderTerm(fundingType: FundingType | null | undefined): {
+  noun: 'Investor' | 'Lender' | 'Funder';
+  nounUpper: 'INVESTOR' | 'LENDER' | 'FUNDER';
+} {
+  if (!fundingType) return { noun: 'Investor', nounUpper: 'INVESTOR' };
+  const entry = FUNDING_TYPE_BY_VALUE[fundingType];
+  if (!entry) return { noun: 'Investor', nounUpper: 'INVESTOR' };
+  if (entry.category.startsWith('Debt')) return { noun: 'Lender', nounUpper: 'LENDER' };
+  return { noun: 'Investor', nounUpper: 'INVESTOR' };
+}
+
 export interface Project {
   id: string;
   organisation_id: string;

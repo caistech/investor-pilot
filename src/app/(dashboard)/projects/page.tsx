@@ -5,25 +5,36 @@ import { createClient } from '@/lib/supabase/client';
 import { Plus, Briefcase, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Power, PowerOff, Target } from 'lucide-react';
 import Link from 'next/link';
 import type { Project, FundingType } from '@/lib/types';
-import { FUNDING_TYPE_GROUPS } from '@/lib/types';
+import { FUNDING_TYPE_GROUPS, capitalProviderTerm } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 
-const DETAIL_FIELDS: Array<{ key: keyof Project; label: string }> = [
-  { key: 'core_mechanism', label: 'Core Mechanism (lender perspective)' },
-  { key: 'customer_outcomes', label: 'Lender Outcomes' },
-  { key: 'icp_company_size', label: 'Lender Company Size' },
-  { key: 'icp_stage', label: 'Lender Stage / Maturity' },
-  { key: 'icp_verticals', label: 'Lender Verticals' },
-  { key: 'icp_buyer_title', label: 'Buyer Title at Lender Firm' },
-  { key: 'icp_user_title', label: 'User Title at Lender Firm' },
-  { key: 'icp_stack_tools', label: 'Lender Stack Tools' },
-  { key: 'traction_arr', label: 'Proof Points' },
-  { key: 'traction_customers', label: 'Existing Participants' },
-  { key: 'partner_types', label: 'Partner Type' },
-  { key: 'exclusions', label: 'Exclusions' },
-];
+/**
+ * Detail-field labels that adapt to the project's funding_type. An equity
+ * Seed round shows "Investor Outcomes / Investor Verticals / Buyer Title
+ * at Investor Firm"; a senior-debt project shows "Lender Outcomes /
+ * Lender Verticals / Buyer Title at Lender Firm". Pre-migration-027 the
+ * labels were hard-coded "Lender X" — a leftover from when this was an
+ * F2K-debt-only tool — and reading them on an equity card was incoherent.
+ */
+function detailFieldsFor(fundingType: FundingType | null | undefined): Array<{ key: keyof Project; label: string }> {
+  const { noun } = capitalProviderTerm(fundingType);
+  return [
+    { key: 'core_mechanism', label: `Core Mechanism (${noun.toLowerCase()} perspective)` },
+    { key: 'customer_outcomes', label: `${noun} Outcomes` },
+    { key: 'icp_company_size', label: `${noun} Company Size` },
+    { key: 'icp_stage', label: `${noun} Stage / Maturity` },
+    { key: 'icp_verticals', label: `${noun} Verticals` },
+    { key: 'icp_buyer_title', label: `Buyer Title at ${noun} Firm` },
+    { key: 'icp_user_title', label: `User Title at ${noun} Firm` },
+    { key: 'icp_stack_tools', label: `${noun} Stack Tools` },
+    { key: 'traction_arr', label: 'Proof Points' },
+    { key: 'traction_customers', label: 'Existing Participants' },
+    { key: 'partner_types', label: 'Partner Type' },
+    { key: 'exclusions', label: 'Exclusions' },
+  ];
+}
 
 const EMPTY_FORM: Omit<Project, 'id' | 'organisation_id' | 'created_at' | 'updated_at'> = {
   sponsor: '',
@@ -80,6 +91,11 @@ export default function ProjectsPage() {
   // unlock paths deadlocked on "no description yet" until the operator
   // notices the Edit-and-fix flow. Capturing here removes that trap.
   const [draftDescription, setDraftDescription] = useState<string>('');
+  // Sponsor is interpolated into every outbound message ("F2K Capital is
+  // raising...", "Koch Capital Advisory is placing..."). Carries trust
+  // signal — anonymous sponsor is a red flag to any serious investor.
+  // Optional at create time; auto-fill from KB will populate it if blank.
+  const [draftSponsor, setDraftSponsor] = useState<string>('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -189,6 +205,7 @@ export default function ProjectsPage() {
     setDraftProjectName('');
     setDraftFundingType('');
     setDraftDescription('');
+    setDraftSponsor('');
   }
 
   async function createDraftProject() {
@@ -203,6 +220,7 @@ export default function ProjectsPage() {
     const insertPayload: Record<string, unknown> = { organisation_id: orgId, name: placeholderName };
     if (draftFundingType) insertPayload.funding_type = draftFundingType;
     if (draftDescription.trim()) insertPayload.description = draftDescription.trim();
+    if (draftSponsor.trim()) insertPayload.sponsor = draftSponsor.trim();
     const { data, error: insertError } = await supabase
       .from('projects')
       .insert(insertPayload)
@@ -223,6 +241,7 @@ export default function ProjectsPage() {
     setDraftProjectName('');
     setDraftFundingType('');
     setDraftDescription('');
+    setDraftSponsor('');
     loadProjects();
   }
 
@@ -380,6 +399,28 @@ export default function ProjectsPage() {
                       className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
                       placeholder="e.g. Branscombe Estate — Senior Construction Debt"
                     />
+                  </div>
+
+                  {/* Sponsor — the entity raising the capital. Trust signal
+                      in every outreach line ("Koch Capital Advisory is
+                      placing...", "F2K Capital is raising..."). Anonymous
+                      sponsor is a red flag to any serious investor, so we
+                      capture it at create time when the operator's mental
+                      context is already on it. */}
+                  <div>
+                    <label className="block text-base text-white font-semibold mb-2">
+                      Sponsor
+                      <span className="text-sm text-dark-300 font-normal ml-2">— the entity raising the capital (named in every outreach)</span>
+                    </label>
+                    <input
+                      value={draftSponsor}
+                      onChange={(e) => setDraftSponsor(e.target.value)}
+                      className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                      placeholder="e.g. Koch Capital Advisory, F2K Capital, LingoPure Pty Ltd"
+                    />
+                    <p className="text-sm text-dark-300 mt-2">
+                      Your firm or the firm raising on behalf of the underlying asset. Investors look this up before opening anything else — anonymous sponsor reads as a red flag. Optional now; auto-fill from KB will populate if blank, but typing it now means the first cold draft you see is already credibility-anchored.
+                    </p>
                   </div>
 
                   {/* Description / investment thesis. Gates Generate Rubric +
@@ -685,9 +726,13 @@ export default function ProjectsPage() {
                     ))}
                   </div>
 
-                  {/* ICP fields */}
+                  {/* ICP fields — labels adapt to the project's funding_type
+                      (equity rounds show "Investor X", debt projects show
+                      "Lender X"). Labels alone don't change the saved
+                      values — those come from auto-fill, which now also
+                      adapts perspective per funding_type. */}
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3 text-sm mb-4">
-                    {DETAIL_FIELDS
+                    {detailFieldsFor(p.funding_type)
                       .map(f => ({ label: f.label, value: p[f.key] }))
                       .filter(f => f.value)
                       .map(f => (
