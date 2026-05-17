@@ -1,6 +1,7 @@
 import Link from 'next/link';
+import PublicHeader from '@/components/layout/public-header';
+import PublicFooter from '@/components/layout/public-footer';
 import {
-  Zap,
   Search,
   MessageSquare,
   ShieldCheck,
@@ -10,26 +11,15 @@ import {
   FileText,
   TestTube2,
   Inbox,
+  Users,
+  BarChart3,
+  Reply,
 } from 'lucide-react';
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-dark-950">
-      <header className="border-b border-dark-800">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Zap className="w-6 h-6 text-corp-green-500" />
-            <span className="text-xl font-bold">InvestorPilot</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/playbook" className="nav-link hidden sm:inline">How it works</Link>
-            <Link href="/pricing" className="nav-link hidden sm:inline">Pricing</Link>
-            <Link href="/about" className="nav-link hidden sm:inline">About</Link>
-            <Link href="/login" className="nav-link">Sign in</Link>
-            <Link href="/signup" className="btn-primary">Get Started</Link>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-dark-950 flex flex-col">
+      <PublicHeader />
 
       <section className="max-w-6xl mx-auto px-6 py-24 text-center">
         <div className="badge-green mb-6 mx-auto inline-block">Direct outreach platform</div>
@@ -93,6 +83,21 @@ export default function LandingPage() {
               desc: 'Nothing ships without your sign-off. Each draft shows fit score, tier badge, compliance check, and personalisation score. Edit, regenerate, skip, or approve from the queue.',
             },
             {
+              icon: BarChart3,
+              title: 'Pool Summary — your sponsor deliverable',
+              desc: 'Every Project and Product gets an auto-generated one-page summary: scored count, score-tier histogram, geographic distribution, language distribution ("12 prospects will receive their first message in Vietnamese"), top 10 by score, narrative insights. Print-to-PDF and hand it to your sponsor, IC, or board — the platform turns discovery into a deliverable, not just a list.',
+            },
+            {
+              icon: Users,
+              title: 'Teams — shared dataroom, own outreach',
+              desc: 'Invite teammates by email. Templates, products, projects, KB and prospects stay shared across the org; each member connects their own LinkedIn and inbox so the sequencer sends from the right account. Owner/admin/member roles, per-member channel inventory, branded invite emails via Resend.',
+            },
+            {
+              icon: Reply,
+              title: 'Bounce + complaint auto-handling',
+              desc: 'Resend webhook (svix-validated) listens for bounces, complaints, and delivery delays. A bounced address auto-marks the prospect as contact_partial, clears the bad email so enrich can re-run, and cancels any downstream queued steps — no piling on a dead inbox. Audit-logged for compliance.',
+            },
+            {
               icon: TestTube2,
               title: 'Sample-to-self',
               desc: 'One-click end-to-end test: runs the full pipeline against you (Brave + LinkedIn enrichment on your own profile, render, send to your inbox). See what the system would write to a real prospect before you set up a single one.',
@@ -127,27 +132,7 @@ export default function LandingPage() {
         </div>
       </section>
 
-      <footer className="border-t border-dark-800 py-8 mt-8">
-        <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
-          <div className="flex items-center gap-2">
-            <Zap className="w-4 h-4 text-corp-green-500" />
-            <span className="text-sm text-dark-400">
-              Built by{' '}
-              <a href="https://corporateaisolutions.com" className="text-white hover:text-corp-green-400">
-                Corporate AI Solutions
-              </a>
-            </span>
-          </div>
-          <div className="flex items-center gap-4 text-sm text-dark-500">
-            <Link href="/playbook" className="hover:text-white">How it works</Link>
-            <Link href="/pricing" className="hover:text-white">Pricing</Link>
-            <Link href="/about" className="hover:text-white">About</Link>
-            <Link href="/contact" className="hover:text-white">Contact</Link>
-            <Link href="/privacy" className="hover:text-white">Privacy</Link>
-            <Link href="/terms" className="hover:text-white">Terms</Link>
-          </div>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

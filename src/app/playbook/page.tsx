@@ -1,6 +1,7 @@
 import Link from 'next/link';
+import PublicHeader from '@/components/layout/public-header';
+import PublicFooter from '@/components/layout/public-footer';
 import {
-  Zap,
   ArrowRight,
   Search,
   UserCheck,
@@ -11,6 +12,8 @@ import {
   Reply,
   Building2,
   Briefcase,
+  BarChart3,
+  Users,
 } from 'lucide-react';
 
 export const metadata = {
@@ -73,28 +76,15 @@ const STAGES = [
     n: 8,
     stage: 'Track',
     icon: Reply,
-    title: 'Track replies + bounces (manual today, webhook auto-routing in build)',
-    body: 'Operator marks replies and bounces from the Track view; the system transitions partner.status accordingly and pauses downstream sends. Inbound-webhook auto-routing (Resend bounces + Unipile replies → automatic partner.status + step cancellation) is the next-up build. The full audit log — every discovery, scoring, draft, approval, send, manual reply mark — is written to audit_events for export and compliance review.',
+    title: 'Track replies + auto-handle bounces',
+    body: 'Resend webhook (svix-signed) listens for email.bounced / email.complained / email.delivery_delayed. A bounced address auto-marks the prospect as contact_partial, clears the bad email so the enrich stage can re-run on a fresh address, and cancels any pending downstream steps for that prospect — no piling sends onto a dead inbox. Replies still flagged manually today via the Track view; Unipile inbound webhook for auto-routing LinkedIn replies is on the next-up queue. The full audit log — every discovery, scoring, draft, approval, send, bounce, manual reply mark — is written to audit_events for export and compliance review.',
   },
 ];
 
 export default function PlaybookPage() {
   return (
-    <div className="min-h-screen bg-dark-950">
-      <header className="border-b border-dark-800">
-        <div className="max-w-6xl mx-auto px-6 py-4 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-2">
-            <Zap className="w-6 h-6 text-corp-green-500" />
-            <span className="text-xl font-bold">InvestorPilot</span>
-          </Link>
-          <div className="flex items-center gap-4">
-            <Link href="/pricing" className="nav-link hidden sm:inline">Pricing</Link>
-            <Link href="/about" className="nav-link hidden sm:inline">About</Link>
-            <Link href="/login" className="nav-link">Sign in</Link>
-            <Link href="/signup" className="btn-primary">Get Started</Link>
-          </div>
-        </div>
-      </header>
+    <div className="min-h-screen bg-dark-950 flex flex-col">
+      <PublicHeader />
 
       <section className="max-w-4xl mx-auto px-6 py-16">
         <div className="text-center mb-12">
@@ -156,7 +146,53 @@ export default function PlaybookPage() {
           ))}
         </div>
 
-        <div className="card mt-12 border-corp-green-500/20 bg-corp-green-500/5">
+        {/* The deliverable — Pool Summary, the artifact operators hand to
+            sponsors. Sits between the stage list and the team/sample CTAs
+            so it's the first thing a reader sees after they've followed
+            the pipeline through to its output. */}
+        <div className="card mt-12 border-blue-500/30 bg-blue-500/5">
+          <div className="flex items-start gap-3">
+            <BarChart3 className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
+            <div>
+              <h4 className="mb-2">What you get to hand to your sponsor</h4>
+              <p className="text-dark-300 text-sm mb-2">
+                Every Project and Product gets an auto-generated{' '}
+                <strong className="text-white">Pool Summary</strong> — a
+                one-page deliverable showing scored count, score-tier
+                histogram, geographic distribution, language distribution
+                (&ldquo;12 prospects will receive their first message in
+                Vietnamese&rdquo;), top 10 by score, narrative insights, and a
+                print-to-PDF button. The platform turns discovery into a
+                deliverable, not just a list — pass it on to your sponsor, IC,
+                or board as-is.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        {/* Teams iteration — surfaced as its own section because it
+            changes the operating model (solo → coordinated team). */}
+        <div className="card mt-6 border-corp-green-500/20 bg-corp-green-500/5">
+          <div className="flex items-start gap-3">
+            <Users className="w-6 h-6 text-corp-green-400 flex-shrink-0 mt-1" />
+            <div>
+              <h4 className="mb-2">Run it as a team</h4>
+              <p className="text-dark-300 text-sm">
+                Invite teammates by email; each connects their own LinkedIn
+                and inbox. Templates, products, projects, KB and prospects stay
+                <strong className="text-white"> shared</strong> across the org
+                so messaging is consistent; outreach goes out from each
+                member&apos;s
+                <strong className="text-white"> own account</strong> so the
+                recipient sees a real person they can verify. The sequencer
+                picks the right member&apos;s channel per step automatically.
+                Owner / admin / member roles, branded invite emails, audit-logged.
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <div className="card mt-6 border-corp-green-500/20 bg-corp-green-500/5">
           <h4 className="mb-2">Sample-to-self before you commit</h4>
           <p className="text-dark-300 text-sm">
             Once your sender identity is set, one click runs the whole pipeline
@@ -174,14 +210,7 @@ export default function PlaybookPage() {
         </div>
       </section>
 
-      <footer className="border-t border-dark-800 py-8">
-        <div className="max-w-6xl mx-auto px-6 text-center text-sm text-dark-500">
-          Built by{' '}
-          <a href="https://corporateaisolutions.com" className="text-white hover:text-corp-green-400">
-            Corporate AI Solutions
-          </a>
-        </div>
-      </footer>
+      <PublicFooter />
     </div>
   );
 }

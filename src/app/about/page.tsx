@@ -40,8 +40,11 @@ export default function AboutPage() {
             <li>Multi-channel. LinkedIn connection requests and DMs (via Unipile) + email (via Resend).</li>
             <li>Tier-modulated. High-fit prospects get a direct ask; low-fit get exploratory framing.</li>
             <li>Auto-localised. Non-English prospects get their first message in their native language (14 supported — Vietnamese, Korean, Japanese, Chinese, Thai, Indonesian, Arabic, Portuguese, Spanish, French, German, Italian, Turkish, Russian). English original preserved for one-click operator review in /approvals.</li>
-            <li>Audit-logged. Every action — discovery, scoring, approval, send, manual reply mark — written to an audit trail.</li>
+            <li>Sponsor-deliverable. Every Project and Product generates a one-page Pool Summary — scored count, score-tier histogram, geographic + language distribution, top 10 by score, narrative insights. Print to PDF and hand to your sponsor, IC, or board as-is.</li>
+            <li>Team-ready. Invite teammates by email; shared dataroom (templates, products, projects, KB, prospects) with per-member outreach (each member sends from their own LinkedIn + inbox). Owner / admin / member roles, audit-logged.</li>
+            <li>Audit-logged. Every action — discovery, scoring, approval, send, bounce, manual reply mark — written to an audit trail.</li>
             <li>Compliance-aware. Per-product compliance rulesets (standard + finance_au_senior_debt built in) block unapproved language pre-send.</li>
+            <li>Bounce-aware. Resend webhook auto-marks bounced contacts as contact_partial, clears the bad email so enrich can retry on a fresh address, and cancels pending downstream steps so the platform doesn&apos;t pile sends onto a dead inbox.</li>
             <li>Operator-controlled. Daily caps, warmup curves, and a per-channel kill switch live on the platform, not on the third party.</li>
           </ul>
 

@@ -20,9 +20,10 @@ export default function PricingPage() {
           <div className="badge-amber mb-4 inline-block">Coming soon</div>
           <h1 className="mb-4">Pricing</h1>
           <p className="text-dark-300 text-lg max-w-2xl mx-auto">
-            We&apos;re finalising plans for both Projects (fundraising) and
-            Products (sales) modes. While we do that, the most useful thing
-            you can tell us is what InvestorPilot would be worth <em>to you</em>.
+            We&apos;re finalising plans across solo operators, teams, and
+            agency operators running multiple raises or sales motions. While
+            we do that, the most useful thing you can tell us is what
+            InvestorPilot would be worth <em>to you</em>.
           </p>
         </div>
 
