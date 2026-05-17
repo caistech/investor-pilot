@@ -228,19 +228,36 @@ async function runRubricGeneration(
   const response = await client.messages.create(
     {
       model: MODEL,
-      max_tokens: 3000,
+      // Rubric JSON is dense — 5 weighted dimensions with 10/5/1 examples,
+      // ICP categories, reject categories, special cases. 3000 tokens was
+      // truncating mid-sentence (operator hit this on LingoPure 2026-05-17
+      // — JSON ended at "10/10 = documented seed" with no closing brace).
+      // 6000 gives comfortable headroom while still inside any reasonable
+      // wall-time budget.
+      max_tokens: 6000,
       system: systemPrompt,
       messages: [{ role: 'user', content: userMessage }],
     },
-    // 45s timeout — prompts with full KB attached run 15–30s on OpenRouter,
-    // 20s was firing for non-trivial knowledge bases. Route maxDuration=60
-    // is the hard ceiling above us.
-    { signal: AbortSignal.timeout(45_000) },
+    // 55s timeout — prompts with full KB attached run 15–30s on OpenRouter,
+    // bumped to give breathing room for the bigger max_tokens budget. Stays
+    // 5s under Vercel's 60s ceiling so the abort fires cleanly.
+    { signal: AbortSignal.timeout(55_000) },
   );
 
   meterTokens(meterFor, response, MODEL);
 
+  // Detect a max_tokens stop_reason explicitly — that's the most common
+  // cause of "invalid JSON" on this path, and the error message should
+  // tell the operator that vs. a model that just refused.
+  const stopReason = (response as { stop_reason?: string }).stop_reason || '';
   const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+
+  if (stopReason === 'max_tokens') {
+    throw new Error(
+      `Rubric generation hit the 6000-token cap and was truncated. Usually means the offering description is very long or the KB content is sprawling. Trim the description in Edit, or click Auto-fill from KB to regenerate a tighter version first, then retry the rubric.`,
+    );
+  }
+
   const jsonMatch = text.match(/\{[\s\S]*\}/);
   if (!jsonMatch) {
     throw new Error(`LLM returned no JSON object: ${text.slice(0, 300)}`);
@@ -256,6 +273,16 @@ async function runRubricGeneration(
   try {
     parsed = JSON.parse(jsonMatch[0]);
   } catch {
+    // Last-ditch truncation detection: if the JSON doesn't end with `}`,
+    // it's almost certainly a max_tokens truncation (stop_reason may have
+    // been overwritten by some providers). Surface as such rather than
+    // the generic "invalid JSON" copy.
+    const looksTruncated = !jsonMatch[0].trimEnd().endsWith('}');
+    if (looksTruncated) {
+      throw new Error(
+        `Rubric generation was truncated mid-output (no closing brace). The offering description / KB is likely too long for the token budget. Trim the description in Edit and retry, or remove one of the heaviest KB sources.`,
+      );
+    }
     throw new Error(`LLM returned invalid JSON: ${jsonMatch[0].slice(0, 300)}`);
   }
 
