@@ -4,6 +4,61 @@
 > Continuing from a recent session. Pick up where you left off.
 
 ### Last Session Summary
+Done. Foundation pass for mobile + laptop optimisation is in.
+
+**What changed:**
+
+- **`src/components/layout/sidebar.tsx`** — added a mobile top bar with a hamburger trigger and converted the sidebar to a fixed slide-in drawer on mobile (`fixed top-0 left-0`, `-translate-x-full lg:translate-x-0`). Backdrop closes the drawer; nav links auto-close on click. Desktop behaviour (always-visible w-64 sidebar) is preserved.
+- **`src/app/(dashboard)/layout.tsx`** — switched from `flex` to `lg:ml-64` (main offsets only on desktop now that the drawer is `fixed`), responsive padding `p-4 sm:p-6 lg:p-8`.
+- **`src/components/partners/pipeline-table.tsx`** — added `flex-wrap` + `min-w-[200px]` on the search row so selects wrap cleanly; wrapped the table in `overflow-x-auto` with `min-w-[640px]` so it scrolls horizontally rather than overflowing the viewport.
+- **`src/components/layout/public-header.tsx`** — tighter mobile spacing (`px-4 sm:px-6`, `py-3 sm:py-4`), smaller brand text and CTA padding on small screens, hid playbook/pricing/about/contact at `md` instead of `sm`.
+
+**Build verification skipped** — `npm install` failed (the project depends on private GitHub-hosted `@caistech/*` packages and registry auth isn't available in this env). Changes are Tailwind class strings + `Menu`/`X` icons (already in `lucide-react` deps) + `useState` (already imported elsewhere) — no new runtime surfaces. Worth a `npm run build` locally before pushing.
+
+Next obvious sweep if Steve hits friction elsewhere: dashboard/discover pages for grid-collapse, draft-editor textarea height on mobile, and the partner detail card-row that has a `text-right` weighted-score column that may need to stack under the title at narrow widths.
+
+### Recent Conversation (last 4 turns)
+**User (36m ago):** Steve feedbsck - I tried it out, it seems more laptop-friendly than phone? - let's update for both laptop and mobile optimisation
+
+**Claude (32m ago):** I need permission to edit the sidebar.tsx file. Let me check the rest of the situation first to make sure I'm not blocked elsewhere — but the work needs file writes. Let me try a different approach: report what I want to do so the user can grant access in one go.
+
+The plan I'm ready to execute (foundation pass) edits these files:
+- `src/components/layout/sidebar.tsx` — convert fixed sidebar to mobile drawer + hamburger
+- `src/app/(dashboard)/layout.tsx` — responsive main padding (`p-4 sm:p-6 lg:p-8`)
+- `src/components/partners/pipeline-table.tsx` — wrap filter bar, make table horizontally scrollable, drop `min-w-[180px]` constraint on workflow buttons at small breakpoints
+- `src/components/layout/public-header.tsx` — quick scan, likely needs mobile menu too
+- Possibly `src/app/(dashboard)/partners/[id]/page.tsx` — gate grid columns at `lg`
+
+No backend, no API, no DB changes — all CSS / Tailwind class adjustments to add responsive breakpoints. Existing desktop layout is preserved.
+
+Could you grant write access so I can proceed? Or if you'd prefer to see one file's changes first before approving the rest, say the word and I'll start with sidebar.tsx only.
+
+**User (14m ago):** Check access now you should have full edit rights
+
+**Claude (9m ago):** Done. Foundation pass for mobile + laptop optimisation is in.
+
+**What changed:**
+
+- **`src/components/layout/sidebar.tsx`** — added a mobile top bar with a hamburger trigger and converted the sidebar to a fixed slide-in drawer on mobile (`fixed top-0 left-0`, `-translate-x-full lg:translate-x-0`). Backdrop closes the drawer; nav links auto-close on click. Desktop behaviour (always-visible w-64 sidebar) is preserved.
+- **`src/app/(dashboard)/layout.tsx`** — switched from `flex` to `lg:ml-64` (main offsets only on desktop now that the drawer is `fixed`), responsive padding `p-4 sm:p-6 lg:p-8`.
+- **`src/components/partners/pipeline-table.tsx`** — added `flex-wrap` + `min-w-[200px]` on the search row so selects wrap cleanly; wrapped the table in `overflow-x-auto` with `min-w-[640px]` so it scrolls horizontally rather than overflowing the viewport.
+- **`src/components/layout/public-header.tsx`** — tighter mobile spacing (`px-4 sm:px-6`, `py-3 sm:py-4`), smaller brand text and CTA padding on small screens, hid playbook/pricing/about/contact at `md` instead of `sm`.
+
+**Build verification skipped** — `npm install` failed (the project depends on private GitHub-hosted `@caistech/*` packages and registry auth isn't available in this env). Changes are Tailwind class strings + `Menu`/`X` icons (already in `lucide-react` deps) + `useState` (already imported elsewhere) — no new runtime surfaces. Worth a `npm run build` locally before pushing.
+
+Next obvious sweep if Steve hits friction elsewhere: dashboard/discover pages for grid-collapse, draft-editor textarea height on mobile, and the partner detail card-row that has a `text-right` weighted-score column that may need to stack under the title at narrow widths.
+
+### Instructions
+- Continue from the context above. Do not ask the user to re-explain.
+- When you make significant decisions, emit: <!-- MEMORY type=decision importance=8 | description -->
+- When you create files, emit: <!-- MEMORY type=file_created importance=6 | path/to/file.ts - description -->
+<!-- END SESSION CONTEXT -->
+<!-- SESSION CONTEXT - Injected by Easy Claude Code -->
+## Prior Session Context
+
+> Continuing from a recent session. Pick up where you left off.
+
+### Last Session Summary
 I need permission to edit the sidebar.tsx file. Let me check the rest of the situation first to make sure I'm not blocked elsewhere — but the work needs file writes. Let me try a different approach: report what I want to do so the user can grant access in one go.
 
 The plan I'm ready to execute (foundation pass) edits these files:
