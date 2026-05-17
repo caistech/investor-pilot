@@ -33,6 +33,7 @@ import {
 import { scoreAndUpsertCandidate, type ScoreCandidateInput } from '@/lib/discovery/scorer';
 import { buildScoringPrompt, type ScoringPromptProduct } from '@/lib/pipeline/scoring-prompt';
 import { generateLenderQueries } from '@/lib/discovery/query-generator';
+import { FUNDING_TYPE_BY_VALUE, type FundingType } from '@/lib/types';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
@@ -162,6 +163,8 @@ export async function POST(request: Request) {
     exclusions: string | null;
     sponsor: string | null;
     project_type: string | null;
+    /** Migration 027 — the fine-grained funding scenario slug. Drives the discovery + scoring prompts. */
+    funding_type: string | null;
     funding_target: string | null;
     geography: string | null;
     asset_class: string | null;
@@ -191,7 +194,7 @@ export async function POST(request: Request) {
     }
     const { data: project } = await db
       .from('projects')
-      .select('id, name, description, sponsor, project_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, investment_thesis, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
+      .select('id, name, description, sponsor, project_type, funding_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, investment_thesis, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
       .eq('id', project_id)
       .single();
     if (!project) {
@@ -238,6 +241,7 @@ export async function POST(request: Request) {
       description: null,
       sponsor: null,
       project_type: null,
+      funding_type: null,
       funding_target: null,
       geography: null,
       asset_class: null,
@@ -338,6 +342,14 @@ export async function POST(request: Request) {
       exclusions: offering.exclusions,
       sponsor: offering.sponsor,
       project_type: offering.project_type,
+      // Resolve funding_type slug → the canonical describe sentence so the
+      // generator prompt can tell the LLM exactly what investor profile to
+      // target. Missing / unknown slugs fall through as null — generator
+      // degrades to project_type only.
+      funding_type: offering.funding_type,
+      funding_type_describe: offering.funding_type
+        ? FUNDING_TYPE_BY_VALUE[offering.funding_type as FundingType]?.describe ?? null
+        : null,
       funding_target: offering.funding_target,
       geography: offering.geography,
       asset_class: offering.asset_class,
@@ -470,10 +482,19 @@ export async function POST(request: Request) {
   // Build the scoring system prompt once per batch (Phase C — multi-tenant
   // ICP). Uses the offering as ScoringPromptProduct since for product-driven
   // batches the offering IS the product (project-driven batches reuse the
-  // project's underlying product columns).
+  // project's underlying product columns). Funding type is resolved here so
+  // the same describe sentence used by the query-generator filter also
+  // appears in the scoring rubric — discovery and scoring stay aligned.
   let scoringSystemPrompt: string;
   try {
-    scoringSystemPrompt = buildScoringPrompt(offering as unknown as ScoringPromptProduct);
+    const scoringInput: ScoringPromptProduct = {
+      ...(offering as unknown as ScoringPromptProduct),
+      funding_type: offering.funding_type,
+      funding_type_describe: offering.funding_type
+        ? FUNDING_TYPE_BY_VALUE[offering.funding_type as FundingType]?.describe ?? null
+        : null,
+    };
+    scoringSystemPrompt = buildScoringPrompt(scoringInput);
   } catch (err) {
     return NextResponse.json(
       { error: err instanceof Error ? err.message : String(err) },

@@ -3,7 +3,12 @@
 @tailwind utilities;
 
 :root {
-  --background: #020617;
+  /* Body background bumped one shade lighter (slate-900 vs slate-950).
+     Still firmly dark-themed, but reduces the "void" effect — cards now
+     sit visibly on top of the bg instead of disappearing into it.
+     Operator feedback (2026-05-17): the original bg was hard to read
+     against, with low contrast on most controls. */
+  --background: #0f172a;
   --foreground: #f8fafc;
 }
 
@@ -42,52 +47,76 @@
 }
 
 @layer components {
+  /* Buttons — bumped to text-base + py-3 + bolder text. The previous
+     px-6 py-2.5 + font-medium read as "small grey UI chip" rather than
+     "primary action". Reads cleanly for a fund principal scanning the
+     page; agentic dev environments don't have human eyes to please. */
   .btn-primary {
-    @apply bg-corp-green-500 hover:bg-corp-green-600 text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200 shadow-lg shadow-corp-green-500/25 hover:shadow-corp-green-500/40;
+    @apply bg-corp-green-500 hover:bg-corp-green-600 text-white font-semibold text-base px-6 py-3 rounded-lg transition-all duration-200 shadow-lg shadow-corp-green-500/25 hover:shadow-corp-green-500/40;
   }
   .btn-secondary {
-    @apply bg-dark-800 hover:bg-dark-700 text-gray-200 font-medium px-6 py-2.5 rounded-lg border border-dark-600 transition-all duration-200;
+    @apply bg-dark-800 hover:bg-dark-700 text-white font-semibold text-base px-6 py-3 rounded-lg border-2 border-dark-600 hover:border-dark-500 transition-all duration-200;
   }
   .btn-danger {
-    @apply bg-red-600 hover:bg-red-700 text-white font-medium px-6 py-2.5 rounded-lg transition-all duration-200;
+    @apply bg-red-600 hover:bg-red-700 text-white font-semibold text-base px-6 py-3 rounded-lg transition-all duration-200;
   }
 
+  /* Cards — body bg is now dark-900 (slate-900). Cards bumped to
+     dark-800 so they sit visibly LIGHTER than the body. Stronger border
+     so the edge reads. Inline `bg-dark-900` blocks (form inputs etc.)
+     stay one shade darker than the card they sit on — intentional
+     nesting contrast. */
   .card {
-    @apply bg-dark-900 border border-dark-700 rounded-xl p-6;
+    @apply bg-dark-800 border border-dark-700 rounded-xl p-6;
   }
   .card-hover {
-    @apply bg-dark-900 border border-dark-700 rounded-xl p-6 hover:border-corp-green-500/50 hover:shadow-lg hover:shadow-corp-green-500/5 transition-all duration-300;
+    @apply bg-dark-800 border border-dark-700 rounded-xl p-6 hover:border-corp-green-500/60 hover:bg-dark-800/80 hover:shadow-lg hover:shadow-corp-green-500/10 transition-all duration-200;
   }
 
+  /* Nav — inactive bumped from dark-400 (#94a3b8, low-contrast grey) to
+     dark-200 (#e2e8f0, near-white). Bigger font weight. The earlier
+     palette had the nav fading into the bg unless you stared at it. */
   .nav-link {
-    @apply text-dark-400 hover:text-white px-4 py-2 rounded-lg transition-colors duration-200;
+    @apply text-dark-200 hover:text-white hover:bg-dark-800 px-4 py-2.5 rounded-lg font-medium text-base transition-colors duration-200;
   }
   .nav-link-active {
-    @apply text-white bg-dark-800 px-4 py-2 rounded-lg;
+    @apply text-white bg-corp-green-500/10 border-l-4 border-corp-green-500 px-4 py-2.5 rounded-lg font-semibold text-base;
   }
 
+  /* Badges — bumped from text-xs to text-sm and px-2.5 → px-3 so they
+     read as deliberate status tags rather than tiny grey footnotes. */
   .badge {
-    @apply inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium;
+    @apply inline-flex items-center px-3 py-0.5 rounded-full text-sm font-medium;
   }
   .badge-green {
-    @apply badge bg-corp-green-500/10 text-corp-green-400 border border-corp-green-500/20;
+    @apply badge bg-corp-green-500/15 text-corp-green-300 border border-corp-green-500/30;
   }
   .badge-blue {
-    @apply badge bg-blue-500/10 text-blue-400 border border-blue-500/20;
+    @apply badge bg-blue-500/15 text-blue-300 border border-blue-500/30;
   }
   .badge-purple {
-    @apply badge bg-purple-500/10 text-purple-400 border border-purple-500/20;
+    @apply badge bg-purple-500/15 text-purple-300 border border-purple-500/30;
   }
   .badge-amber {
-    @apply badge bg-amber-500/10 text-amber-400 border border-amber-500/20;
+    @apply badge bg-amber-500/15 text-amber-300 border border-amber-500/30;
   }
   .badge-orange {
-    @apply badge bg-orange-500/10 text-orange-400 border border-orange-500/20;
+    @apply badge bg-orange-500/15 text-orange-300 border border-orange-500/30;
   }
   .badge-red {
-    @apply badge bg-red-500/10 text-red-400 border border-red-500/20;
+    @apply badge bg-red-500/15 text-red-300 border border-red-500/30;
   }
   .badge-grey {
-    @apply badge bg-dark-500/10 text-dark-400 border border-dark-500/20;
+    @apply badge bg-dark-600/40 text-dark-200 border border-dark-500/40;
+  }
+
+  /* Prominent input — opt-in utility for fields that need to be
+     OBVIOUSLY editable. Bigger text, thicker border, taller hit target.
+     Use on the Essentials block of every setup form. */
+  .input-prominent {
+    @apply w-full bg-dark-900 border-2 border-dark-600 hover:border-dark-500 focus:border-corp-green-500 rounded-lg px-4 py-3 text-base text-white focus:outline-none transition-colors duration-150;
+  }
+  .label-prominent {
+    @apply block text-base text-white font-semibold mb-2;
   }
 }

@@ -6,6 +6,7 @@ import type { PartnerStatus } from '@/lib/types';
 import { HeygenHero } from '@/components/dashboard/heygen-hero';
 import { OnboardingSteps } from '@/components/dashboard/onboarding-steps';
 import { UsageBanner } from '@/components/dashboard/usage-banner';
+import { SampleToSelf } from '@/components/dashboard/sample-to-self';
 import { getMonthlyUsage } from '@/lib/usage/events';
 
 export const dynamic = 'force-dynamic';
@@ -17,8 +18,19 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id, full_name')
+    .select('organisation_id, full_name, email')
     .single();
+
+  // Org-level config the SampleToSelf component needs to decide whether to
+  // prompt for LinkedIn URL before running. Fetched server-side so the
+  // dashboard doesn't flash a "click to set up" CTA after the page mounts.
+  const { data: org } = profile?.organisation_id
+    ? await supabase
+        .from('organisations')
+        .select('sender_linkedin_url, sender_name, sender_role')
+        .eq('id', profile.organisation_id)
+        .single()
+    : { data: null };
 
   if (!profile?.organisation_id) {
     return (
@@ -80,6 +92,18 @@ export default async function DashboardPage() {
 
       {/* AI-generated explainer video — dismissible, hidden until ready */}
       <HeygenHero />
+
+      {/* One-click self-diagnostic — runs the full pipeline against the
+          operator themselves so they can see what the system writes before
+          setting up real prospects. Gated on sender identity (renderer
+          requires it); LinkedIn URL is captured by an inline modal inside
+          the component if missing. */}
+      {org?.sender_name && org?.sender_role && (
+        <SampleToSelf
+          hasSenderLinkedinUrl={!!org.sender_linkedin_url}
+          operatorEmail={(profile.email as string) || user.email || ''}
+        />
+      )}
 
       {/* Usage banner — only renders at 80%+ on any cap */}
       <UsageBanner usage={await getMonthlyUsage(orgId)} />

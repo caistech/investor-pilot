@@ -227,6 +227,10 @@ export interface GenerateProjectContext {
   investment_thesis: string | null;
   sponsor: string | null;
   project_type: string | null;
+  /** Migration 027 — fine-grained funding scenario slug (e.g. 'series_a', 'construction_debt_senior'). */
+  funding_type?: string | null;
+  /** Pre-resolved describe sentence for funding_type. Caller injects this from FUNDING_TYPE_BY_VALUE. */
+  funding_type_describe?: string | null;
   target_round: string | null;
   round_size_label: string | null;
   funding_target: string | null;
@@ -439,7 +443,7 @@ Name: ${project.name}
 Sponsor: ${project.sponsor ?? '(none)'}
 Description: ${project.description ?? '(none)'}
 Investment thesis: ${project.investment_thesis ?? '(none — fall back to description)'}
-Project type: ${project.project_type ?? '(none)'}
+Funding type: ${project.funding_type_describe ?? project.funding_type ?? '(none)'}
 Target round / facility: ${project.target_round ?? '(none)'}
 Target raise: ${project.round_size_label ?? project.funding_target ?? '(none)'}
 Asset class: ${project.asset_class ?? '(none)'}

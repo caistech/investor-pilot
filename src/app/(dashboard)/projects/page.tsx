@@ -4,18 +4,11 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Briefcase, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Power, PowerOff, Target } from 'lucide-react';
 import Link from 'next/link';
-import type { Project, ProjectType } from '@/lib/types';
+import type { Project, FundingType } from '@/lib/types';
+import { FUNDING_TYPE_GROUPS } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
-
-const PROJECT_TYPE_LABELS: Record<ProjectType, string> = {
-  senior_debt: 'Senior debt',
-  mezzanine: 'Mezzanine',
-  equity: 'Equity',
-  platform_equity: 'Platform equity',
-  mixed: 'Mixed',
-};
 
 const DETAIL_FIELDS: Array<{ key: keyof Project; label: string }> = [
   { key: 'core_mechanism', label: 'Core Mechanism (lender perspective)' },
@@ -36,7 +29,12 @@ const EMPTY_FORM: Omit<Project, 'id' | 'organisation_id' | 'created_at' | 'updat
   sponsor: '',
   name: '',
   description: '',
+  // project_type intentionally omitted — deprecated since migration 027,
+  // funding_type is the operator-facing field now. The Project interface
+  // still carries it for legacy compat (DB column not dropped); new rows
+  // land with project_type = null.
   project_type: null,
+  funding_type: null,
   funding_target: '',
   geography: '',
   asset_class: '',
@@ -72,6 +70,11 @@ export default function ProjectsPage() {
   // canonical material instead of typed-in by hand.
   const [draftProjectId, setDraftProjectId] = useState<string | null>(null);
   const [draftProjectName, setDraftProjectName] = useState<string>('');
+  // Funding type captured on the very first KB-first step so the new project
+  // row lands with this column already set — drives discovery + scoring
+  // immediately, before the operator even uploads source docs. Falls back
+  // to null (editable later via Edit) if the operator skips it.
+  const [draftFundingType, setDraftFundingType] = useState<FundingType | ''>('');
   const supabase = createClient();
 
   useEffect(() => {
@@ -137,6 +140,7 @@ export default function ProjectsPage() {
       name: project.name,
       description: project.description || '',
       project_type: project.project_type,
+      funding_type: project.funding_type ?? null,
       funding_target: project.funding_target || '',
       geography: project.geography || '',
       asset_class: project.asset_class || '',
@@ -178,6 +182,7 @@ export default function ProjectsPage() {
     setForm(EMPTY_FORM);
     setDraftProjectId(null);
     setDraftProjectName('');
+    setDraftFundingType('');
   }
 
   async function createDraftProject() {
@@ -189,9 +194,11 @@ export default function ProjectsPage() {
     setLoading(true);
     setError(null);
     const placeholderName = draftProjectName.trim() || `Draft project (${new Date().toLocaleString('en-AU')})`;
+    const insertPayload: Record<string, unknown> = { organisation_id: orgId, name: placeholderName };
+    if (draftFundingType) insertPayload.funding_type = draftFundingType;
     const { data, error: insertError } = await supabase
       .from('projects')
-      .insert({ organisation_id: orgId, name: placeholderName })
+      .insert(insertPayload)
       .select('id')
       .single();
     setLoading(false);
@@ -207,6 +214,7 @@ export default function ProjectsPage() {
     setShowForm(false);
     setDraftProjectId(null);
     setDraftProjectName('');
+    setDraftFundingType('');
     loadProjects();
   }
 
@@ -309,37 +317,78 @@ export default function ProjectsPage() {
           <h3 className="mb-4">New Project</h3>
 
           {!draftProjectId ? (
-            <div className="space-y-4">
-              <div className="p-3 rounded-lg bg-corp-green-500/5 border border-corp-green-500/20 text-xs text-dark-300">
-                <p className="font-medium text-corp-green-400 mb-1">KB-first project creation</p>
-                <p className="text-dark-400">
-                  Upload your Investment Memorandum, Finance Submission, term sheet PDFs (and add URLs / pasted text if you have any) directly here. The AI extracts the sponsor, funding terms, geography, asset class, lender ICP — everything — from those sources. No form to fill manually.
+            <div className="space-y-5">
+              <div className="p-4 rounded-lg bg-corp-green-500/10 border border-corp-green-500/30 text-sm text-dark-200">
+                <p className="font-semibold text-corp-green-400 mb-1 text-base">KB-first project creation</p>
+                <p>
+                  Upload your Investment Memorandum, Finance Submission, term sheet PDFs (and add URLs / pasted text if you have any). The AI extracts the sponsor, funding terms, geography, asset class — everything — from those sources. Pick the funding type below so discovery starts on the right track from the very first run.
                 </p>
               </div>
 
-              <div>
-                <label className="block text-sm text-dark-300 mb-1">Project Name <span className="text-dark-600">(optional — AI will extract if blank)</span></label>
-                <input
-                  value={draftProjectName}
-                  onChange={(e) => setDraftProjectName(e.target.value)}
-                  className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-                  placeholder="e.g. Branscombe Estate — Senior Construction Debt"
-                />
+              {/* === ESSENTIALS — same prominence as the Edit form. Funding
+                  Type is the only field that can't be reliably auto-filled
+                  from docs (the AI doesn't know whether a $50M raise is
+                  Series A vs growth equity vs senior debt without operator
+                  judgement), so it's the one mandatory pick here. */}
+              <div className="p-5 rounded-xl bg-corp-green-500/5 border-2 border-corp-green-500/40">
+                <div className="flex items-baseline justify-between mb-4">
+                  <h4 className="text-base text-corp-green-400 font-semibold uppercase tracking-wide">Pick before upload</h4>
+                  <span className="text-xs text-dark-300">Sets the filter for everything downstream.</span>
+                </div>
+
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-base text-white font-semibold mb-2">
+                      Funding Type <span className="text-corp-green-400">*</span>
+                      <span className="text-sm text-dark-300 font-normal ml-2">— what kind of capital are you raising?</span>
+                    </label>
+                    <select
+                      value={draftFundingType}
+                      onChange={(e) => setDraftFundingType(e.target.value as FundingType | '')}
+                      className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                    >
+                      <option value="">— Select the funding scenario —</option>
+                      {FUNDING_TYPE_GROUPS.map(group => (
+                        <optgroup key={group.category} label={group.category}>
+                          {group.options.map(opt => (
+                            <option key={opt.value} value={opt.value}>{opt.label}</option>
+                          ))}
+                        </optgroup>
+                      ))}
+                    </select>
+                    <p className="text-sm text-dark-300 mt-2">
+                      Discovery looks for the matching investor profile; the scorer rejects mismatches as out_of_scope. Picking the right value here is the difference between a list of real prospects and a list of irrelevant VCs.
+                    </p>
+                  </div>
+
+                  <div>
+                    <label className="block text-base text-white font-semibold mb-2">
+                      Project Name
+                      <span className="text-sm text-dark-300 font-normal ml-2">(optional — AI will extract from your docs if blank)</span>
+                    </label>
+                    <input
+                      value={draftProjectName}
+                      onChange={(e) => setDraftProjectName(e.target.value)}
+                      className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                      placeholder="e.g. Branscombe Estate — Senior Construction Debt"
+                    />
+                  </div>
+                </div>
               </div>
 
               {error && (
-                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">{error}</div>
+                <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/30 text-red-400 text-sm">{error}</div>
               )}
 
               <div className="flex gap-3">
                 <button
                   onClick={createDraftProject}
                   disabled={loading}
-                  className="btn-primary disabled:opacity-50"
+                  className="btn-primary text-base px-5 py-3 disabled:opacity-50"
                 >
                   {loading ? 'Creating…' : 'Next: Upload sources →'}
                 </button>
-                <button onClick={cancelForm} className="btn-secondary">Cancel</button>
+                <button onClick={cancelForm} className="btn-secondary text-base px-5 py-3">Cancel</button>
               </div>
             </div>
           ) : (
@@ -367,61 +416,95 @@ export default function ProjectsPage() {
       {showForm && editingId && (
         <form onSubmit={handleSave} className="card mb-8">
           <h3 className="mb-4">Edit Project</h3>
-          <div className="mb-4 p-3 rounded-lg bg-blue-500/5 border border-blue-500/20 text-xs text-dark-300">
-            <p className="text-dark-400">Manually edit any field below. Or close and click <span className="text-corp-green-400">Auto-fill from KB</span> in the project&apos;s Knowledge Base section to regenerate fields from the source documents.</p>
+          <div className="mb-6 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm text-dark-200">
+            Manually edit any field below. Or close and click <span className="text-corp-green-400 font-medium">Auto-fill from KB</span> in the project&apos;s Knowledge Base section to regenerate fields from the source documents.
           </div>
 
+          {/* === ESSENTIALS — the 5 fields that drive everything downstream.
+              Bigger labels, brighter text, dedicated bordered panel so the
+              operator can't miss them. Funding Type leads because it's the
+              single most predictive filter for both discovery + scoring. */}
+          <div className="mb-6 p-5 rounded-xl bg-corp-green-500/5 border-2 border-corp-green-500/40">
+            <div className="flex items-baseline justify-between mb-4">
+              <h4 className="text-base text-corp-green-400 font-semibold uppercase tracking-wide">Essentials</h4>
+              <span className="text-xs text-dark-300">These five fields drive every discovery + scoring + outreach decision.</span>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+              <div className="md:col-span-2">
+                <label className="block text-base text-white font-semibold mb-2">
+                  Funding Type <span className="text-corp-green-400">*</span>
+                  <span className="text-sm text-dark-300 font-normal ml-2">— what kind of capital are you raising?</span>
+                </label>
+                <select
+                  value={form.funding_type || ''}
+                  onChange={(e) => setForm({ ...form, funding_type: (e.target.value || null) as FundingType | null })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                >
+                  <option value="">— Select the funding scenario —</option>
+                  {FUNDING_TYPE_GROUPS.map(group => (
+                    <optgroup key={group.category} label={group.category}>
+                      {group.options.map(opt => (
+                        <option key={opt.value} value={opt.value}>{opt.label}</option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <p className="text-sm text-dark-300 mt-2">
+                  Discovery looks for the matching investor profile; the scorer rejects mismatches as out_of_scope. Picking the right value here is the difference between a list of real prospects and a list of irrelevant VCs.
+                </p>
+              </div>
+
+              <div>
+                <label className="block text-base text-white font-semibold mb-2">
+                  Project Name <span className="text-corp-green-400">*</span>
+                </label>
+                <input
+                  value={form.name}
+                  onChange={(e) => setForm({ ...form, name: e.target.value })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="e.g. Branscombe Estate — Senior Construction Debt"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="block text-base text-white font-semibold mb-2">Sponsor</label>
+                <input
+                  value={form.sponsor}
+                  onChange={(e) => setForm({ ...form, sponsor: e.target.value })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="e.g. F2K Capital"
+                />
+              </div>
+
+              <div>
+                <label className="block text-base text-white font-semibold mb-2">Funding Target</label>
+                <input
+                  value={form.funding_target || ''}
+                  onChange={(e) => setForm({ ...form, funding_target: e.target.value })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="e.g. $16.2M @ 8.5%, ~22mo"
+                />
+              </div>
+
+              <div>
+                <label className="block text-base text-white font-semibold mb-2">Geography</label>
+                <input
+                  value={form.geography || ''}
+                  onChange={(e) => setForm({ ...form, geography: e.target.value })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                  placeholder="e.g. Claremont, Tasmania"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* === SECONDARY — fields used by the renderer + sequence generator
+              but not surfaced as visibly. Same field set as before, just
+              demoted below the Essentials panel. */}
+          <div className="mb-3 text-sm text-dark-400 uppercase tracking-wide font-medium">Additional detail</div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Project Name *</label>
-              <input
-                value={form.name}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="e.g. Branscombe Estate — Senior Construction Debt"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Sponsor</label>
-              <input
-                value={form.sponsor}
-                onChange={(e) => setForm({ ...form, sponsor: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="e.g. F2K Capital"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Project Type</label>
-              <select
-                value={form.project_type || ''}
-                onChange={(e) => setForm({ ...form, project_type: (e.target.value || null) as ProjectType | null })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-              >
-                <option value="">— Select —</option>
-                {(Object.keys(PROJECT_TYPE_LABELS) as ProjectType[]).map(k => (
-                  <option key={k} value={k}>{PROJECT_TYPE_LABELS[k]}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Funding Target</label>
-              <input
-                value={form.funding_target || ''}
-                onChange={(e) => setForm({ ...form, funding_target: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="e.g. $16.2M @ 8.5% indicative, first-mortgage, ~22mo"
-              />
-            </div>
-            <div>
-              <label className="block text-sm text-dark-300 mb-1">Geography</label>
-              <input
-                value={form.geography || ''}
-                onChange={(e) => setForm({ ...form, geography: e.target.value })}
-                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
-                placeholder="e.g. Claremont, Tasmania"
-              />
-            </div>
             <div>
               <label className="block text-sm text-dark-300 mb-1">Asset Class</label>
               <input
@@ -521,7 +604,7 @@ export default function ProjectsPage() {
                   <div className="flex items-center gap-2 flex-wrap">
                     <h4 className="truncate">{p.name}</h4>
                     {p.is_active ? <span className="badge-green">Active</span> : <span className="badge-amber">Inactive</span>}
-                    {p.project_type && <span className="text-[10px] uppercase tracking-wide px-1.5 py-0.5 rounded bg-dark-700 text-dark-300">{PROJECT_TYPE_LABELS[p.project_type]}</span>}
+                    {p.funding_type && <span className="text-xs uppercase tracking-wide px-2 py-0.5 rounded bg-corp-green-500/15 text-corp-green-300 border border-corp-green-500/30 font-medium">{FUNDING_TYPE_GROUPS.flatMap(g => g.options).find(o => o.value === p.funding_type)?.label || p.funding_type}</span>}
                   </div>
                   <p className="text-dark-400 text-sm truncate">
                     {p.sponsor ? `${p.sponsor} · ` : ''}{p.description || 'No description yet — upload docs and Auto-fill from KB'}
@@ -546,8 +629,8 @@ export default function ProjectsPage() {
                   {/* Project core attributes */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm mb-4">
                     {[
+                      { label: 'Funding Type', value: p.funding_type ? FUNDING_TYPE_GROUPS.flatMap(g => g.options).find(o => o.value === p.funding_type)?.label || p.funding_type : null },
                       { label: 'Sponsor', value: p.sponsor },
-                      { label: 'Type', value: p.project_type ? PROJECT_TYPE_LABELS[p.project_type] : null },
                       { label: 'Funding Target', value: p.funding_target },
                       { label: 'Geography', value: p.geography },
                       { label: 'Asset Class', value: p.asset_class },

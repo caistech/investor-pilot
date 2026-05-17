@@ -32,11 +32,14 @@ import { runSequencer } from '@/lib/sequencer/runner';
 
 export const maxDuration = 60;
 
-// Operator-triggered: small batch only. Larger batches blow Vercel's 60s
-// function ceiling because runSequencer is sequential — each partner's
-// first step is its own Claude call. Anything >4 should wait for the
-// 15-min cron tick instead.
-const MAX_PARTNERS_PER_REQUEST = 4;
+// Operator-triggered batch cap. Math: runSequencer runs 4-wide
+// concurrency, each partner ≈ 12s for the Claude fit-signal call,
+// + ~8s fixed overhead (auth, lookups, audit writes). 8 partners =
+// 2 chunks of 4 = ~24s + overhead = ~32s, well inside Vercel's 60s
+// ceiling. Bumped from 4 → 8 once the 4-wide parallelism shipped
+// — the 4-cap was set when the loop was sequential and each partner
+// added ~12s of wall time.
+const MAX_PARTNERS_PER_REQUEST = 8;
 
 // Statuses where the step has already produced an outbound_message —
 // re-rendering is wasteful and produces dupes. If the step is in any of

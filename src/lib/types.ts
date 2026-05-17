@@ -59,7 +59,116 @@ export interface Product {
   updated_at: string;
 }
 
+/**
+ * @deprecated since migration 027 — superseded by the more granular
+ * FundingType. Retained on the schema + interface so legacy data + prompt
+ * code keep compiling, but no longer surfaced in the operator UI. New
+ * projects land with funding_type set instead; project_type is no longer
+ * auto-extracted or editable.
+ */
 export type ProjectType = 'senior_debt' | 'mezzanine' | 'equity' | 'platform_equity' | 'mixed';
+
+/**
+ * Fine-grained funding scenario (migration 027). More predictive than
+ * ProjectType for ICP filtering — a Series A LP won't write construction
+ * loans, a real-estate debt fund won't fund pre-seed equity. Drives the
+ * discovery prompt (narrows candidate type before scoring) AND the ICP
+ * rubric (penalises mismatched candidates after scoring). DB CHECK
+ * constraint enforces this exact set — extending requires a new migration.
+ */
+export type FundingType =
+  // Equity — startup / venture
+  | 'pre_seed'
+  | 'seed'
+  | 'series_a'
+  | 'series_b'
+  | 'series_c_growth'
+  | 'convertible_safe'
+  | 'strategic_corporate_vc'
+  // Debt — real estate / project finance
+  | 'construction_debt_senior'
+  | 'construction_debt_mezz'
+  | 'land_acquisition_debt'
+  | 'bridge_refinance'
+  | 'development_equity_lp'
+  // Debt — business / operating
+  | 'senior_business_term_debt'
+  | 'working_capital_line'
+  | 'revenue_based_financing'
+  | 'equipment_asset_financing'
+  | 'acquisition_lbo'
+  | 'invoice_factoring'
+  // Alternative
+  | 'grant_non_dilutive'
+  | 'equity_crowdfunding'
+  | 'pre_ipo_late_stage'
+  | 'sponsor_capital_gp_commitment';
+
+/**
+ * UI-facing groupings + labels for the funding_type dropdown. Order is
+ * deliberate — dropdown renders categories in this order, items appear in
+ * the order shown here. Labels are operator-facing; values are persisted.
+ * The "describe" field is used by the discovery / ICP prompts so the LLM
+ * gets a sentence describing what kind of investor matches each type
+ * (rather than guessing from the slug).
+ */
+export const FUNDING_TYPE_GROUPS: Array<{
+  category: string;
+  options: Array<{ value: FundingType; label: string; describe: string }>;
+}> = [
+  {
+    category: 'Equity — startup / venture',
+    options: [
+      { value: 'pre_seed', label: 'Pre-seed', describe: 'Pre-seed equity ($100K–$1M typical, angel + micro-VC, no revenue or earliest traction)' },
+      { value: 'seed', label: 'Seed', describe: 'Seed equity ($500K–$5M typical, seed funds + lead angels, early revenue or strong MVP)' },
+      { value: 'series_a', label: 'Series A', describe: 'Series A equity ($5–$15M typical, institutional VC leads, $1M+ ARR or equivalent traction)' },
+      { value: 'series_b', label: 'Series B', describe: 'Series B equity ($15–$40M typical, growth-stage VC, $5–$20M ARR, repeatable GTM)' },
+      { value: 'series_c_growth', label: 'Series C / growth equity', describe: 'Series C / growth equity ($30M+, growth funds + late-stage crossover, scaled revenue)' },
+      { value: 'convertible_safe', label: 'Convertible note / SAFE', describe: 'Convertible note or SAFE round — bridge or party-round angels and seed funds writing on standard YC SAFE / standard convertible terms' },
+      { value: 'strategic_corporate_vc', label: 'Strategic / corporate VC', describe: 'Strategic or corporate VC capital — investors are operating companies in the same vertical seeking commercial synergy plus financial return' },
+    ],
+  },
+  {
+    category: 'Debt — real estate / project finance',
+    options: [
+      { value: 'construction_debt_senior', label: 'Construction debt (senior)', describe: 'Senior construction debt for property development — wholesale lenders, private credit funds, debt funds writing first-mortgage tickets ($1–$20M typical)' },
+      { value: 'construction_debt_mezz', label: 'Construction debt (mezzanine / preferred equity)', describe: 'Mezzanine or preferred equity behind senior construction debt — higher-yield lenders, mezz funds, family offices taking second-charge or pref position' },
+      { value: 'land_acquisition_debt', label: 'Land acquisition debt', describe: 'Land acquisition debt — short-tenor secured debt against land holding pre-development, typically from private credit / specialty lenders' },
+      { value: 'bridge_refinance', label: 'Bridge / refinance', describe: 'Bridge financing or refinance of an existing facility — typically short-tenor, used to transition between project phases or take out an existing lender' },
+      { value: 'development_equity_lp', label: 'Development equity (LP commitment)', describe: 'LP equity into a property development project — family offices, HNWI syndicates, real estate funds writing equity tickets into a single project SPV' },
+    ],
+  },
+  {
+    category: 'Debt — business / operating',
+    options: [
+      { value: 'senior_business_term_debt', label: 'Senior business term debt', describe: 'Senior business term debt — commercial banks, private credit, or specialty lenders writing term loans against the operating business cash flow' },
+      { value: 'working_capital_line', label: 'Working capital / line of credit', describe: 'Working capital line — revolving credit facility for inventory, AR, or seasonal needs, from commercial banks or specialty lenders' },
+      { value: 'revenue_based_financing', label: 'Revenue-based financing (RBF)', describe: 'Revenue-based financing — repayment as % of revenue, no equity dilution, from RBF specialty funds (Lighter, Pipe, Capchase-style)' },
+      { value: 'equipment_asset_financing', label: 'Equipment / asset financing', describe: 'Equipment or asset financing — debt secured against specific equipment or assets, from equipment-finance specialists and asset-based lenders' },
+      { value: 'acquisition_lbo', label: 'Acquisition financing / LBO', describe: 'Acquisition financing or leveraged buyout debt — senior + mezz stack for acquiring another business, from PE-debt funds and specialty acquisition lenders' },
+      { value: 'invoice_factoring', label: 'Invoice factoring / supply chain', describe: 'Invoice factoring or supply chain finance — short-term advance against AR, from factoring companies and supply chain finance providers' },
+    ],
+  },
+  {
+    category: 'Alternative',
+    options: [
+      { value: 'grant_non_dilutive', label: 'Grant / non-dilutive', describe: 'Grant or non-dilutive funding — government programs, foundations, R&D grants, accelerators with no equity ask' },
+      { value: 'equity_crowdfunding', label: 'Equity crowdfunding', describe: 'Equity crowdfunding — retail investors via regulated platforms (Birchal, Wefunder, Crowdcube, etc), typically $500K–$5M raises' },
+      { value: 'pre_ipo_late_stage', label: 'Pre-IPO / late-stage growth', describe: 'Pre-IPO or late-stage growth equity — crossover funds, sovereign wealth, mutual funds writing very large cheques pre-listing' },
+      { value: 'sponsor_capital_gp_commitment', label: 'Sponsor capital / GP commitment', describe: 'Sponsor capital or GP commitment — investors backing the fund sponsor / general partner rather than a specific project (LP into the fund itself)' },
+    ],
+  },
+];
+
+/** Flat lookup keyed by value — used to render labels and look up the
+ * describe string inside discovery / ICP prompts. */
+export const FUNDING_TYPE_BY_VALUE: Record<FundingType, { label: string; describe: string; category: string }> =
+  FUNDING_TYPE_GROUPS.reduce((acc, group) => {
+    for (const opt of group.options) {
+      acc[opt.value] = { label: opt.label, describe: opt.describe, category: group.category };
+    }
+    return acc;
+  }, {} as Record<FundingType, { label: string; describe: string; category: string }>);
 
 export interface Project {
   id: string;
@@ -68,6 +177,10 @@ export interface Project {
   name: string;                // Branscombe Estate
   description: string | null;  // What's being raised, for the lender
   project_type: ProjectType | null;
+  // Migration 027 — fine-grained funding scenario. Drives discovery prompt
+  // filtering + ICP scoring + sequence generator tone. See FundingType type
+  // and FUNDING_TYPE_GROUPS for the canonical list.
+  funding_type: FundingType | null;
   funding_target: string | null;   // "$16.2M @ 8.5% indicative, first-mortgage"
   geography: string | null;        // "Claremont, Tasmania"
   asset_class: string | null;      // "Residential modular construction"

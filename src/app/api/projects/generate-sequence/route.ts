@@ -12,6 +12,7 @@ import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 import { generateSequenceFromProject } from '@/lib/sequencer/generate-from-product';
+import { FUNDING_TYPE_BY_VALUE, type FundingType } from '@/lib/types';
 
 export const maxDuration = 60;
 
@@ -43,7 +44,7 @@ export async function POST(request: Request) {
   const [{ data: project }, { data: org }, { data: kbRows }] = await Promise.all([
     db
       .from('projects')
-      .select('id, organisation_id, name, description, investment_thesis, sponsor, project_type, funding_target, target_round, round_size_label, geography, asset_class, partner_types, icp_buyer_title, compliance_mode')
+      .select('id, organisation_id, name, description, investment_thesis, sponsor, project_type, funding_type, funding_target, target_round, round_size_label, geography, asset_class, partner_types, icp_buyer_title, compliance_mode')
       .eq('id', projectId)
       .single(),
     db
@@ -73,10 +74,21 @@ export async function POST(request: Request) {
 
   const kb = (kbRows ?? []).filter((s) => s.content);
 
+  // Resolve funding_type slug → describe sentence so the generator prompt
+  // gets the substantive filter rule rather than a bare slug. Same lookup
+  // used by the discovery + scoring layers — keeps the three prompts
+  // describing the raise consistently.
+  const projectForGen = {
+    ...project,
+    funding_type_describe: project.funding_type
+      ? FUNDING_TYPE_BY_VALUE[project.funding_type as FundingType]?.describe ?? null
+      : null,
+  };
+
   let result;
   try {
     result = await generateSequenceFromProject(
-      project,
+      projectForGen,
       {
         sender_name: org.sender_name,
         sender_role: org.sender_role,

@@ -146,7 +146,6 @@ Return ONLY valid JSON with these exact keys:
   "name": "Project name (extract from content if not provided)",
   "sponsor": "The entity raising the capital, e.g. 'F2K Capital'",
   "description": "What's being funded, pitched to the FUNDER in one sentence. Names specific assets, geographies, sizes.",
-  "project_type": "senior_debt | mezzanine | equity | platform_equity | mixed",
   "funding_target": "Concrete ask, e.g. '$16.2M @ 8.5% indicative + standard fees, ~22mo, first-mortgage'",
   "geography": "Where the asset sits, e.g. 'Claremont, Tasmania'",
   "asset_class": "What kind of asset, e.g. 'Residential modular construction (37 dwellings)'",

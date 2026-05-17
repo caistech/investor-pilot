@@ -20,6 +20,14 @@ export interface ScoringPromptProduct {
   icp_special_cases: string[] | null;
   asset_class: string | null;
   geography: string | null;
+  /**
+   * Migration 027 — funding_type slug. Caller resolves to the canonical
+   * describe sentence and passes BOTH in (the slug is kept in the prompt
+   * so the LLM sees the literal name the operator picked; the describe
+   * is the substantive filter rule).
+   */
+  funding_type?: string | null;
+  funding_type_describe?: string | null;
 }
 
 /**
@@ -45,6 +53,17 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
   if (product.geography) assetGeoBits.push(`Geography: ${product.geography}.`);
   const assetGeoLine = assetGeoBits.length > 0 ? `\n${assetGeoBits.join(' ')}\n` : '';
 
+  // FUNDING TYPE is the single hardest filter — a Series A LP scored
+  // against a construction-debt raise should land at 1-2 across the board
+  // and be marked out_of_scope, regardless of how strong their VC
+  // credentials look. Emit this as a separate top-of-prompt rule so the
+  // scorer can't drift into "well they invest in deals so it's a 7".
+  const fundingTypeLine = product.funding_type_describe
+    ? `\nFUNDING TYPE BEING RAISED: ${product.funding_type_describe}\n\nThis is a HARD FILTER. Candidates whose stated investment thesis / vehicle / focus does NOT match this funding profile MUST be scored 1-2 across the board and marked "out_of_scope". Examples of common mismatches:\n- VC / angel scored against a debt raise (or vice versa) → out_of_scope\n- Late-stage growth fund scored against pre-seed → out_of_scope\n- Real-estate-only investor scored against a SaaS Series A → out_of_scope\n- Equity-only investor scored against a working-capital line → out_of_scope\nIf in doubt about the candidate's actual focus, score conservatively low rather than guessing high.\n`
+    : product.funding_type
+      ? `\nFunding type: ${product.funding_type}\n`
+      : '';
+
   const categories = product.icp_categories ?? [];
   const categoryLine = categories.length > 0
     ? categories.join(' | ')
@@ -63,7 +82,7 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
     : '';
 
   return `${pitchLine}. Given a person/firm description from search results, score them on 5 dimensions for fit.
-${assetGeoLine}
+${assetGeoLine}${fundingTypeLine}
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
   "audience_overlap_score": <1-10>,

@@ -119,6 +119,11 @@ function matchesSearch(partner: Partner, query: string): boolean {
   );
 }
 
+// Mirrors MAX_PARTNERS_PER_REQUEST in /api/sequences/render-now. The
+// server runs 4-wide Claude calls; 8 partners = 2 chunks ≈ 32s inside
+// Vercel's 60s ceiling. Bumping this requires bumping the server cap too.
+const RENDER_NOW_MAX = 8;
+
 // Partner statuses that indicate the operator has already contacted the
 // person (first touch sent or beyond). Used by the "Hide already targeted"
 // filter so we don't accidentally double-send.
@@ -284,6 +289,21 @@ export function PipelineTable({
   async function batchAction(action: 'enrich' | 'draft') {
     if (selectedPartners.length === 0) return;
     const n = selectedPartners.length;
+
+    // Render-now is wall-time bound (Claude calls + Vercel ceiling).
+    // Catch the cap on the client so the operator gets actionable
+    // guidance instead of a flat server 400. Enrich has no such cap —
+    // Hunter.io batch is fast and bounded at 100 server-side.
+    if (action === 'draft' && n > RENDER_NOW_MAX) {
+      setNextCta(null);
+      setMessage(
+        `Render & Queue processes up to ${RENDER_NOW_MAX} prospects per click (Vercel 60s ceiling). ` +
+        `You have ${n} selected. Untick ${n - RENDER_NOW_MAX} to bring the selection to ${RENDER_NOW_MAX} or fewer, ` +
+        `or wait for the 15-min cron to render the rest automatically.`,
+      );
+      return;
+    }
+
     setLoading(action);
     setNextCta(null);
     setMessage(
@@ -779,8 +799,12 @@ export function PipelineTable({
           <button
             onClick={() => batchAction('draft')}
             disabled={loading !== null}
-            className="btn-primary text-sm py-1 px-3"
-            title="Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run."
+            className={`btn-primary text-sm py-1 px-3 ${selected.size > RENDER_NOW_MAX ? 'opacity-60' : ''}`}
+            title={
+              selected.size > RENDER_NOW_MAX
+                ? `Render & Queue processes up to ${RENDER_NOW_MAX} prospects per click — you have ${selected.size} selected. Reduce the selection to ${RENDER_NOW_MAX} or fewer.`
+                : `Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run. Up to ${RENDER_NOW_MAX} per click.`
+            }
           >
             {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
           </button>

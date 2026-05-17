@@ -30,6 +30,14 @@ export interface ProductForQueryGen {
   // Project-specific (optional — present when generator is called for a project)
   sponsor?: string | null;
   project_type?: string | null;
+  /**
+   * Migration 027 — fine-grained funding scenario. Passed in as the SLUG
+   * (e.g. 'series_a', 'construction_debt_senior'); caller is responsible
+   * for resolving it to the human-readable describe string for the prompt.
+   */
+  funding_type?: string | null;
+  /** Pre-resolved describe string for funding_type — drops directly into the prompt. */
+  funding_type_describe?: string | null;
   funding_target?: string | null;
   geography?: string | null;
   asset_class?: string | null;
@@ -199,8 +207,21 @@ export async function generateLenderQueries(input: {
     .map(s => `[${s.source_type.toUpperCase()}: ${s.title}]\n${s.content!.slice(0, 4000)}`)
     .join('\n\n---\n\n');
 
-  const projectBlock = input.product.sponsor || input.product.funding_target || input.product.geography || input.product.asset_class
-    ? `\nPROJECT-SPECIFIC:\nSponsor: ${input.product.sponsor || '(none)'}\nProject type: ${input.product.project_type || '(none)'}\nFunding target: ${input.product.funding_target || '(none)'}\nGeography: ${input.product.geography || '(none)'}\nAsset class: ${input.product.asset_class || '(none)'}\n`
+  // FUNDING TYPE is the single most predictive ICP filter — put it at the
+  // top of the project block and elevate it in the project_type slot, with
+  // its describe string so the LLM knows what kind of investor matches
+  // (e.g. "construction_debt_senior" → "wholesale lenders writing
+  // first-mortgage tickets, NOT VCs or angels"). Without this the
+  // generator was producing equity/seed-stage queries against debt-fund
+  // projects (the VC noise problem in DR-7f3616).
+  const fundingTypeLine = input.product.funding_type_describe
+    ? `\nFunding type (TOP PRIORITY — only generate queries matching this investor profile): ${input.product.funding_type_describe}`
+    : input.product.funding_type
+      ? `\nFunding type: ${input.product.funding_type}`
+      : '';
+
+  const projectBlock = input.product.sponsor || input.product.funding_target || input.product.geography || input.product.asset_class || input.product.funding_type
+    ? `\nPROJECT-SPECIFIC:${fundingTypeLine}\nSponsor: ${input.product.sponsor || '(none)'}\nFunding target: ${input.product.funding_target || '(none)'}\nGeography: ${input.product.geography || '(none)'}\nAsset class: ${input.product.asset_class || '(none)'}\n`
     : '';
 
   const userMessage = `Generate ${linkedinCount} LinkedIn-tuned + ${braveCount} Brave-tuned queries for this offering.
