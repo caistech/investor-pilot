@@ -590,7 +590,7 @@ export function PipelineTable({
       setMessage(
         `Sequenced ${s.assigned} of ${n} (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
         (s.assigned > 0
-          ? '\nSelection kept — click "3. Draft" to generate the first message now, or wait up to 15 min for the cron.'
+          ? '\nSelection kept — click "3. Render & Queue" to generate the first message now, or wait up to 15 min for the cron.'
           : '') +
         reasonsBlock,
       );
