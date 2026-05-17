@@ -131,4 +131,15 @@
    four corner anchors; "between sidebar items" is not a placement
    they expose. If we ever want it embedded properly, the move is to
    kill the floating bubble and call their JS SDK from a custom
-   button — tracked separately. */
+   button — tracked separately.
+
+   Size: ElevenLabs' platform settings don't expose a scale knob, and
+   the Shadow DOM internal sizing isn't reachable. CSS transform on the
+   host element IS honoured (transforms apply outside the Shadow DOM
+   boundary), so we scale the whole element to 70% (30% smaller per
+   operator request 2026-05-17). transform-origin keeps it pinned to
+   the bottom-left corner so it doesn't drift off-screen as it shrinks. */
+elevenlabs-convai {
+  transform: scale(0.7);
+  transform-origin: bottom left;
+}
