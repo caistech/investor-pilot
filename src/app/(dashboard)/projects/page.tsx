@@ -156,6 +156,15 @@ export default function ProjectsPage() {
   }
 
   function startEdit(project: Project) {
+    // Scroll to the top of the page so the Edit form (which renders
+    // above the project list) is visible. Without this the operator
+    // clicks Edit inside an expanded card, the form appears at the
+    // top, but they're still looking at the card and it looks like
+    // nothing happened. Same fix as finishDraft auto-scrolls to the
+    // newly-created project.
+    setTimeout(() => {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }, 50);
     setForm({
       sponsor: project.sponsor || '',
       name: project.name,
