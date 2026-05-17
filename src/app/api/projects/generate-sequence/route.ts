@@ -122,12 +122,47 @@ export async function POST(request: Request) {
   const deterministicVertical = `auto_project_${projectId}`;
   const llmVertical = result.vertical;
 
-  const { data: existing } = await db
+  // Regeneration behaviour: deactivate any currently-active template
+  // for this project, then INSERT a new active one. The deactivated
+  // row stays in /settings/templates so the operator can:
+  //   - compare new vs previous side-by-side
+  //   - reactivate the old one if the new generation is worse
+  //   - keep any manual edits they'd made to the previous step bodies
+  // No prospects are affected — assign-batch filters by is_active=true,
+  // so deactivated templates are invisible to routing, and any
+  // sequence_steps already pointing at the old template_id keep
+  // working (the deactivated row is still in the DB).
+  //
+  // Switched from overwrite-in-place to deactivate-and-create on
+  // 2026-05-17 after operator asked to preserve audit trail + manual
+  // edits across regenerations.
+  const { data: previousActive } = await db
     .from('sequence_templates')
-    .select('id')
+    .select('id, name')
     .eq('organisation_id', organisation_id)
     .eq('vertical', deterministicVertical)
+    .eq('is_active', true)
+    .order('created_at', { ascending: false })
+    .limit(1)
     .maybeSingle();
+
+  if (previousActive?.id) {
+    // Prefix with [Previous] + timestamp so it's obvious in the
+    // templates list which row is old. Skip the prefix if it's
+    // already there (operator regenerated multiple times — don't
+    // stack "[Previous] [Previous] [Previous] ...").
+    const prevName = previousActive.name as string;
+    const stampedName = /^\[Previous /.test(prevName)
+      ? prevName
+      : `[Previous ${new Date().toISOString().slice(0, 10)}] ${prevName}`;
+    const { error: deactivateError } = await db
+      .from('sequence_templates')
+      .update({ is_active: false, name: stampedName })
+      .eq('id', previousActive.id);
+    if (deactivateError) {
+      return NextResponse.json({ error: `Failed to deactivate previous template: ${deactivateError.message}` }, { status: 500 });
+    }
+  }
 
   const templateRow = {
     organisation_id,
@@ -148,32 +183,15 @@ export async function POST(request: Request) {
     steps: result.steps,
   };
 
-  let templateId: string;
-  if (existing?.id) {
-    const { error: updateError } = await db
-      .from('sequence_templates')
-      .update({
-        name: templateRow.name,
-        description: templateRow.description,
-        is_active: true,
-        steps: templateRow.steps,
-      })
-      .eq('id', existing.id);
-    if (updateError) {
-      return NextResponse.json({ error: `Failed to update template: ${updateError.message}` }, { status: 500 });
-    }
-    templateId = existing.id;
-  } else {
-    const { data: inserted, error: insertError } = await db
-      .from('sequence_templates')
-      .insert(templateRow)
-      .select('id')
-      .single();
-    if (insertError || !inserted) {
-      return NextResponse.json({ error: `Failed to insert template: ${insertError?.message || 'no row returned'}` }, { status: 500 });
-    }
-    templateId = inserted.id;
+  const { data: inserted, error: insertError } = await db
+    .from('sequence_templates')
+    .insert(templateRow)
+    .select('id')
+    .single();
+  if (insertError || !inserted) {
+    return NextResponse.json({ error: `Failed to insert template: ${insertError?.message || 'no row returned'}` }, { status: 500 });
   }
+  const templateId = inserted.id;
 
   return NextResponse.json({
     ok: true,
