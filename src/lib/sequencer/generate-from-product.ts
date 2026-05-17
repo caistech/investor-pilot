@@ -541,6 +541,16 @@ export async function generateSequenceFromProduct(
     };
   });
 
+  // Same courtesy-contract enforcement as the project-side generator.
+  // Without this validation, LLM omissions silently propagate to every
+  // rendered draft from this template until the operator re-generates.
+  const contractErrors = validateCourtesyContract(steps);
+  if (contractErrors.length > 0) {
+    throw new Error(
+      `Generated sequence violates the courtesy contract — the LLM skipped required elements. Retry generation (often clears on the second pass). Missing per step:\n${contractErrors.map((e) => `  • ${e}`).join('\n')}`,
+    );
+  }
+
   return {
     template_name: parsed.template_name?.trim() || `${product.name} — outreach`,
     template_description: parsed.template_description?.trim() || `Auto-generated outreach sequence for ${product.name}`,
@@ -639,12 +649,78 @@ export async function generateSequenceFromProject(
     };
   });
 
+  // Validate against the COURTESY CONTRACT before saving. The system
+  // prompt explicitly demands 5-element structure (time-ack, who-am-i,
+  // why-you, what-i-offer, ask-last), but the LLM intermittently skips
+  // elements — operator hit this on the LingoPure $12M run where the
+  // first two queued drafts both omitted sender introduction entirely.
+  // Without this check, broken templates land in the DB and silently
+  // propagate to every rendered message until manually re-generated.
+  const contractErrors = validateCourtesyContract(steps);
+  if (contractErrors.length > 0) {
+    throw new Error(
+      `Generated sequence violates the courtesy contract — the LLM skipped required elements. Retry generation (often clears on the second pass). Missing per step:\n${contractErrors.map((e) => `  • ${e}`).join('\n')}`,
+    );
+  }
+
   return {
     template_name: parsed.template_name?.trim() || `${project.name} — investor outreach`,
     template_description: parsed.template_description?.trim() || `Auto-generated investor outreach sequence for ${project.name}`,
     vertical: parsed.vertical?.trim() || 'auto_generated_investor',
     steps,
   };
+}
+
+/**
+ * Validate the generated step bodies against the courtesy contract.
+ *
+ * Rules enforced (mirrors the system prompt's COURTESY CONTRACT block):
+ *   - Step 1 (connect note, short) — exempt from WHO-AM-I requirement
+ *     because there's no character budget; must still have {first_name}.
+ *   - Steps 2-6 (DMs + emails) — MUST include {sender_name} (WHO-AM-I)
+ *     and one of {credit_signal_lead|credit_signal} (WHY-YOU).
+ *   - Steps 2-4 (first three substantive touches) — MUST also include
+ *     one of {value_offer_lead|value_offer} (WHAT-I-OFFER). Follow-ups
+ *     (5, 6) can drop the offer to keep the cadence light.
+ *
+ * Returns a list of human-readable error strings, one per missing
+ * placeholder per step. Empty list = pass.
+ */
+function validateCourtesyContract(steps: GeneratedStep[]): string[] {
+  const errors: string[] = [];
+  for (const step of steps) {
+    const body = step.body || '';
+    const idx = step.step_index;
+
+    // Every step must address the recipient.
+    if (!body.includes('{first_name}')) {
+      errors.push(`Step ${idx} (${step.template_key}) missing {first_name}`);
+    }
+
+    // Step 1 is the short connect note — exempt from heavier rules.
+    if (idx === 1) continue;
+
+    // WHO-AM-I — sender must identify themselves.
+    if (!body.includes('{sender_name}')) {
+      errors.push(`Step ${idx} (${step.template_key}) missing WHO-AM-I — body must include {sender_name}`);
+    }
+
+    // WHY-YOU — personal reasoning grounded in evidence.
+    const hasWhyYou = body.includes('{credit_signal_lead}') || body.includes('{credit_signal}') || body.includes('{credit_signal_lead_short}');
+    if (!hasWhyYou) {
+      errors.push(`Step ${idx} (${step.template_key}) missing WHY-YOU — body must include {credit_signal_lead} or {credit_signal}`);
+    }
+
+    // WHAT-I-OFFER — required on steps 2-4 (give-before-take cadence).
+    // Follow-ups 5+ can omit to keep the chase light.
+    if (idx >= 2 && idx <= 4) {
+      const hasOffer = body.includes('{value_offer_lead}') || body.includes('{value_offer}');
+      if (!hasOffer) {
+        errors.push(`Step ${idx} (${step.template_key}) missing WHAT-I-OFFER — body must include {value_offer_lead} or {value_offer}`);
+      }
+    }
+  }
+  return errors;
 }
 
 /**

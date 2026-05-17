@@ -265,6 +265,20 @@ export async function renderStep(
 
   const subject = tpl.subject ? substitute(tpl.subject, vars) : null;
   let body = substitute(tpl.body, vars);
+  const isShortConnect = templateKey.includes('connect') || (tpl.max_chars && tpl.max_chars <= 320);
+
+  // Backward-compat injection of the WHO-AM-I (sender introduction) for
+  // templates generated before the courtesy-contract validator existed
+  // (commit 0b90996+). LingoPure $12M run on 2026-05-17 produced drafts
+  // missing sender intro entirely — recipient saw "LingoPure is raising
+  // Series A..." without knowing WHO was emailing them. Inject after
+  // the first paragraph so it reads as a natural second beat. Skipped
+  // on connect-note templates (no char budget) and when the body already
+  // mentions the sender by name.
+  const hasSenderMention = /\{sender_name\}/.test(tpl.body) || (context.sender_name && body.includes(context.sender_name));
+  if (!hasSenderMention && !isShortConnect && context.sender_name) {
+    body = injectSenderIntro(body, context);
+  }
 
   // Backward-compat injection of the value offer for templates generated
   // before {value_offer_lead} existed. If the body has no offer placeholder
@@ -272,7 +286,6 @@ export async function renderStep(
   // (not the ≤300 char LinkedIn connect note where there's no room),
   // inject the offer as its own sentence before the final paragraph.
   const hasOfferPlaceholder = /\{value_offer(?:_lead)?\}/.test(tpl.body);
-  const isShortConnect = templateKey.includes('connect') || (tpl.max_chars && tpl.max_chars <= 320);
   if (!hasOfferPlaceholder && signal?.valueOfferLead && !isShortConnect) {
     body = injectValueOffer(body, signal.valueOfferLead);
   }
@@ -480,6 +493,39 @@ function injectValueOffer(body: string, offerLead: string): string {
   }
   // No clear signature — append before the final newline.
   return `${trimmed}\n\n${offerLead}`;
+}
+
+/**
+ * Backward-compat injection of the sender introduction for templates that
+ * don't include {sender_name} anywhere in the body. The courtesy contract
+ * requires every step (except short connect notes) to identify the
+ * sender — anonymous senders get archived by busy recipients.
+ *
+ * Injects after the first paragraph break so it reads as the natural
+ * second beat: greeting → who I am → why I'm reaching out. Uses
+ * sender_bio_one_liner if available for a richer who-am-I framing,
+ * falls back to sender_name + sender_role.
+ *
+ * Always idempotent — won't double-inject if the body already mentions
+ * the sender by name (caller checks this before calling).
+ */
+function injectSenderIntro(body: string, context: RenderContext): string {
+  const intro = context.sender_bio_one_liner
+    ? `I'm ${context.sender_name} — ${context.sender_bio_one_liner}.`
+    : `I'm ${context.sender_name}, ${context.sender_role}.`;
+  // Find the first paragraph break — typically right after the greeting
+  // ("Hi Jane,\n\n..." or "{first_name},\n\n..."). Inject the intro as
+  // its own paragraph immediately after.
+  const trimmed = body.trim();
+  const firstBreak = trimmed.indexOf('\n\n');
+  if (firstBreak === -1) {
+    // No paragraph structure — prepend with a separator so the intro
+    // doesn't smash into the existing body.
+    return `${intro}\n\n${trimmed}`;
+  }
+  const greeting = trimmed.slice(0, firstBreak);
+  const rest = trimmed.slice(firstBreak + 2);
+  return `${greeting}\n\n${intro}\n\n${rest}`;
 }
 
 interface CreditSignal {
