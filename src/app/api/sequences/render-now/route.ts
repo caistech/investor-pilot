@@ -140,12 +140,25 @@ export async function POST(request: Request) {
   // Partition partners by what needs doing.
   const noStepIds: string[] = [];      // never assigned to a sequence
   const alreadyDoneIds: string[] = []; // step exists but already rendered
+  const skippedStepIds: string[] = []; // step exists but was skipped — needs re-assignment
   const needsRenderIds: string[] = []; // step is pending
 
   for (const pid of allowedIds) {
     const step = firstStepByPartner.get(pid);
     if (!step) {
       noStepIds.push(pid);
+    } else if (step.status === 'skipped') {
+      // Skipped steps are dead ends — the runner only processes 'pending'
+      // status, so a skipped step will never re-render on its own. The
+      // operator needs to re-run "2. Plan Outreach" to assign a fresh
+      // sequence (against the current active template) before the partner
+      // can be rendered again. Without this bucket, skipped steps fell
+      // into needsRender, got passed to the runner, got silently ignored
+      // (status != 'pending'), and the operator saw "Couldn't write any
+      // messages" with no explanation. Bug surfaced 2026-05-17 after the
+      // bulk-clear-approvals route shipped — 16 of 19 prospects vanished
+      // from the count.
+      skippedStepIds.push(pid);
     } else if (ALREADY_RENDERED.has(step.status)) {
       alreadyDoneIds.push(pid);
     } else {
@@ -161,15 +174,24 @@ export async function POST(request: Request) {
       queued: 0,
       already_rendered: alreadyDoneIds.length,
       no_pending_step: noStepIds.length,
+      previously_skipped: skippedStepIds.length,
       blocked: 0,
       failed: 0,
       skipped_no_channel: 0,
     };
-    const hint = noStepIds.length === allowedIds.length
-      ? 'None of the selected partners have a sequence assigned. Click "2. Plan Outreach" first.'
-      : alreadyDoneIds.length === allowedIds.length
-        ? 'All selected partners already have a rendered first message. Check Approvals — or the prospect detail page if Approvals is empty (compliance may have blocked them).'
-        : 'Mixed state — some partners have no sequence yet, others are already rendered. Check the detail page per prospect.';
+    const hint = skippedStepIds.length === allowedIds.length
+      ? `All ${skippedStepIds.length} selected prospects have skipped drafts (likely from a recent bulk-clear). Click "2. Plan Outreach" first to re-assign fresh sequences against the current active template, THEN "3. Draft Messages Now".`
+      : noStepIds.length === allowedIds.length
+        ? 'None of the selected partners have a sequence assigned. Click "2. Plan Outreach" first.'
+        : alreadyDoneIds.length === allowedIds.length
+          ? 'All selected partners already have a rendered first message. Check Approvals — or the prospect detail page if Approvals is empty (compliance may have blocked them).'
+          : (() => {
+              const bits: string[] = [];
+              if (skippedStepIds.length > 0) bits.push(`${skippedStepIds.length} have skipped drafts — click "2. Plan Outreach" to re-assign`);
+              if (noStepIds.length > 0) bits.push(`${noStepIds.length} have no sequence — click "2. Plan Outreach"`);
+              if (alreadyDoneIds.length > 0) bits.push(`${alreadyDoneIds.length} already rendered — check Approvals`);
+              return `Mixed state: ${bits.join('; ')}.`;
+            })();
     return NextResponse.json({
       ok: true,
       counts,
@@ -227,6 +249,7 @@ export async function POST(request: Request) {
     skipped_no_channel: 0,
     sent_or_replied: 0,
     no_pending_step: noStepIds.length,
+    previously_skipped: skippedStepIds.length,
     // Kept for backwards-compatible client-side display.
     already_rendered: alreadyDoneIds.length,
   };
@@ -323,6 +346,7 @@ export async function POST(request: Request) {
   if (counts.skipped_no_channel > 0) parts.push(`${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
   if (counts.sent_or_replied > 0) parts.push(`${counts.sent_or_replied} already sent or replied (historical).`);
   if (counts.no_pending_step > 0) parts.push(`${counts.no_pending_step} have no sequence assigned — click "2. Plan Outreach" first.`);
+  if (skippedStepIds.length > 0) parts.push(`${skippedStepIds.length} have skipped drafts (likely from a bulk-clear) — click "2. Plan Outreach" to re-assign fresh sequences before re-rendering.`);
 
   const hint = runnerError
     ? `Renderer threw before finishing: ${runnerError}`

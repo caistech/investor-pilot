@@ -112,7 +112,7 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
   async function clearAllQueued() {
     if (items.length === 0) return;
     const confirmed = window.confirm(
-      `Skip all ${items.length} queued drafts? They'll be marked skipped — partners stay in the pipeline, you can re-render fresh drafts from /prospects. This is the right call when a template was just regenerated and these drafts are stale.`,
+      `Skip all ${items.length} drafts (queued + compliance-blocked)? They'll be marked skipped — partners stay in the pipeline.\n\nNext step: go to /prospects → select the same prospects → click "2. Plan Outreach" to re-assign fresh sequences against the current active template, then "3. Draft Messages Now" to re-render.`,
     );
     if (!confirmed) return;
     setBusyId('__bulk__');
@@ -121,7 +121,11 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
       const res = await fetch('/api/admin/clear-queued-approvals', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}),
+        // include_blocked=true: typical use case for the bulk clear is
+        // "wipe the slate clean after a template regen" — operator wants
+        // ALL stale state gone, including compliance_blocked rows that
+        // were rendered against the broken template.
+        body: JSON.stringify({ include_blocked: true }),
       });
       const json = await res.json();
       if (!res.ok) {
@@ -129,6 +133,9 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
         return;
       }
       setItems([]);
+      // Surface the next-step hint inline so the operator doesn't bounce
+      // between tabs wondering why "Draft Messages Now" produces nothing.
+      setError(`Cleared ${json.cleared ?? items.length} drafts. To re-render: /prospects → select the same prospects → "2. Plan Outreach" → "3. Draft Messages Now".`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unknown error');
     } finally {
