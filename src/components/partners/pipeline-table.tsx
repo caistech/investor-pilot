@@ -244,7 +244,12 @@ export function PipelineTable({
   // explicitly opts into trimming. Min score 0 = no floor; toggles default
   // off so historical data isn't hidden.
   const [minScore, setMinScore] = useState<number>(0);
-  const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(false);
+  // Default ON (2026-05-17): out-of-scope prospects are noise by default —
+  // the scorer judged them genuine wrong-category (e.g. an EdTech VC when
+  // looking for property credit). Operator can untick to see them, and if
+  // they explicitly select one, assign-batch now sends an exploratory-tier
+  // draft rather than skipping outright.
+  const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(true);
   const [hideLowConfidence, setHideLowConfidence] = useState<boolean>(false);
   // "Hide already targeted" = partner has been sent to (status moved past
   // contact_found) OR has an in-flight sequence_steps row. Default ON for

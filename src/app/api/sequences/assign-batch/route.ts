@@ -62,20 +62,21 @@ const TERMINAL_STATUSES = new Set([
 
 const MAX_BATCH_SIZE = 100;
 
-// ICP-score gate. Partners below this threshold or flagged as out_of_scope
-// during discovery should not be queued for outreach.
-//
-// Threshold lowered from 4.0 → 2.0 on 2026-05-17 to feed the tier-driven
-// outreach modulation in render.ts. computeOutreachTier() now produces:
-//   - score ≥ 7   → confident tier (direct ask, no hedging)
-//   - 4 ≤ score < 7 → qualified tier (soft hedge in opener + ask)
-//   - 2 ≤ score < 4 → exploratory tier (explicit "not sure / no pressure" framing)
-//   - score < 2   → still rejected here (the scorer caps out_of_scope at 2.0,
-//                   so anything under 2 is a genuine no-fit)
-// Net effect: the 34-partner backlog of 2.0-3.9 prospects that previously
-// hit the floor silently now flows through to Approvals with appropriately
-// hedged copy. Operator can still bin them at approval time.
-const MIN_ICP_SCORE = 2.0;
+// ICP-score gate — REMOVED 2026-05-17 (set to -1 so the check below is
+// always falsy without restructuring the comparison code). The gating
+// model is now:
+//   - UI default: "Exclude out-of-scope" checkbox defaults ON, so
+//     genuine-wrong-category prospects don't pollute the selectable list
+//   - Assign-batch: if the operator explicitly selected a prospect
+//     (overriding the default filter), we ALWAYS try to send. Tier
+//     modulation in render.ts handles tone:
+//       score ≥ 7   → confident tier (direct ask)
+//       4 ≤ s < 7  → qualified tier (soft hedge)
+//       s < 4      → exploratory tier ("not sure if this is for you but…")
+// Operator philosophy: "if they get to this stage, at minimum they should
+// get the 'I don't know if this is for you' email" — don't refuse to send
+// what the operator deliberately queued.
+const MIN_ICP_SCORE = -1;
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -168,7 +169,7 @@ export async function POST(request: Request) {
   // below can pick the matching template pool per partner.
   const { data: partners } = await db
     .from('partners')
-    .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at, project_id, product_id')
+    .select('id, company_name, contact_name, contact_title, contact_email, contact_linkedin, network_distance, weighted_score, category, source, evidence_enriched_at, project_id, product_id, partner_type')
     .in('id', partnerIds)
     .eq('organisation_id', orgId);
 
@@ -283,22 +284,17 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // ICP-score gate. Skip partners flagged as out_of_scope during scoring,
-    // or whose weighted_score is below the threshold. Counts surface in the
-    // audit_events payload so the operator can see "skipped 13 below-ICP".
+    // ICP-score gate REMOVED 2026-05-17 — operator philosophy is "if the
+    // user explicitly selected this prospect, send the exploratory-tier
+    // email rather than refusing". out_of_scope filtering happens at the
+    // UI layer (Exclude out-of-scope checkbox, defaulted ON). If the
+    // operator unticks the filter and selects an out_of_scope row,
+    // they're consciously overriding — honour that. Tier modulation in
+    // render.ts ensures low-score prospects get hedged copy.
     const partnerScore = typeof partner.weighted_score === 'number' ? partner.weighted_score : null;
-    const isOutOfScope = typeof partner.category === 'string'
-      && /out[_ -]?of[_ -]?scope/i.test(partner.category);
-    if (isOutOfScope) {
-      results.push({
-        partner_id: partnerId,
-        partner_name: partner.company_name as string,
-        outcome: 'skipped',
-        reason: `Category is "${partner.category}" — out of scope per v3 ICP`,
-      });
-      continue;
-    }
     if (partnerScore !== null && partnerScore < MIN_ICP_SCORE) {
+      // Effectively unreachable now (MIN_ICP_SCORE = -1) but kept so the
+      // gate can be reinstated by raising the constant if abuse appears.
       results.push({
         partner_id: partnerId,
         partner_name: partner.company_name as string,
@@ -314,9 +310,28 @@ export async function POST(request: Request) {
     // empty — that surfaces as a soft warning in `reason` so the
     // operator knows to generate the missing sequence rather than
     // silently sending the wrong message type.
-    const partnerKind: 'product' | 'project' = partner.project_id
-      ? 'project'
-      : 'product';
+    //
+    // Routing order (most explicit → most inferential):
+    //   1. partner.project_id set     → project pool
+    //   2. partner.product_id set     → product pool
+    //   3. partner_type ∈ investor/   → project pool (legacy / seeded
+    //      lender/funder                rows from the 482-prospect CSV
+    //                                   import have project_id=null even
+    //                                   when they're clearly investors)
+    //   4. partner_type ∈ partner/    → product pool
+    //      buyer/client
+    //   5. fallback                   → product pool (preserves prior
+    //                                   behaviour for genuinely unknown rows)
+    const PROJECT_TYPES = new Set(['investor', 'lender', 'funder']);
+    const PRODUCT_TYPES = new Set(['partner', 'buyer', 'client']);
+    const partnerKind: 'product' | 'project' = (() => {
+      if (partner.project_id) return 'project';
+      if (partner.product_id) return 'product';
+      const pt = typeof partner.partner_type === 'string' ? partner.partner_type.toLowerCase() : '';
+      if (PROJECT_TYPES.has(pt)) return 'project';
+      if (PRODUCT_TYPES.has(pt)) return 'product';
+      return 'product';
+    })();
     const matchingPair = partnerKind === 'project' ? projectPair : productPair;
     const fallbackPair = partnerKind === 'project' ? productPair : projectPair;
 
