@@ -125,6 +125,22 @@ export default async function SettingsPage() {
           </p>
         </div>
 
+        {/* Team — invite teammates, each connects their own LinkedIn + email */}
+        <div className="card">
+          <div className="flex items-center justify-between mb-3">
+            <h4>Team</h4>
+            <Link href="/settings/team" className="btn-secondary text-sm">
+              Manage team
+            </Link>
+          </div>
+          <p className="text-dark-400 text-sm">
+            Shared dataroom, per-member outreach. Invite teammates by email — each
+            connects their own LinkedIn and inbox so the sequencer sends from the
+            right account automatically. Templates, products, projects and prospects
+            stay shared across the org.
+          </p>
+        </div>
+
         {/* Profile */}
         <div className="card">
           <h4 className="mb-4">Profile</h4>

@@ -24,28 +24,44 @@ export async function GET(request: Request) {
 
       if (!profile) {
         const meta = data.user.user_metadata;
-        const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
+        // Teams iteration: when /api/team/invite calls
+        // inviteUserByEmail with { data: { organisation_id, role } }, the
+        // invitee lands here with org_id in metadata. Join them to the
+        // existing org rather than creating a fresh one.
+        const invitedOrgId = meta?.organisation_id || meta?.invited_organisation_id;
+        const invitedRole = meta?.role || 'member';
 
-        // Create organisation
-        const { data: org } = await admin
-          .from('organisations')
-          .insert({
-            name: orgName,
-            slug: slugify(orgName) + '-' + Date.now().toString(36),
-            owner_id: data.user.id,
-          })
-          .select()
-          .single();
-
-        if (org) {
-          // Create profile
+        if (invitedOrgId) {
+          // Invited member — join existing org, no new org created
           await admin.from('profiles').insert({
             id: data.user.id,
-            organisation_id: org.id,
+            organisation_id: invitedOrgId,
             full_name: meta?.full_name || null,
             email: data.user.email,
-            role: 'owner',
+            role: invitedRole === 'admin' || invitedRole === 'owner' ? invitedRole : 'member',
           });
+        } else {
+          // Fresh signup — create org and make user the owner
+          const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
+          const { data: org } = await admin
+            .from('organisations')
+            .insert({
+              name: orgName,
+              slug: slugify(orgName) + '-' + Date.now().toString(36),
+              owner_id: data.user.id,
+            })
+            .select()
+            .single();
+
+          if (org) {
+            await admin.from('profiles').insert({
+              id: data.user.id,
+              organisation_id: org.id,
+              full_name: meta?.full_name || null,
+              email: data.user.email,
+              role: 'owner',
+            });
+          }
         }
       }
 
