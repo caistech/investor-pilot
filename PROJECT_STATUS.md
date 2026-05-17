@@ -74,6 +74,12 @@ per-member channels live as of 2026-05-18.
   self-validates (svix for Resend, shared-secret header for Unipile).
   No security regression. Pre-existing Unipile silent-failure bug
   also resolved by the same one-line fix.
+- **HeyGen dashboard video fix** — the regenerated video showed
+  HeyGen 404 because `vercel env add` over an `echo` pipe stored the
+  HEYGEN_VIDEO_ID with a trailing `\n` (33 bytes not 32). Re-added
+  via `printf`, redeployed, video plays. Generator script
+  (`scripts/generate-heygen-video.mjs`) now prints the correct
+  `printf` invocation at the end of every run so this doesn't recur.
 
 ### Architecture
 
