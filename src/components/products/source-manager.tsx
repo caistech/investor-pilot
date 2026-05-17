@@ -17,7 +17,15 @@ interface SourceManagerProps {
 // as PNG/JPG screenshots, or scans of term sheets. Server routes them
 // straight to Claude vision since there's no text layer to extract.
 const FILE_ACCEPT = '.pdf,.docx,.doc,.txt,.csv,.md,.json,.png,.jpg,.jpeg,.webp';
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
+// Vercel's serverless function body cap is 4.5MB by default — uploads
+// larger than this never reach our route, the platform 413s them at the
+// edge. Was 10MB pre-2026-05-17 and operators were hitting silent
+// platform failures on standard pitch decks (typically 5-15MB). Capped
+// here so the operator sees the limit upfront with a useful suggestion.
+// Proper fix (queued — see project_queued_direct_upload memory): switch
+// to direct-to-Supabase Storage uploads via signed URLs, which bypass
+// the function body limit entirely.
+const MAX_FILE_SIZE = 4 * 1024 * 1024; // 4MB — Vercel function body cap
 
 export default function SourceManager({ productId, projectId }: SourceManagerProps) {
   const parentKey = projectId ? 'project_id' : 'product_id';
@@ -116,7 +124,12 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
    */
   async function uploadOneFile(file: File): Promise<void> {
     if (file.size > MAX_FILE_SIZE) {
-      throw new Error(`${file.name}: too large (${(file.size / 1024 / 1024).toFixed(1)}MB, max 10MB)`);
+      throw new Error(
+        `${file.name}: ${(file.size / 1024 / 1024).toFixed(1)}MB exceeds 4MB platform limit. ` +
+        `Options: (1) compress the PDF (free tools like ilovepdf.com / smallpdf typically cut pitch decks in half), ` +
+        `(2) split into smaller sections and upload separately, or ` +
+        `(3) use Paste Text with the deck's key content.`,
+      );
     }
     const formData = new FormData();
     formData.append('file', file);
@@ -454,7 +467,7 @@ export default function SourceManager({ productId, projectId }: SourceManagerPro
                   Drop file(s) here or <span className="text-corp-green-400">browse</span>
                 </span>
                 <span className="text-xs text-dark-600">
-                  PDF, DOCX, PNG, JPG, TXT, CSV, MD, JSON — up to 10MB each · multi-select supported
+                  PDF, DOCX, PNG, JPG, TXT, CSV, MD, JSON — up to 4MB each · multi-select supported
                 </span>
               </div>
             )}
