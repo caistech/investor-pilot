@@ -30,6 +30,11 @@ interface SequenceStepRow {
   step_index: number;
   channel: string;
   scheduled_for: string;
+  /** Migration 028 — which team member owns this step. The sequencer picks
+   *  THIS user's channel rather than any org-wide channel. NULL on legacy
+   *  rows backfilled to the owner, OR on freshly-inserted rows from paths
+   *  not yet updated to set the field; both fall back to the org's owner. */
+  created_by_user_id: string | null;
 }
 
 interface TemplateRow {
@@ -42,6 +47,7 @@ interface ChannelRow {
   id: string;
   channel_type: 'linkedin' | 'email' | 'calendar';
   status: string;
+  user_id: string | null;
 }
 
 /**
@@ -83,7 +89,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
   // crontick; the next tick picks up the rest.
   let dueQuery = db
     .from('sequence_steps')
-    .select('id, organisation_id, partner_id, template_id, step_index, channel, scheduled_for')
+    .select('id, organisation_id, partner_id, template_id, step_index, channel, scheduled_for, created_by_user_id')
     .eq('status', 'pending')
     .order('scheduled_for', { ascending: true })
     .limit(MAX_STEPS_PER_RUN);
@@ -137,7 +143,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           .single(),
         db
           .from('client_channels')
-          .select('id, channel_type, status')
+          .select('id, channel_type, status, user_id')
           .eq('organisation_id', step.organisation_id)
           .eq('status', 'active'),
       ]);
@@ -166,15 +172,51 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         return;
       }
 
-      const channel = (channels as ChannelRow[] | null)?.find(c => c.channel_type === requiredChannelType);
+      // Per-member channel picking (migration 028): prefer the step
+      // owner's own channel for this channel_type. Fall back to ANY active
+      // org channel of the right type only when the step has no owner
+      // (legacy rows pre-migration-028 that weren't backfilled to an
+      // owner). This preserves attribution — Recipient sees the sender
+      // they expect, never an unexpected teammate's account in their
+      // LinkedIn inbox.
+      const orgChannelsOfType = (channels as ChannelRow[] | null)?.filter(c => c.channel_type === requiredChannelType) ?? [];
+      const channel = step.created_by_user_id
+        ? orgChannelsOfType.find(c => c.user_id === step.created_by_user_id)
+        : orgChannelsOfType[0];
       if (!channel) {
-        // No active channel for this type — leave step pending so it picks up
-        // once the operator connects the channel. Don't mark failed.
+        // No active channel for the right user — leave step pending so the
+        // sequencer picks it up once the operator reconnects or reassigns
+        // it. Don't mark failed: the step is recoverable. /approvals will
+        // render a "X's account disconnected — Reconnect or Reassign"
+        // panel for any pending step that's been stuck here (slice 4).
+        const ownerHasOtherChannel = step.created_by_user_id
+          ? orgChannelsOfType.some(c => c.user_id === step.created_by_user_id)
+          : false;
+        const teamHasChannel = orgChannelsOfType.length > 0;
+        const reason = step.created_by_user_id
+          ? teamHasChannel && !ownerHasOtherChannel
+            ? `Step owner has no active ${requiredChannelType} channel — reconnect their account or reassign this step to a teammate who does`
+            : `No active ${requiredChannelType} channel for the step's owning member`
+          : `No active ${requiredChannelType} channel`;
         results.push({
           step_id: step.id,
           partner_id: step.partner_id,
           outcome: 'skipped_no_channel',
-          reason: `No active ${requiredChannelType} channel`,
+          reason,
+        });
+        // Persist for /approvals surfacing — audit trail catches the
+        // disconnect so the operator can see why a step is stuck.
+        await db.from('audit_events').insert({
+          organisation_id: step.organisation_id,
+          actor: 'system:sequencer',
+          action: 'sequence.step_skipped_no_channel',
+          resource_type: 'sequence_step',
+          resource_id: step.id,
+          payload: {
+            channel_type: requiredChannelType,
+            created_by_user_id: step.created_by_user_id,
+            reason,
+          },
         });
         return;
       }

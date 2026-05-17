@@ -53,6 +53,7 @@ export async function POST(request: Request) {
   const link = await createHostedAuthLink({
     provider,
     organisation_id: profile.organisation_id,
+    user_id: user!.id,
     return_url: returnUrl,
   });
 

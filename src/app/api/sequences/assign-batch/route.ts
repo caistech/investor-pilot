@@ -403,6 +403,9 @@ export async function POST(request: Request) {
   }
 
   // Strip the helper fields before insert (Supabase rejects unknown columns).
+  // created_by_user_id (migration 028) attributes each step to the operator
+  // who triggered the batch, so the sequencer picks THIS user's channels
+  // at send time rather than any org-wide channel.
   const cleanRows = rowsToInsert.map(r => ({
     organisation_id: r.organisation_id,
     partner_id: r.partner_id,
@@ -411,6 +414,7 @@ export async function POST(request: Request) {
     channel: r.channel,
     scheduled_for: r.scheduled_for,
     status: r.status,
+    created_by_user_id: user!.id,
   }));
 
   const { data: inserted, error: insertError } = await db

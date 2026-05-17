@@ -102,6 +102,11 @@ export async function getAccountStatus(account_id: string): Promise<UnipileAccou
 export async function createHostedAuthLink(opts: {
   provider: 'linkedin' | 'gmail' | 'outlook';
   organisation_id: string;
+  /** Migration 028 — which team member is connecting their own LinkedIn /
+   *  email. Encoded into the Unipile `name` field and parsed back in the
+   *  /api/webhooks/unipile/account handler so the new client_channels row
+   *  lands with the right user_id. Optional for legacy single-user orgs. */
+  user_id?: string;
   return_url: string;
 }): Promise<CreateHostedAuthLinkResult> {
   // Preserve the precise env-error messages that the connect UI expects.
@@ -118,9 +123,16 @@ export async function createHostedAuthLink(opts: {
     return { ok: false, error: 'NEXT_PUBLIC_APP_URL env var is not set — needed for webhook notify URL' };
   }
 
+  // Encode org_id:user_id in the Unipile `name` field so the webhook can
+  // assign the new channel to the right team member. Falls back to org-only
+  // for legacy code paths that don't pass user_id.
+  const name = opts.user_id
+    ? `${opts.organisation_id}:${opts.user_id}`
+    : opts.organisation_id;
+
   return getClient().createHostedAuthLink({
     provider: opts.provider,
-    name: opts.organisation_id,
+    name,
     return_url: opts.return_url,
     notify_url: `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/unipile/account`,
   });

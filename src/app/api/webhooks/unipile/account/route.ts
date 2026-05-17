@@ -40,8 +40,17 @@ export async function POST(request: Request) {
   const status = body.status;
   const provider = body.provider; // 'LINKEDIN' | 'GMAIL' | 'OUTLOOK'
   const identifier = body.identifier; // email or LinkedIn URN
-  // Unipile passes the organisation_id back via the `name` field set in createHostedAuthLink
-  const organisation_id = body.name || body.metadata?.organisation_id;
+  // Unipile passes our context back via the `name` field set in
+  // createHostedAuthLink. Post-migration 028 the format is "org_id:user_id"
+  // so the new channel can land with the right team-member ownership.
+  // Legacy single-user orgs that created auth links before this change
+  // get just "org_id" — user_id stays null and the backfill / sequencer
+  // fallback handles it.
+  const rawName = (body.name || body.metadata?.organisation_id || '') as string;
+  const [organisation_id, scopedUserId] = rawName.includes(':')
+    ? rawName.split(':', 2)
+    : [rawName, null];
+  const user_id = scopedUserId || null;
 
   if (!event_type || !account_id) {
     return NextResponse.json({ error: 'missing event_type or account_id' }, { status: 400 });
@@ -59,6 +68,7 @@ export async function POST(request: Request) {
       .from('client_channels')
       .upsert({
         organisation_id,
+        user_id, // migration 028 — channel belongs to the team member who connected it
         channel_type,
         provider: mapProviderToInternal(provider),
         account_identifier: identifier || account_id,
@@ -67,7 +77,7 @@ export async function POST(request: Request) {
         warmup_day: 1,
         daily_send_cap: defaultCapForChannel(channel_type),
         daily_send_count: 0,
-      }, { onConflict: 'organisation_id,channel_type,account_identifier' });
+      }, { onConflict: 'user_id,channel_type,account_identifier' });
 
     if (insertError) {
       console.error('[unipile webhook] insert failed:', insertError);

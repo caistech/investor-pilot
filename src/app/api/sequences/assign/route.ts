@@ -124,6 +124,9 @@ export async function POST(request: Request) {
   }
 
   const now = Date.now();
+  // created_by_user_id (migration 028) attributes each step to the operator
+  // who triggered the assign, so the sequencer picks THIS user's channels
+  // at send time rather than any org-wide channel.
   const rowsToInsert = steps.map(s => ({
     organisation_id: profile.organisation_id,
     partner_id,
@@ -132,6 +135,7 @@ export async function POST(request: Request) {
     channel: s.channel,
     scheduled_for: new Date(now + s.delay_days * 86400 * 1000).toISOString(),
     status: 'pending',
+    created_by_user_id: user!.id,
   }));
 
   const { data: inserted, error: insertError } = await db
