@@ -62,7 +62,18 @@ per-member channels live as of 2026-05-18.
   auto-translation, Pool Summary deliverable, Teams, human-approved
   send + audit trail. New `HEYGEN_VIDEO_ID`
   (`3dfc15c762484fd7997622d0e9e2fe92`) live on Vercel across all
-  three envs.
+  three envs. Component's dismiss-key now scoped per video_id so
+  regenerated narration shows even to operators who dismissed the
+  prior version.
+- **Middleware fix — webhooks now actually reachable** —
+  `src/lib/supabase/middleware.ts` was 401'ing every `/api/*` request
+  without a Supabase auth cookie, silently killing both `/api/webhooks/resend`
+  and `/api/webhooks/unipile/account` before their own
+  signature/secret check could run. Fixed by excluding
+  `/api/webhooks/*` from the middleware auth gate; each route still
+  self-validates (svix for Resend, shared-secret header for Unipile).
+  No security regression. Pre-existing Unipile silent-failure bug
+  also resolved by the same one-line fix.
 
 ### Architecture
 
