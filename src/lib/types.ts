@@ -171,6 +171,42 @@ export const FUNDING_TYPE_BY_VALUE: Record<FundingType, { label: string; describ
   }, {} as Record<FundingType, { label: string; describe: string; category: string }>);
 
 /**
+ * The labelled set of partner_types the operator can pick from on a
+ * project. The free-text field was a footgun (the LLM was returning
+ * "mortgage_broker" / arbitrary strings, and the DB CHECK on partners.
+ * partner_type silently rejected anything outside its allowed set, losing
+ * candidates). Now the project surface exposes the curated list and
+ * downstream prompts can resolve against it deterministically.
+ */
+export const PARTNER_TYPE_OPTIONS: Array<{ value: string; label: string; describe: string }> = [
+  { value: 'investor', label: 'Investor', describe: 'Equity capital provider — VC, family office, angel, strategic, growth fund' },
+  { value: 'lender', label: 'Lender', describe: 'Debt capital provider — private credit, direct lender, senior debt fund, mezz fund' },
+  { value: 'buyer', label: 'Buyer', describe: 'Acquirer or licensee — strategic, PE add-on, customer with M&A intent' },
+  { value: 'client', label: 'Client', describe: 'Paying customer / pilot partner — usually for product sales, not capital raises' },
+  { value: 'partner', label: 'Channel partner', describe: 'GTM or distribution partner — reseller, integration, referral, co-marketing' },
+  { value: 'funder', label: 'Funder (other)', describe: 'Grant maker, foundation, sponsor — non-dilutive / non-debt capital' },
+];
+
+/**
+ * Map funding_type → the default partner_types slug. Auto-derived when
+ * the operator picks a funding type on the project form; they can still
+ * override via the dropdown. Eliminates the "operator picks Seed but
+ * partner_types is still 'lender' from a previous F2K-era default"
+ * inconsistency that bit the LingoPure flow.
+ */
+export function partnerTypeForFundingType(fundingType: FundingType | null | undefined): string {
+  if (!fundingType) return 'investor';
+  const entry = FUNDING_TYPE_BY_VALUE[fundingType];
+  if (!entry) return 'investor';
+  // Debt categories → lender. Alternative-funder slugs like
+  // grant_non_dilutive map to 'funder' (the dropdown's catch-all
+  // for non-equity non-debt capital). Everything else → investor.
+  if (entry.category.startsWith('Debt')) return 'lender';
+  if (fundingType === 'grant_non_dilutive') return 'funder';
+  return 'investor';
+}
+
+/**
  * The noun used to refer to the capital provider for a given funding type.
  * Drives field labels in the project UI, the perspective framing in the
  * auto-fill prompt, and the sequence generator tone.

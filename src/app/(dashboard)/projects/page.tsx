@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client';
 import { Plus, Briefcase, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Power, PowerOff, Target } from 'lucide-react';
 import Link from 'next/link';
 import type { Project, FundingType } from '@/lib/types';
-import { FUNDING_TYPE_GROUPS, capitalProviderTerm } from '@/lib/types';
+import { FUNDING_TYPE_GROUPS, capitalProviderTerm, PARTNER_TYPE_OPTIONS, partnerTypeForFundingType } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
@@ -218,7 +218,14 @@ export default function ProjectsPage() {
     setError(null);
     const placeholderName = draftProjectName.trim() || `Draft project (${new Date().toLocaleString('en-AU')})`;
     const insertPayload: Record<string, unknown> = { organisation_id: orgId, name: placeholderName };
-    if (draftFundingType) insertPayload.funding_type = draftFundingType;
+    if (draftFundingType) {
+      insertPayload.funding_type = draftFundingType;
+      // Auto-set partner_types from funding_type so the project row lands
+      // with consistent who-we're-reaching tagging — eliminates the
+      // "funding_type=seed but partner_types=lender from a previous
+      // default" inconsistency. Operator can override later via Edit.
+      insertPayload.partner_types = partnerTypeForFundingType(draftFundingType);
+    }
     if (draftDescription.trim()) insertPayload.description = draftDescription.trim();
     if (draftSponsor.trim()) insertPayload.sponsor = draftSponsor.trim();
     const { data, error: insertError } = await supabase
@@ -524,7 +531,20 @@ export default function ProjectsPage() {
                 </label>
                 <select
                   value={form.funding_type || ''}
-                  onChange={(e) => setForm({ ...form, funding_type: (e.target.value || null) as FundingType | null })}
+                  onChange={(e) => {
+                    // Funding type pick → also auto-update partner_types
+                    // so the project's "who-we're-reaching" tag matches
+                    // the raise. Operator can still override via the
+                    // dropdown below. Prevents the "funding_type=seed but
+                    // partner_types still 'lender' from a previous default"
+                    // inconsistency that bit LingoPure today.
+                    const newType = (e.target.value || null) as FundingType | null;
+                    setForm({
+                      ...form,
+                      funding_type: newType,
+                      partner_types: partnerTypeForFundingType(newType),
+                    });
+                  }}
                   className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
                 >
                   <option value="">— Select the funding scenario —</option>
@@ -538,6 +558,32 @@ export default function ProjectsPage() {
                 </select>
                 <p className="text-sm text-dark-300 mt-2">
                   Discovery looks for the matching investor profile; the scorer rejects mismatches as out_of_scope. Picking the right value here is the difference between a list of real prospects and a list of irrelevant VCs.
+                </p>
+              </div>
+
+              {/* Partner Type — auto-derived from Funding Type above
+                  (equity → investor, debt → lender, grants → funder).
+                  Operator can override here when the default doesn't
+                  fit (e.g. a Series B exit-focused raise where "buyer"
+                  is more accurate than "investor"). */}
+              <div className="md:col-span-2">
+                <label className="block text-base text-white font-semibold mb-2">
+                  Who you&apos;re reaching
+                  <span className="text-sm text-dark-300 font-normal ml-2">— defaults from funding type, override if needed</span>
+                </label>
+                <select
+                  value={form.partner_types || 'investor'}
+                  onChange={(e) => setForm({ ...form, partner_types: e.target.value })}
+                  className="w-full bg-dark-800 border-2 border-dark-600 rounded-lg px-4 py-3 text-base text-white focus:border-corp-green-500 focus:outline-none"
+                >
+                  {PARTNER_TYPE_OPTIONS.map(opt => (
+                    <option key={opt.value} value={opt.value} title={opt.describe}>
+                      {opt.label} — {opt.describe}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-sm text-dark-300 mt-2">
+                  Drives the noun used in field labels (&quot;Investor Outcomes&quot; vs &quot;Lender Outcomes&quot;) and the framing used in outreach drafts. Auto-set from funding type when you change it above; override here if the default isn&apos;t right for your raise.
                 </p>
               </div>
 

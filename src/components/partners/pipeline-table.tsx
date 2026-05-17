@@ -587,12 +587,57 @@ export function PipelineTable({
         ? `\n\nFirst ${skipReasons.length} of ${s.skipped} skips:\n${skipReasons.join('\n')}`
         : '';
 
+      // Researcher rule: when 0 assigned and skips look like "low ICP /
+      // out_of_scope", the operator is usually selecting the WRONG group
+      // — better-fit candidates live in a different tab or behind a
+      // search box filter. Surface that proactively instead of letting
+      // them re-hit the same dead end. Scope: same offering as the
+      // operator's current filter (or any if no offering filter active),
+      // weighted_score >= 4, not in current selection, not already
+      // assigned via another live sequence step.
+      let betterHint = '';
+      if (s.assigned === 0 && s.skipped > 0) {
+        const selectedIds = new Set(selectedPartners.map(p => p.id));
+        // offeringFilter is 'all' | 'project:<uuid>' | 'product:<uuid>'.
+        // When narrowed, only count candidates on the same offering — the
+        // operator chose that scope deliberately, and surfacing prospects
+        // from a different project would just confuse them.
+        const offeringScope = offeringFilter.startsWith('project:')
+          ? { kind: 'project' as const, id: offeringFilter.slice(8) }
+          : offeringFilter.startsWith('product:')
+            ? { kind: 'product' as const, id: offeringFilter.slice(8) }
+            : null;
+        const candidates = partners.filter(p => {
+          if (selectedIds.has(p.id)) return false;
+          if ((p.weighted_score ?? 0) < 4) return false;
+          if (typeof p.category === 'string' && /out[_ -]?of[_ -]?scope/i.test(p.category)) return false;
+          if (offeringScope) {
+            const offeringId = offeringScope.kind === 'project' ? p.project_id : p.product_id;
+            if (offeringId !== offeringScope.id) return false;
+          }
+          return true;
+        });
+
+        if (candidates.length > 0) {
+          const topThree = candidates
+            .slice()
+            .sort((a, b) => (b.weighted_score ?? 0) - (a.weighted_score ?? 0))
+            .slice(0, 3)
+            .map(c => `${c.company_name || c.contact_name || 'unnamed'} (${(c.weighted_score ?? 0).toFixed(1)})`);
+          betterHint =
+            `\n\n💡 ${candidates.length} higher-fit prospect${candidates.length === 1 ? '' : 's'} for this offering exist outside your current selection. ` +
+            `Top: ${topThree.join(', ')}. ` +
+            `Clear the search box, untick filters, or switch to a different source tab (1st/2nd-degree, Brave) to find them.`;
+        }
+      }
+
       setMessage(
         `Sequenced ${s.assigned} of ${n} (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
         (s.assigned > 0
           ? '\nSelection kept — click "3. Render & Queue" to generate the first message now, or wait up to 15 min for the cron.'
           : '') +
-        reasonsBlock,
+        reasonsBlock +
+        betterHint,
       );
       // Selection kept so the operator can flow into Draft (step 3)
       // without re-ticking. router.refresh() pulls the updated server
