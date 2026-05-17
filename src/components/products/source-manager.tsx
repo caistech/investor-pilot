@@ -13,7 +13,10 @@ interface SourceManagerProps {
   projectId?: string;
 }
 
-const FILE_ACCEPT = '.pdf,.docx,.doc,.txt,.csv,.md,.json';
+// Image MIME types added for Phase 2 — operators upload pitch-deck slides
+// as PNG/JPG screenshots, or scans of term sheets. Server routes them
+// straight to Claude vision since there's no text layer to extract.
+const FILE_ACCEPT = '.pdf,.docx,.doc,.txt,.csv,.md,.json,.png,.jpg,.jpeg,.webp';
 const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
 
 export default function SourceManager({ productId, projectId }: SourceManagerProps) {
