@@ -122,10 +122,13 @@ export async function scoreAndUpsertCandidate(
       ? await enrichCandidateWithBrave(candidate, options.meterFor)
       : '';
 
-    // Hard 8s timeout — without this, a slow OpenRouter call (or hung HTTP
+    // Hard 10s timeout — without this, a slow OpenRouter call (or hung HTTP
     // socket) can hold the route past Vercel's edge gateway budget and the
     // browser sees "Failed to fetch" with no status. Better to drop the
-    // slow candidate than block the whole batch.
+    // slow candidate than block the whole batch. Bumped from 8s → 10s on
+    // 2026-05-17 after a LingoPure Seed run reported 1/20 candidates
+    // aborted at 8s; 8-wide concurrency × 3 chunks × 10s = 30s of LLM
+    // wall, comfortably inside Vercel's 60s ceiling.
     const response = await client.messages.create(
       {
         model: MODEL,
@@ -136,7 +139,7 @@ export async function scoreAndUpsertCandidate(
           content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
         }],
       },
-      { signal: AbortSignal.timeout(8000) },
+      { signal: AbortSignal.timeout(10000) },
     );
 
     meterTokens(options?.meterFor, response, MODEL);
@@ -231,12 +234,20 @@ export async function scoreAndUpsertCandidate(
       error: upsertResult.error,
     };
   } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    // Translate AbortSignal timeouts into operator-readable copy. The raw
+    // "This operation was aborted" message tells the operator nothing
+    // actionable. Same translation pattern used in the sequence generator
+    // (see [[clarify-over-fail]] memory — never surface raw aborts).
+    const message = /aborted|timeout/i.test(raw)
+      ? `Scoring took >10s for this candidate — usually an OpenRouter congestion spike. Click "Find Investors" again to retry the failed ones (already-scored candidates skip automatically).`
+      : raw;
     return {
       company_name: candidate.name,
       domain: candidate.domain,
       source: candidate.source,
       status: 'error',
-      error: err instanceof Error ? err.message : String(err),
+      error: message,
     };
   }
 }
