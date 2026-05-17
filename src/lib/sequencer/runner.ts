@@ -292,6 +292,35 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
         .update({ status, outbound_message_id: msg.id })
         .eq('id', step.id);
 
+      // Sync partner.status so the Prospects page "Drafted N" counter
+      // reflects reality. Without this the counter stayed at 0 even
+      // after the operator queued 23 drafts — the tally is computed
+      // from partner.status (= 'draft_ready' / 'angle_defined'), not
+      // from live sequence_step state, so the queue + the counter
+      // drifted. Only sync when status is queued_for_approval — a
+      // compliance_blocked step shouldn't claim "drafted" on the
+      // partner row because the operator still has to edit or skip
+      // before anything ships. Guard against downgrading partners
+      // that have already moved past draft (sent / replied / etc.)
+      // by only writing draft_ready over upstream stages.
+      if (status === 'queued_for_approval') {
+        const UPSTREAM_STAGES = new Set([
+          'scored', 'enriched', 'contact_found', 'contact_partial',
+          'angle_defined', 'draft_ready',
+        ]);
+        const { data: partnerRow } = await db
+          .from('partners')
+          .select('status')
+          .eq('id', step.partner_id)
+          .single();
+        if (partnerRow && UPSTREAM_STAGES.has(partnerRow.status as string)) {
+          await db
+            .from('partners')
+            .update({ status: 'draft_ready', last_updated_at: new Date().toISOString() })
+            .eq('id', step.partner_id);
+        }
+      }
+
       await db.from('audit_events').insert({
         organisation_id: step.organisation_id,
         actor: 'system:sequencer',

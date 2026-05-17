@@ -351,7 +351,7 @@ Step 2 (LinkedIn DM, ~200 words):
 {sender_name} here, {sender_role} at the LingoPure raise (Daniel's the
 founder, I'm working alongside him on outreach + technical diligence).
 
-Reaching out because {credit_signal_lead}.
+{credit_signal_lead}
 
 {value_offer_lead}
 
@@ -359,6 +359,14 @@ If it's useful, happy to send a one-pager + the cap table for context
 — no obligation either way. If not a fit right now, no follow-up.
 
 — {sender_name}"
+
+IMPORTANT — credit_signal_lead is a COMPLETE SENTENCE generated per
+recipient ("Given Meet Ventures' focus on…" / "Your Temasek background
+suggests…"). It must stand on its own line/paragraph. Do NOT prefix
+it with "Reaching out because", "I'm writing because", "Given that",
+"Since", or any other lead-in scaffold — doing so produces grammatical
+nonsense like "Reaching out because Given Meet Ventures' focus…" once
+the LLM substitutes a value that already starts with a capital.
 
 Step 3 (Email first, with subject, ~180 words):
 Subject: "{firm} ↔ LingoPure — quick note + one-pager if useful"

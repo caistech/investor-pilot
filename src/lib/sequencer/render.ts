@@ -398,6 +398,14 @@ export async function renderStep(
     } else if (!hasLinkedInLine || !hasRoleLine) {
       body = augmentMinimalSignature(body, context, { hasLinkedInLine, hasRoleLine });
     }
+    // After signature handling, dedupe any "My LinkedIn profile is here
+    // for background: <URL>" body sentence that duplicates the URL we
+    // just placed in the structured signature. Templates often include
+    // this redundant body line, but with the signature now carrying
+    // the canonical LinkedIn line we don't need it twice.
+    if (context.sender_linkedin_url) {
+      body = stripDuplicateLinkedInBodyLine(body, context.sender_linkedin_url);
+    }
   }
 
   // Tier-aware tone modulation. Qualified + Exploratory tiers wrap the
@@ -502,24 +510,28 @@ export async function renderStep(
  */
 function injectTierHedging(body: string, tier: OutreachTier, _senderName: string): string {
   const HEDGE_MARKERS = {
-    qualified: 'may be off-base on the precise fit',
-    exploratory: 'not sure if this is even in your remit',
+    qualified: 'may be off-base on the fit',
+    exploratory: 'not sure if this is in your remit',
   } as const;
   const SOFTENER_MARKERS = {
-    qualified: 'no offense taken if the timing or fit is off',
-    exploratory: 'feel free to ignore if this is outside your space',
+    qualified: 'no worries either way',
+    exploratory: 'genuinely no problem if this isn\'t your space',
   } as const;
 
   const hedgeMarker = HEDGE_MARKERS[tier as keyof typeof HEDGE_MARKERS];
   const softenerMarker = SOFTENER_MARKERS[tier as keyof typeof SOFTENER_MARKERS];
   if (!hedgeMarker || !softenerMarker) return body;
 
+  // One short clause each — previously two-sentence paragraphs of
+  // throat-clearing before the recipient got to anything substantive.
+  // Operator flagged 2026-05-17 as feeling apologetic to the point of
+  // wasting the reader's attention.
   const hedgeSentence = tier === 'exploratory'
-    ? `Quick caveat up front — ${hedgeMarker}, so feel free to stop reading here if it's clearly not.`
-    : `Quick caveat — I ${hedgeMarker}, but wanted to flag this rather than skip over.`;
+    ? `Quick one — ${hedgeMarker}, so feel free to skip.`
+    : `Quick caveat — ${hedgeMarker}, but worth flagging.`;
 
   const softenerSentence = tier === 'exploratory'
-    ? `Truly ${softenerMarker} — I was hedging on the side of reaching out rather than not.`
+    ? `${softenerMarker[0].toUpperCase()}${softenerMarker.slice(1)}.`
     : `If even tangentially relevant, happy to share more — ${softenerMarker}.`;
 
   let out = body;
@@ -820,6 +832,47 @@ function injectSignatureBlock(body: string, context: RenderContext): string {
 }
 
 /**
+ * Strip a redundant "My LinkedIn profile is here for background: <URL>"
+ * style sentence from the body when the structured signature already
+ * carries the same URL. Operator flagged 2026-05-17 — drafts now had
+ * the LinkedIn URL twice (once buried in body text, once in the proper
+ * signature line) which read as machine-generated repetition.
+ *
+ * Conservative: only strips if the URL appears 2+ times in the body
+ * AND there's an obvious body-side scaffold around the earlier
+ * occurrence. Patterns we target are the ones the current template
+ * generator produces. Anything we don't recognise is left alone.
+ */
+function stripDuplicateLinkedInBodyLine(body: string, linkedinUrl: string): string {
+  const esc = linkedinUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const occurrences = (body.match(new RegExp(esc, 'g')) || []).length;
+  if (occurrences < 2) return body;
+  const patterns: RegExp[] = [
+    // "My LinkedIn profile is here for background: <url>" (with surrounding whitespace)
+    new RegExp(`\\s*My LinkedIn(?: profile)?(?: is)?(?: here| available)?(?: for background)?\\s*:?\\s*${esc}\\s*`, 'g'),
+    // "(my LinkedIn for context: <url>)"
+    new RegExp(`\\s*\\(?my LinkedIn(?: profile)? for (?:context|background)\\s*:?\\s*${esc}\\)?\\s*`, 'gi'),
+    // "LinkedIn for background: <url>" without "my"
+    new RegExp(`\\s*LinkedIn for (?:background|context)\\s*:?\\s*${esc}\\s*`, 'g'),
+  ];
+  let out = body;
+  for (const pat of patterns) {
+    // Strip ALL but the LAST URL occurrence — the signature URL needs
+    // to survive. Iteratively strip earliest matches until only one
+    // URL remains.
+    while ((out.match(new RegExp(esc, 'g')) || []).length > 1 && pat.test(out)) {
+      pat.lastIndex = 0;
+      out = out.replace(pat, '\n');
+      pat.lastIndex = 0;
+    }
+  }
+  // Tidy: collapse the triple-newlines left behind by stripping a line
+  // out of a paragraph.
+  out = out.replace(/\n{3,}/g, '\n\n');
+  return out;
+}
+
+/**
  * Augment a bare "— Sender Name" signature with role + LinkedIn lines.
  * Used when the template body already includes the sender name in its
  * closer (so injectSignatureBlock would skip), but the structured
@@ -1034,13 +1087,19 @@ EVERY outreach must offer something specific to THIS recipient before asking for
 
 Pick the offer that's MOST RELEVANT to this specific recipient. If they appear to be a Vietnam investor and we're pitching an EdTech English platform, "free pilot for a portfolio company hitting English-scaling friction" is excellent. If they're a credit allocator, "credit memo + LVR sensitivity" is excellent. Don't generic-offer; tailor.
 
+HARD LENGTH RULES (operators flagged drafts running 35-40 word run-ons):
+- "lead": ONE sentence, ≤25 words. No em-dash sub-clauses or "and"-stacking. If
+  a fact won't fit, drop it — keep the strongest single hook.
+- "leadShort": ≤15 words. Single short clause.
+- "valueOfferLead": ≤30 words. Concrete offer + one qualifier max.
+
 Return ONLY JSON, no prose:
 {
   "short": "<≤80 chars fit-angle phrase that slots into 'X suggests fit'>",
-  "lead": "<1-2 sentence opener for a cold email — the fit angle, hedged appropriately>",
-  "leadShort": "<single sentence opener for a follow-up email>",
+  "lead": "<ONE sentence ≤25 words — the fit angle, hedged appropriately>",
+  "leadShort": "<single short clause ≤15 words for a follow-up email>",
   "valueOfferShort": "<≤80 chars chip describing the value we offer, e.g. 'free 3-month LingoPure pilot for one Vietnam portfolio co'>",
-  "valueOfferLead": "<1-2 sentences offering it concretely — e.g. 'Happy to set up a free 3-month pilot for any portfolio company hitting English-language scaling friction — no commitment beyond seeing if it moves the needle.'>",
+  "valueOfferLead": "<≤30 words offering it concretely — e.g. 'Happy to set up a free 3-month pilot for any portfolio company hitting English-language scaling friction — no commitment.'>",
   "specificity": "specific_deal | sector_evidence | generic"
 }
 
