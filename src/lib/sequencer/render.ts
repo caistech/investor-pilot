@@ -564,8 +564,20 @@ function injectSignatureBlock(body: string, context: RenderContext): string {
   if (context.sender_linkedin_url) lines.push(`LinkedIn: ${context.sender_linkedin_url}`);
   if (context.signature_block) {
     // signature_block may itself span multiple lines (org name, phone,
-    // website). Append verbatim — operator owns the formatting.
-    lines.push(context.signature_block);
+    // website). Dedupe against lines we've already added so e.g. an
+    // operator with sender_role="Technical Director" AND
+    // signature_block="Technical Director\nLingoPure" doesn't get
+    // "Technical Director" appearing twice. Compare case-insensitively
+    // and trimmed — operator's hand-typed signature_block doesn't
+    // always match casing/whitespace of the atomic sender_role.
+    const existing = new Set(lines.map((l) => l.trim().toLowerCase()));
+    const sigLines = context.signature_block.split('\n').map((l) => l.trim()).filter(Boolean);
+    for (const sigLine of sigLines) {
+      if (!existing.has(sigLine.toLowerCase())) {
+        lines.push(sigLine);
+        existing.add(sigLine.toLowerCase());
+      }
+    }
   }
   return `${body.trimEnd()}\n\n${lines.join('\n')}`;
 }
