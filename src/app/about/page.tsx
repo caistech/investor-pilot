@@ -17,9 +17,13 @@ export default function AboutPage() {
         <div className="prose prose-invert max-w-none space-y-5 text-dark-200">
           <p>
             InvestorPilot is multi-channel direct outreach software for operators
-            who run their own campaigns. The platform handles discovery, scoring,
-            drafting, approval, sending, and reply tracking across LinkedIn and
-            email from a single workspace.
+            who run their own campaigns. It targets two use cases from the same
+            workflow — <strong>Projects</strong> for fundraising (VCs, family
+            offices, private credit funds, LPs) and <strong>Products</strong>{' '}
+            for sales (buyers, channel partners, integration partners). One
+            pipeline handles discovery, scoring, enrichment, drafting,
+            approval, sending, and reply tracking across LinkedIn and email
+            from a single workspace.
           </p>
 
           <h3 className="mt-8">Built by</h3>
@@ -32,9 +36,11 @@ export default function AboutPage() {
           <h3 className="mt-8">What InvestorPilot is</h3>
           <ul className="list-disc list-outside ml-5 space-y-2">
             <li>Software you run. Discovery and scoring are AI-assisted; every send is human-approved.</li>
+            <li>Dual-purpose. Same pipeline runs investor outreach for a raise and sales outreach for a product — only the templates, tone, and ICP shift per target.</li>
             <li>Multi-channel. LinkedIn connection requests and DMs (via Unipile) + email (via Resend).</li>
+            <li>Tier-modulated. High-fit prospects get a direct ask; low-fit get exploratory framing. Drafts to non-English markets auto-translate at render time.</li>
             <li>Audit-logged. Every action — discovery, scoring, approval, send, reply — written to an audit trail.</li>
-            <li>Compliance-aware. A configurable pre-send filter blocks unapproved language before any message can be sent.</li>
+            <li>Compliance-aware. Per-product compliance rulesets (standard, finance_au_senior_debt, custom) block unapproved language pre-send.</li>
             <li>Operator-controlled. Daily caps, warmup curves, and a per-channel + global kill switch live on the platform, not on the third party.</li>
           </ul>
 

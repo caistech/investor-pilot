@@ -1,51 +1,80 @@
 import Link from 'next/link';
-import { Zap, ArrowRight, CheckCircle } from 'lucide-react';
+import {
+  Zap,
+  ArrowRight,
+  Search,
+  UserCheck,
+  Route,
+  PenSquare,
+  Inbox,
+  Send,
+  Reply,
+  Building2,
+  Briefcase,
+} from 'lucide-react';
 
-const steps = [
+export const metadata = {
+  title: 'How it works — InvestorPilot',
+  description:
+    'The seven-stage outreach pipeline behind InvestorPilot — same workflow for finding investors and finding buyers.',
+};
+
+const STAGES = [
   {
-    playbook: 'Generate 5-8 categories of companies whose customers match ICP',
-    product: 'AI generates categories with audience overlap rationale. You approve before searching.',
-    stage: 'Categories',
+    n: 1,
+    stage: 'Setup',
+    icon: Building2,
+    title: 'Pick a target — Project or Product',
+    body: 'A Project is a funding raise (Series A, seed, debt facility, fund formation — 22 funding types supported, each with its own ICP). A Product is something you sell (SaaS, services, integrations). The engine routes investor outreach for Projects and sales/partner outreach for Products from the same workflow.',
   },
   {
-    playbook: 'Search for 3-5 candidates per category using Brave Search',
-    product: 'Brave Search MCP finds candidates automatically. Deduplicates across categories.',
+    n: 2,
     stage: 'Discovery',
+    icon: Search,
+    title: 'Find prospects across Brave + LinkedIn',
+    body: 'Brave web search surfaces firms matching the ICP query, LinkedIn discovers 1st-degree (warm) and 2nd-degree (mutual-connection) contacts at those firms. Operator can re-run discovery with different queries; dedupe is automatic across runs.',
   },
   {
-    playbook: 'Screen out competitors, wrong-size firms, closed ecosystems',
-    product: 'Negative screening runs automatically against exclusion rules you define.',
-    stage: 'Screening',
-  },
-  {
-    playbook: 'Score each candidate on 5 dimensions with evidence',
-    product: 'AI scores audience overlap (30%), complementarity (25%), readiness (20%), reachability (15%), leverage (10%). Radar chart visualization.',
+    n: 3,
     stage: 'Scoring',
+    icon: UserCheck,
+    title: 'Score every candidate on 5 ICP dimensions',
+    body: 'Each candidate is scored 1–10 on audience overlap, complementarity, partner readiness, reachability, and strategic leverage. Dimension weights are configurable per ICP (the default sales mix differs from senior-debt fund or VC-raise mixes). Out-of-scope candidates are explicitly hard-capped at 2/10 so they surface in the right bucket.',
   },
   {
-    playbook: 'Browse company websites to find team and partnership signals',
-    product: 'Visits homepage, /about, /team, /partners in sequence. Records what was found vs inferred.',
-    stage: 'Browsing',
+    n: 4,
+    stage: 'Enrichment',
+    icon: Inbox,
+    title: 'Find contact emails + read recent signal',
+    body: 'Hunter.io lookups for verified business emails. LinkedIn deep-read for recent posts + firm news. Operator-injected notes count as ground truth and are weighted above public sources during signal extraction.',
   },
   {
-    playbook: 'Find the right contact based on partnership motion',
-    product: 'Hunter MCP enriches contacts. Email verified with confidence score. Fallback to domain search.',
-    stage: 'Contact Finding',
+    n: 5,
+    stage: 'Plan Outreach',
+    icon: Route,
+    title: 'Assign each prospect to the right sequence',
+    body: 'Multi-step templates (LinkedIn connect → DM → email cold → two follow-ups → close) tailored to the Project or Product. Prospects route to investor-tone or partner-tone templates automatically. Warm 1st-degree LinkedIn contacts get a different opener than cold 2nd-degree.',
   },
   {
-    playbook: 'Select partnership motion (referral, integration, co-marketing, etc.)',
-    product: 'AI recommends motion based on readiness tier, company size, and traction. You approve.',
-    stage: 'Motion Selection',
-  },
-  {
-    playbook: 'Draft outreach email with anti-hallucination rules',
-    product: 'Evidence-grounded drafts. Opening line must reference observed data. Under 150 words. You review before filing.',
+    n: 6,
     stage: 'Drafting',
+    icon: PenSquare,
+    title: 'Render with tier-modulated tone + courtesy contract',
+    body: 'Each draft is built around a 5-beat courtesy contract: Time-ack → Who-I-am → Why-you-personally → What-I-offer → Ask-last. High-fit prospects (score ≥7) get a direct ask. Mid-fit get a soft hedge. Low-fit get an exploratory "feel free to skip" frame. Recipients in non-English markets get the message auto-translated; the English original stays visible to the operator before send.',
   },
   {
-    playbook: 'File draft in Gmail for founder review',
-    product: 'Gmail MCP creates a pre-addressed draft. Never sends automatically.',
-    stage: 'Filing',
+    n: 7,
+    stage: 'Approval + Send',
+    icon: Send,
+    title: 'Human-in-the-loop, then ship',
+    body: 'Every draft goes to /approvals with its fit score, tier badge, compliance check, and personalisation score. Edit inline, regenerate, skip, or approve. Approved messages send via Resend (email) or Unipile (LinkedIn). Daily caps and the global kill switch are enforced server-side.',
+  },
+  {
+    n: 8,
+    stage: 'Track',
+    icon: Reply,
+    title: 'Replies route back, follow-ups pause',
+    body: 'Inbound replies match back to the prospect and pause the rest of the sequence. Bounces clear the bad email and re-trigger enrichment. The full audit log — every discovery, scoring, draft, approval, send, reply — is written to audit_events for export and compliance review.',
   },
 ];
 
@@ -58,65 +87,98 @@ export default function PlaybookPage() {
             <Zap className="w-6 h-6 text-corp-green-500" />
             <span className="text-xl font-bold">InvestorPilot</span>
           </Link>
-          <Link href="/signup" className="btn-primary">Get Started</Link>
+          <div className="flex items-center gap-4">
+            <Link href="/about" className="nav-link hidden sm:inline">About</Link>
+            <Link href="/login" className="nav-link">Sign in</Link>
+            <Link href="/signup" className="btn-primary">Get Started</Link>
+          </div>
         </div>
       </header>
 
       <section className="max-w-4xl mx-auto px-6 py-16">
-        <div className="text-center mb-16">
-          <h1 className="text-4xl font-bold mb-4">The Playbook, Productised</h1>
+        <div className="text-center mb-12">
+          <h1 className="text-4xl font-bold mb-4">How it works</h1>
           <p className="text-dark-300 text-lg max-w-2xl mx-auto">
-            Every step of{' '}
-            <a
-              href="https://www.linkedin.com/pulse/partnerships-agent-playbook-claude-guillermo-flor-zdzdf/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-corp-green-400 hover:text-corp-green-300 underline"
-            >
-              Guillermo Flor&apos;s Partnerships Agent Playbook
-            </a>
-            , built into a SaaS you can run in 30 minutes.
+            Eight stages from setup to reply tracking. Same pipeline runs
+            investor outreach (Projects) and sales outreach (Products) — the
+            tone, templates, and signal sources shift per target, the workflow
+            stays the same.
           </p>
         </div>
 
-        <div className="space-y-6">
-          {steps.map((step, i) => (
-            <div key={i} className="card">
-              <div className="flex items-start gap-6">
+        <div className="grid sm:grid-cols-2 gap-4 mb-12">
+          <div className="card border-corp-green-500/30 bg-corp-green-500/5">
+            <div className="flex items-start gap-3">
+              <Briefcase className="w-6 h-6 text-corp-green-400 flex-shrink-0 mt-1" />
+              <div>
+                <h4 className="mb-1">Projects (Funding)</h4>
+                <p className="text-dark-300 text-sm">
+                  Pick a funding type (pre-seed → Series C+, debt facility,
+                  fund close, grants). Engine targets VCs, family offices,
+                  private credit funds, LPs aligned to the raise profile.
+                </p>
+              </div>
+            </div>
+          </div>
+          <div className="card border-blue-500/30 bg-blue-500/5">
+            <div className="flex items-start gap-3">
+              <Building2 className="w-6 h-6 text-blue-400 flex-shrink-0 mt-1" />
+              <div>
+                <h4 className="mb-1">Products (Sales)</h4>
+                <p className="text-dark-300 text-sm">
+                  Define a product pitch + ICP. Engine targets buyers, channel
+                  partners, resellers, integration partners — decision-makers
+                  who&apos;d move on the offer.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {STAGES.map((s) => (
+            <div key={s.n} className="card">
+              <div className="flex items-start gap-5">
                 <div className="flex-shrink-0 w-10 h-10 bg-corp-green-500/10 text-corp-green-400 rounded-lg flex items-center justify-center font-bold">
-                  {i + 1}
+                  {s.n}
                 </div>
-                <div className="flex-1">
-                  <div className="text-dark-500 text-xs uppercase tracking-wider mb-1">{step.stage}</div>
-                  <div className="grid md:grid-cols-2 gap-4">
-                    <div>
-                      <div className="text-dark-500 text-xs mb-1">Playbook says:</div>
-                      <p className="text-dark-300 text-sm">{step.playbook}</p>
-                    </div>
-                    <div>
-                      <div className="text-corp-green-500 text-xs mb-1 flex items-center gap-1">
-                        <CheckCircle className="w-3 h-3" /> InvestorPilot does:
-                      </div>
-                      <p className="text-white text-sm">{step.product}</p>
-                    </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1">
+                    <s.icon className="w-4 h-4 text-dark-400" />
+                    <span className="text-dark-500 text-xs uppercase tracking-wider">{s.stage}</span>
                   </div>
+                  <h4 className="mb-2">{s.title}</h4>
+                  <p className="text-dark-300 text-sm">{s.body}</p>
                 </div>
               </div>
             </div>
           ))}
         </div>
 
-        <div className="text-center mt-16">
+        <div className="card mt-12 border-corp-green-500/20 bg-corp-green-500/5">
+          <h4 className="mb-2">Sample-to-self before you commit</h4>
+          <p className="text-dark-300 text-sm">
+            Once your sender identity is set, one click runs the whole pipeline
+            against you — Brave + LinkedIn enrichment on your own profile,
+            fit-signal extraction, render, delivery to your inbox. See what
+            the system would write to a real prospect before you set up a single
+            one. Free, no commitment.
+          </p>
+        </div>
+
+        <div className="text-center mt-12">
           <Link href="/signup" className="btn-primary text-lg px-8 py-3 inline-flex items-center gap-2">
-            Try It Now <ArrowRight className="w-5 h-5" />
+            Try it now <ArrowRight className="w-5 h-5" />
           </Link>
-          <p className="text-dark-500 text-sm mt-4">30-day free trial. No credit card required.</p>
         </div>
       </section>
 
       <footer className="border-t border-dark-800 py-8">
         <div className="max-w-6xl mx-auto px-6 text-center text-sm text-dark-500">
-          Built by <a href="https://corporateaisolutions.com" className="text-white hover:text-corp-green-400">Corporate AI Solutions</a>
+          Built by{' '}
+          <a href="https://corporateaisolutions.com" className="text-white hover:text-corp-green-400">
+            Corporate AI Solutions
+          </a>
         </div>
       </footer>
     </div>
