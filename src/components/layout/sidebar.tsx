@@ -95,6 +95,16 @@ export default function Sidebar() {
         ))}
       </nav>
 
+      {/* ElevenLabs voice-help widget sits between the nav (which ends at
+          Reference / Sequences) and the Sign out block — fills the
+          natural gap created by the nav's flex-1. The widget is a Web
+          Component that self-positions via fixed CSS by default; the
+          .sidebar-elevenlabs wrapper + global override in globals.css
+          forces it to flow inline and fit the sidebar width. */}
+      <div className="sidebar-elevenlabs p-3 border-t border-dark-700">
+        <ElevenLabsWidget />
+      </div>
+
       <div className="p-4 border-t border-dark-700">
         <button
           onClick={handleLogout}
@@ -103,14 +113,6 @@ export default function Sidebar() {
           <LogOut className="w-5 h-5" />
           Sign out
         </button>
-      </div>
-
-      {/* ElevenLabs voice-help widget docked at the bottom of the sidebar.
-          The widget is a Web Component that self-positions via fixed CSS by
-          default; the .sidebar-elevenlabs wrapper + global override in
-          globals.css forces it to flow inline and fit the sidebar width. */}
-      <div className="sidebar-elevenlabs p-3 border-t border-dark-700">
-        <ElevenLabsWidget />
       </div>
     </aside>
   );
