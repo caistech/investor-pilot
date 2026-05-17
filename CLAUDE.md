@@ -1,3 +1,43 @@
+<!-- SESSION CONTEXT - Injected by Easy Claude Code -->
+## Prior Session Context
+
+> Continuing from a recent session. Pick up where you left off.
+
+### Last Session Summary
+I need permission to edit the sidebar.tsx file. Let me check the rest of the situation first to make sure I'm not blocked elsewhere — but the work needs file writes. Let me try a different approach: report what I want to do so the user can grant access in one go.
+
+The plan I'm ready to execute (foundation pass) edits these files:
+- `src/components/layout/sidebar.tsx` — convert fixed sidebar to mobile drawer + hamburger
+- `src/app/(dashboard)/layout.tsx` — responsive main padding (`p-4 sm:p-6 lg:p-8`)
+- `src/components/partners/pipeline-table.tsx` — wrap filter bar, make table horizontally scrollable, drop `min-w-[180px]` constraint on workflow buttons at small breakpoints
+- `src/components/layout/public-header.tsx` — quick scan, likely needs mobile menu too
+- Possibly `src/app/(dashboard)/partners/[id]/page.tsx` — gate grid columns at `lg`
+
+No backend, no API, no DB changes — all CSS / Tailwind class adjustments to add responsive breakpoints. Existing desktop layout is preserved.
+
+Could you grant write access so I can proceed? Or if you'd prefer to see one file's changes first before approving the rest, say the word and I'll start with sidebar.tsx only.
+
+### Recent Conversation (last 2 turns)
+**User (22m ago):** Steve feedbsck - I tried it out, it seems more laptop-friendly than phone? - let's update for both laptop and mobile optimisation
+
+**Claude (18m ago):** I need permission to edit the sidebar.tsx file. Let me check the rest of the situation first to make sure I'm not blocked elsewhere — but the work needs file writes. Let me try a different approach: report what I want to do so the user can grant access in one go.
+
+The plan I'm ready to execute (foundation pass) edits these files:
+- `src/components/layout/sidebar.tsx` — convert fixed sidebar to mobile drawer + hamburger
+- `src/app/(dashboard)/layout.tsx` — responsive main padding (`p-4 sm:p-6 lg:p-8`)
+- `src/components/partners/pipeline-table.tsx` — wrap filter bar, make table horizontally scrollable, drop `min-w-[180px]` constraint on workflow buttons at small breakpoints
+- `src/components/layout/public-header.tsx` — quick scan, likely needs mobile menu too
+- Possibly `src/app/(dashboard)/partners/[id]/page.tsx` — gate grid columns at `lg`
+
+No backend, no API, no DB changes — all CSS / Tailwind class adjustments to add responsive breakpoints. Existing desktop layout is preserved.
+
+Could you grant write access so I can proceed? Or if you'd prefer to see one file's changes first before approving the rest, say the word and I'll start with sidebar.tsx only.
+
+### Instructions
+- Continue from the context above. Do not ask the user to re-explain.
+- When you make significant decisions, emit: <!-- MEMORY type=decision importance=8 | description -->
+- When you create files, emit: <!-- MEMORY type=file_created importance=6 | path/to/file.ts - description -->
+<!-- END SESSION CONTEXT -->
 # InvestorPilot — CLAUDE.md
 
 ## Guardrails

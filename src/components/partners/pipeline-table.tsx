@@ -795,8 +795,8 @@ export function PipelineTable({
   return (
     <div>
       {/* Search + type filter */}
-      <div className="flex gap-3 mb-4">
-        <div className="relative flex-1">
+      <div className="flex gap-3 mb-4 flex-wrap">
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-dark-500" />
           <input
             type="text"
@@ -1102,8 +1102,8 @@ export function PipelineTable({
 
       {/* Table */}
       {filtered.length > 0 ? (
-        <div className="card overflow-hidden p-0">
-          <table className="w-full">
+        <div className="card overflow-x-auto p-0">
+          <table className="w-full min-w-[640px]">
             <thead>
               <tr className="border-b border-dark-700">
                 <th className="px-3 py-3 w-10">
