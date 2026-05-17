@@ -406,9 +406,9 @@ export function PipelineTable({
         // the right next step is Re-enrich evidence (Brave/LinkedIn
         // fit signal) not Assign Sequence.
         const nextStepHint = totalSucceeded > 0
-          ? 'Selection kept — click "2. Assign Sequence" next.'
+          ? 'Selection kept — click "2. Plan Outreach" next.'
           : 'No emails found (Hunter only works for contacts with public business emails). ' +
-            'For LinkedIn-only outreach, click "Re-enrich evidence" then "2. Assign Sequence" — the LinkedIn DM path doesn\'t need an email.';
+            'For LinkedIn-only outreach, click "Refresh research" then "2. Plan Outreach" — the LinkedIn DM path doesn\'t need an email.';
         setMessage(
           `Enriched ${totalSucceeded} of ${n}. ${totalSkipped} skipped, ${totalErrored} errors. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${chunkSize}.) ` : ''}\n${nextStepHint}${errorTrailer}`,
         );
@@ -489,7 +489,7 @@ export function PipelineTable({
       setMessage(
         `Re-enriched ${totalEnriched} of ${n}. ${totalSkipped} skipped (no LinkedIn URL / unsupported source), ${totalFailed} failed. ${chunks.length > 1 ? `(Ran in ${chunks.length} batches of up to ${REENRICH_MAX}.) ` : ''}\n` +
         (totalEnriched > 0
-          ? 'Selection kept — now click "Reset sequence" → "2. Assign Sequence" → "3. Render & Queue" to regenerate drafts with fresh evidence.'
+          ? 'Selection kept — now click "Restart plan" → "2. Plan Outreach" → "3. Draft Messages Now" to regenerate drafts with fresh evidence.'
           : 'Nothing refreshed — check that the selected partners have a contact_linkedin URL or a Brave-discoverable domain.') +
         errorTrailer,
       );
@@ -532,7 +532,7 @@ export function PipelineTable({
         `Reset ${data.partners_reset} prospect${data.partners_reset === 1 ? '' : 's'}: ` +
         `${data.steps_deleted} sequence step${data.steps_deleted === 1 ? '' : 's'} + ` +
         `${data.messages_deleted} draft${data.messages_deleted === 1 ? '' : 's'} deleted.\n` +
-        `Selection kept — click "2. Assign Sequence" to re-assign to the correct template.`,
+        `Selection kept — click "2. Plan Outreach" to re-assign to the correct template.`,
       );
       router.refresh();
     } catch (err) {
@@ -634,7 +634,7 @@ export function PipelineTable({
       setMessage(
         `Sequenced ${s.assigned} of ${n} (${s.total_steps} step rows), ${s.skipped} skipped, ${s.errored} errored.` +
         (s.assigned > 0
-          ? '\nSelection kept — click "3. Render & Queue" to generate the first message now, or wait up to 15 min for the cron.'
+          ? '\nSelection kept — click "3. Draft Messages Now" to generate the first message now, or wait up to 15 min for the cron.'
           : '') +
         reasonsBlock +
         betterHint,
@@ -855,54 +855,90 @@ export function PipelineTable({
         </span>
       </div>
 
-      {/* Action bar */}
+      {/* Action bar — restructured 2026-05-17 from "5 buttons in one row" to
+          "3-step workflow + recovery tools" after operator feedback that
+          the original layout didn't communicate which buttons are
+          primary vs which are recovery. Workflow row: do these in order.
+          Recovery row: only when something's stuck. */}
       {selected.size > 0 && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-dark-800 rounded-lg flex-wrap">
-          <span className="text-sm text-dark-300">{selected.size} selected</span>
-          <button
-            onClick={() => batchAction('enrich')}
-            disabled={loading !== null}
-            className="btn-secondary text-sm py-1 px-3"
-            title="Step 1 — Hunter.io email lookup for selected partners."
-          >
-            {loading === 'enrich' ? <Loader2 className="w-3 h-3 animate-spin" /> : '1. Enrich'}
-          </button>
-          <button
-            onClick={batchAssignSequences}
-            disabled={loading !== null}
-            className="btn-secondary text-sm py-1 px-3 inline-flex items-center gap-1.5"
-            title="Step 2 — Auto-routes: 1st-degree → warm DM sequence, others → cold sequence. Skips partners already on a sequence."
-          >
-            {loading === 'assign' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
-            2. Assign Sequence
-          </button>
-          <button
-            onClick={() => batchAction('draft')}
-            disabled={loading !== null}
-            className="btn-primary text-sm py-1 px-3"
-            title={`Step 3 — Render the first sequence step for each selected partner so it lands in Approvals immediately. (Otherwise the cron renders it within 15 min.) Requires Step 2 to have run. Large selections auto-chunk into batches of ${RENDER_NOW_MAX} server-side.`}
-          >
-            {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin" /> : '3. Render & Queue'}
-          </button>
-          <button
-            onClick={reEnrichEvidence}
-            disabled={loading !== null}
-            className="text-xs text-blue-400 hover:text-blue-300 underline underline-offset-2 ml-auto"
-            title="Re-fetch Brave firm news + LinkedIn profile / posts for the selected partners. Use when render reports 'no Brave/LinkedIn evidence yet' — refreshes the signal the credit_signal extractor needs."
-          >
-            {loading === 'reenrich' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Re-enrich evidence'}
-          </button>
-          <button
-            onClick={resetSequences}
-            disabled={loading !== null}
-            className="text-xs text-amber-400 hover:text-amber-300 underline underline-offset-2"
-            title="Delete the current sequence assignment + any draft messages for the selected partners. Use when partners were assigned to the wrong template and you want to re-do Step 2 cleanly."
-          >
-            {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Reset sequence'}
-          </button>
-          <button onClick={() => setSelected(new Set())} className="text-dark-500 text-sm hover:text-white">
-            Clear
-          </button>
+        <div className="mb-4 p-3 bg-dark-800 rounded-lg space-y-3">
+          {/* Selection count + clear */}
+          <div className="flex items-center justify-between text-sm">
+            <span className="text-dark-200 font-medium">{selected.size} prospect{selected.size === 1 ? '' : 's'} selected</span>
+            <button onClick={() => setSelected(new Set())} className="text-dark-400 hover:text-white text-xs">
+              Clear selection
+            </button>
+          </div>
+
+          {/* Primary workflow — do these in order, left to right */}
+          <div>
+            <p className="text-xs text-dark-300 uppercase tracking-wide font-semibold mb-2">
+              Outreach workflow <span className="text-dark-500 font-normal normal-case tracking-normal">— run these in order</span>
+            </p>
+            <div className="flex items-stretch gap-2 flex-wrap">
+              <button
+                onClick={() => batchAction('enrich')}
+                disabled={loading !== null}
+                className="btn-secondary text-sm py-2 px-4 flex-1 min-w-[180px] text-left"
+                title="Hunter.io looks up business email addresses for each selected prospect. Required if you plan to send emails (LinkedIn-DM-only outreach can skip this)."
+              >
+                {loading === 'enrich' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : <>
+                  <span className="font-semibold">1. Find Emails</span>
+                  <span className="block text-xs text-dark-400 mt-0.5">Look up business email addresses (Hunter.io)</span>
+                </>}
+              </button>
+              <button
+                onClick={batchAssignSequences}
+                disabled={loading !== null}
+                className="btn-secondary text-sm py-2 px-4 flex-1 min-w-[180px] text-left"
+                title="Assigns each selected prospect to the right outreach template (project- or product-side, warm or cold per network distance). Also runs LinkedIn / Brave research per prospect so the renderer has real signal. Low-ICP prospects are auto-skipped."
+              >
+                {loading === 'assign' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : <>
+                  <span className="font-semibold">2. Plan Outreach</span>
+                  <span className="block text-xs text-dark-400 mt-0.5">Pick template + research each prospect</span>
+                </>}
+              </button>
+              <button
+                onClick={() => batchAction('draft')}
+                disabled={loading !== null}
+                className="btn-primary text-sm py-2 px-4 flex-1 min-w-[180px] text-left"
+                title={`Generates the first message body for each prospect (Claude call) and sends it to Approvals immediately. Without this, the 15-min cron renders them in the background. Large selections auto-chunk in batches of ${RENDER_NOW_MAX}.`}
+              >
+                {loading === 'draft' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : <>
+                  <span className="font-semibold">3. Draft Messages Now</span>
+                  <span className="block text-xs text-corp-green-200 mt-0.5">Write + send to Approvals</span>
+                </>}
+              </button>
+            </div>
+          </div>
+
+          {/* Recovery tools — only when something's stuck. Separated visually
+              so operators don't mistake them for part of the normal flow. */}
+          <div className="pt-2 border-t border-dark-700">
+            <p className="text-xs text-dark-300 uppercase tracking-wide font-semibold mb-2">
+              Recovery tools <span className="text-dark-500 font-normal normal-case tracking-normal">— when something&apos;s stuck</span>
+            </p>
+            <div className="flex items-center gap-4 flex-wrap text-sm">
+              <button
+                onClick={reEnrichEvidence}
+                disabled={loading !== null}
+                className="text-blue-300 hover:text-blue-200 underline underline-offset-2 disabled:opacity-50"
+                title="Wipes existing LinkedIn / Brave research for the selected prospects and refetches from scratch. Use when 'Draft now' reports a prospect blocked for 'no evidence' — refreshes the signal the renderer needs to ground the message."
+              >
+                {loading === 'reenrich' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Refresh research'}
+                <span className="text-xs text-dark-500 ml-1">(if drafts blocked on no-evidence)</span>
+              </button>
+              <button
+                onClick={resetSequences}
+                disabled={loading !== null}
+                className="text-amber-300 hover:text-amber-200 underline underline-offset-2 disabled:opacity-50"
+                title="Deletes the current sequence assignment + any queued drafts for the selected prospects. Sent / replied messages are preserved. Use when the wrong template was assigned and you want to redo step 2."
+              >
+                {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Restart plan'}
+                <span className="text-xs text-dark-500 ml-1">(if wrong template assigned)</span>
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
