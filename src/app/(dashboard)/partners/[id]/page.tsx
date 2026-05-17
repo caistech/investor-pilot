@@ -263,33 +263,35 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
         {/* Main info */}
         <div className="lg:col-span-2 space-y-6">
           <div className="card">
-            <div className="flex items-start gap-4">
-              {p.domain ? (
-                <CompanyLogo domain={p.domain} companyName={p.company_name} size={48} className="rounded-lg" />
-              ) : (
-                <div className="w-12 h-12 bg-dark-700 rounded-lg flex items-center justify-center text-xl font-bold">
-                  {p.company_name[0]}
-                </div>
-              )}
-              <div className="flex-1">
-                <div className="flex items-center gap-3">
-                  <h2>{p.company_name}</h2>
-                  <span className={STATUS_COLORS[p.status as PartnerStatus]}>{p.status.replace(/_/g, ' ')}</span>
-                </div>
-                <div className="flex items-center gap-4 mt-2 text-dark-400 text-sm">
-                  {p.domain && (
-                    <a href={`https://${p.domain}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-white">
-                      <Globe className="w-3 h-3" /> {p.domain}
-                    </a>
-                  )}
-                  {p.category && <span>{p.category}</span>}
-                  {p.partner_type && <span>{p.partner_type}</span>}
+            <div className="flex flex-col sm:flex-row items-start gap-4">
+              <div className="flex items-start gap-4 w-full sm:w-auto sm:flex-1">
+                {p.domain ? (
+                  <CompanyLogo domain={p.domain} companyName={p.company_name} size={48} className="rounded-lg flex-shrink-0" />
+                ) : (
+                  <div className="w-12 h-12 bg-dark-700 rounded-lg flex items-center justify-center text-xl font-bold flex-shrink-0">
+                    {p.company_name[0]}
+                  </div>
+                )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                    <h2 className="break-words">{p.company_name}</h2>
+                    <span className={STATUS_COLORS[p.status as PartnerStatus]}>{p.status.replace(/_/g, ' ')}</span>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-dark-400 text-sm">
+                    {p.domain && (
+                      <a href={`https://${p.domain}`} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 hover:text-white break-all">
+                        <Globe className="w-3 h-3 flex-shrink-0" /> {p.domain}
+                      </a>
+                    )}
+                    {p.category && <span>{p.category}</span>}
+                    {p.partner_type && <span>{p.partner_type}</span>}
+                  </div>
                 </div>
               </div>
-              <div className="text-right">
+              <div className="sm:text-right w-full sm:w-auto sm:flex-shrink-0">
                 <div className="text-3xl font-bold">{p.weighted_score?.toFixed(1) ?? '—'}</div>
                 <div className="text-dark-500 text-sm">weighted score</div>
-                {p.confidence_score === 'low-confidence' && <span className="badge-amber mt-1">low confidence</span>}
+                {p.confidence_score === 'low-confidence' && <span className="badge-amber mt-1 inline-block">low confidence</span>}
               </div>
             </div>
           </div>

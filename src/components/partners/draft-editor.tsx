@@ -143,7 +143,7 @@ export function DraftEditor({
             value={subject}
             onChange={(e) => setSubject(e.target.value)}
             placeholder="Email subject line..."
-            className="w-full bg-dark-800 border border-dark-700 rounded px-3 py-2 text-sm focus:border-corp-green-500 focus:outline-none"
+            className="w-full bg-dark-800 border border-dark-700 rounded px-3 py-2 text-base sm:text-sm focus:border-corp-green-500 focus:outline-none"
           />
         </div>
 
@@ -154,7 +154,7 @@ export function DraftEditor({
             onChange={(e) => setBody(e.target.value)}
             placeholder="Write your outreach email..."
             rows={8}
-            className="w-full bg-dark-800 border border-dark-700 rounded px-3 py-2 text-sm focus:border-corp-green-500 focus:outline-none resize-y"
+            className="w-full bg-dark-800 border border-dark-700 rounded px-3 py-2 text-base sm:text-sm focus:border-corp-green-500 focus:outline-none resize-y min-h-[200px] sm:min-h-0"
           />
         </div>
 

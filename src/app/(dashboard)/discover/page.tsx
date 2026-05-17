@@ -323,13 +323,13 @@ export default function DiscoverPage() {
 
           <div className="space-y-2">
             {results.map((r, i) => (
-              <div key={i} className="flex items-center gap-3 p-3 bg-dark-800 rounded-lg">
+              <div key={i} className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3 bg-dark-800 rounded-lg">
                 {r.status === 'error' ? (
                   <XCircle className="w-4 h-4 text-red-400 shrink-0" />
                 ) : (
                   <CheckCircle className="w-4 h-4 text-corp-green-400 shrink-0" />
                 )}
-                <div className="flex-1 min-w-0">
+                <div className="flex-1 min-w-0 basis-full sm:basis-auto">
                   <div className="font-medium text-sm truncate">{r.company_name}</div>
                   <div className="text-dark-500 text-xs flex items-center gap-2">
                     <span className="truncate">{r.domain}</span>
@@ -346,9 +346,9 @@ export default function DiscoverPage() {
                   </span>
                 )}
                 {r.error && (
-                  <span className="text-red-400 text-xs truncate max-w-48">{r.error}</span>
+                  <span className="text-red-400 text-xs truncate max-w-full sm:max-w-48 basis-full sm:basis-auto">{r.error}</span>
                 )}
-                <span className={`text-xs px-2 py-0.5 rounded ${
+                <span className={`text-xs px-2 py-0.5 rounded shrink-0 ${
                   r.status === 'error' ? 'bg-red-500/10 text-red-400' :
                   r.status === 'created' || r.status === 'contact_found' ? 'bg-corp-green-500/10 text-corp-green-400' :
                   'bg-blue-500/10 text-blue-400'
