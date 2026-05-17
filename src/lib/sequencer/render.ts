@@ -592,7 +592,60 @@ function warmPersonalizationScore(partnerScore: number | null): number {
 }
 
 function substitute(template: string, vars: Record<string, string>): string {
-  return template.replace(/\{(\w+)\}/g, (_match, key) => vars[key] ?? `{${key}}`);
+  const raw = template.replace(/\{(\w+)\}/g, (_match, key) => vars[key] ?? `{${key}}`);
+  return normaliseSubstitutionArtefacts(raw);
+}
+
+/**
+ * Clean up grammatical artefacts created when standalone-sentence
+ * substitution values land inside lead-in scaffolds. Two recurring
+ * patterns we strip:
+ *
+ * 1. **Redundant "Reaching out because" + Capital lead-in.** The LLM's
+ *    credit_signal_lead is documented as a 1-2 sentence opener and
+ *    routinely produces "Given X...", "Your Y...", "As Z...". When a
+ *    template wraps that in "Reaching out because {credit_signal_lead}"
+ *    the result reads "Reaching out because Given Meet Ventures' focus
+ *    on..." — grammar nonsense. We collapse the redundant lead-in so
+ *    the sentence stands cleanly.
+ *
+ * 2. **Double periods.** Templates that end the line with
+ *    "{credit_signal_lead}." get "...barriers.." because the value
+ *    already ends in a period. We collapse ".." → ".".
+ *
+ * Both fixes are conservative: they don't touch URLs (the `..` collapse
+ * is gated by a leading word char) and they preserve the original
+ * meaning. Run at render time so all existing drafts benefit on next
+ * render — no operator template-editing required.
+ */
+function normaliseSubstitutionArtefacts(text: string): string {
+  let out = text;
+
+  // Strip lead-in scaffolds when followed by a capital letter. That
+  // capital is the signal that the substituted value is a standalone
+  // sentence rather than a lowercase clause — when the substitution
+  // gives a clause ("your stated thesis on…"), the lead-in reads fine
+  // and we leave it alone.
+  const LEAD_IN_PATTERNS: RegExp[] = [
+    /\bReaching out because (?=[A-Z])/g,
+    /\bI'm reaching out because (?=[A-Z])/g,
+    /\bWriting because (?=[A-Z])/g,
+  ];
+  for (const pat of LEAD_IN_PATTERNS) {
+    out = out.replace(pat, '');
+  }
+
+  // Collapse double periods that arise from template-ends-in-period +
+  // value-ends-in-period. Guarded by leading word char so URLs and
+  // ellipses survive.
+  out = out.replace(/(\w)\.\.(?!\.)/g, '$1.');
+
+  // Collapse double full-stops separated only by whitespace (less common
+  // but happens when value ends with ".\n" and template appends "." on
+  // the next line).
+  out = out.replace(/(\w)\.\s+\.(?!\.)/g, '$1.');
+
+  return out;
 }
 
 /**
