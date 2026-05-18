@@ -90,16 +90,38 @@ export async function POST(_request: Request, { params }: { params: { id: string
     .eq('id', step.id)
     .single();
 
-  type MsgRow = { rendered_subject: string | null; rendered_body: string; compliance_check: unknown; personalization_score: number | null };
+  type MsgRow = {
+    rendered_subject: string | null;
+    rendered_body: string;
+    compliance_check: unknown;
+    personalization_score: number | null;
+    evidence_refs: Record<string, unknown> | null;
+  };
   let msgRow: MsgRow | null = null;
   if (postStep?.outbound_message_id) {
     const { data } = await db
       .from('outbound_messages')
-      .select('rendered_subject, rendered_body, compliance_check, personalization_score')
+      .select('rendered_subject, rendered_body, compliance_check, personalization_score, evidence_refs')
       .eq('id', postStep.outbound_message_id)
       .single();
     msgRow = (data as unknown as MsgRow) ?? null;
   }
+
+  // Surface the localisation fields the Approvals card needs so the
+  // client can patch the row inline. Without these, regenerating a row
+  // that newly localised (e.g. a Vietnam-based orphan partner after the
+  // 2026-05-18 orphan-pass-through fix) shows the Vietnamese body but
+  // keeps the stale "no badge / no English-toggle" header state until
+  // the next full page reload.
+  const ev = (msgRow?.evidence_refs ?? {}) as Record<string, unknown>;
+  const targetLanguage = typeof ev.target_language === 'string' ? ev.target_language : null;
+  const outreachTier =
+    ev.outreach_tier === 'confident' || ev.outreach_tier === 'qualified' || ev.outreach_tier === 'exploratory'
+      ? (ev.outreach_tier as 'confident' | 'qualified' | 'exploratory')
+      : null;
+  const originalSubject = typeof ev.original_subject === 'string' ? ev.original_subject : null;
+  const originalBody =
+    typeof ev.original_body === 'string' && ev.original_body.length > 0 ? ev.original_body : null;
 
   return NextResponse.json({
     ok: true,
@@ -110,5 +132,9 @@ export async function POST(_request: Request, { params }: { params: { id: string
     rendered_body: msgRow?.rendered_body ?? null,
     compliance_check: msgRow?.compliance_check ?? null,
     personalization_score: msgRow?.personalization_score ?? null,
+    target_language: targetLanguage,
+    outreach_tier: outreachTier,
+    original_subject: originalSubject,
+    original_body: originalBody,
   });
 }

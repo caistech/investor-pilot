@@ -55,12 +55,22 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
       // no_credit_signal again), drop it from the list — the operator
       // should re-enrich evidence and re-render from Prospects.
       if (json.new_status === 'queued_for_approval' && json.rendered_body) {
+        // Patch the full set of fields the card renders, including
+        // target_language / outreach_tier / original_* so the language
+        // badge and English-toggle reflect the regenerated state. The
+        // API explicitly returns these keys (regenerate/route.ts) so we
+        // can drop them in directly — and null means "no localisation
+        // on this render", which is also correct for English drafts.
         setItems(items.map(i => i.step_id === stepId
           ? { ...i,
               rendered_subject: (json.rendered_subject as string | null) ?? i.rendered_subject,
               rendered_body: json.rendered_body as string,
               compliance_check: (json.compliance_check as ApprovalItem['compliance_check']) ?? i.compliance_check,
               personalization_score: (json.personalization_score as number | null) ?? i.personalization_score,
+              target_language: (json.target_language as string | null) ?? null,
+              outreach_tier: (json.outreach_tier as ApprovalItem['outreach_tier']) ?? null,
+              original_subject: (json.original_subject as string | null) ?? null,
+              original_body: (json.original_body as string | null) ?? null,
             }
           : i));
       } else {
