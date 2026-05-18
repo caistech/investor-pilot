@@ -263,6 +263,14 @@ export function PipelineTable({
   // double-target. Can be toggled off to see the full list including
   // already-targeted rows.
   const [hideTargeted, setHideTargeted] = useState<boolean>(true);
+  // Contact-status filter. Replaces the hidden contact_name pre-filter.
+  // Operator picks one explicit state to narrow the visible rows; the
+  // count chip + bulk actions then operate on the result. Default 'all'
+  // so first-load matches the raw count (Brave 155 visible, not 155→18).
+  // 2026-05-19: addresses operator question 'what does Brave 155/18 mean?
+  // I want to click 155 and run Hunter on the missing 137.'
+  type ContactStatusKey = 'all' | 'full' | 'has_li' | 'has_email' | 'company_only';
+  const [contactFilter, setContactFilter] = useState<ContactStatusKey>('all');
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
@@ -272,16 +280,32 @@ export function PipelineTable({
   // so there is no doubt about where the messages went.
   const [nextCta, setNextCta] = useState<{ href: string; label: string } | null>(null);
   const filtered = partners
-    // Hide rows where the engine couldn't extract a contact_name. Brave
-    // sometimes saves listicle titles ("9 Best B2B Sales Prospecting
-    // Tools…") or company-only directory pages as partner rows with no
-    // person attached — those aren't actionable as prospects (nothing
-    // to draft to), so they pollute the view without ever being
-    // workable. Operator can enrich-by-domain elsewhere if they want
-    // to chase a company without a contact.
-    .filter(p => typeof p.contact_name === 'string' && p.contact_name.trim().length > 0)
+    // 2026-05-19: removed the contact_name pre-filter that used to hide
+    // any row without an extracted person. Operator flagged it was
+    // opaque — "Brave 155/18, why can't I click on the 155 and run
+    // Hunter on the missing 137?". Now every row is visible; the
+    // operator picks an explicit Contact-status filter (below) to
+    // narrow. Truly unactionable rows can be bulk-deleted via the
+    // Recovery tools button, or bulk-enriched via "Find emails".
     .filter(p => matchesFilter(p.status, filter, p.engaged_at))
     .filter(p => matchesSourceTier(p, sourceFilter))
+    .filter(p => {
+      // Contact-status filter — explicit narrowing on what kind of
+      // outreach handle the row carries.
+      //   full         = has both contact_name AND contact_email
+      //   has_li       = has contact_name + contact_linkedin (LI path only)
+      //   has_email    = has contact_email (email path only — may also have LI)
+      //   company_only = company_name + domain, NO person attached yet
+      if (contactFilter === 'all') return true;
+      const hasName = typeof p.contact_name === 'string' && p.contact_name.trim().length > 0;
+      const hasEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
+      const hasLi = typeof p.contact_linkedin === 'string' && p.contact_linkedin.trim().length > 0;
+      if (contactFilter === 'full') return hasName && hasEmail;
+      if (contactFilter === 'has_li') return hasName && hasLi;
+      if (contactFilter === 'has_email') return hasEmail;
+      if (contactFilter === 'company_only') return !hasName && !hasEmail && !hasLi;
+      return true;
+    })
     .filter(p => matchesSearch(p, search))
     .filter(p => typeFilter === 'all' || p.partner_type === typeFilter)
     .filter(p => (p.weighted_score ?? 0) >= minScore)
@@ -312,20 +336,10 @@ export function PipelineTable({
   });
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
-  // Source-tier tab counts. TWO numbers per chip so the operator sees
-  // both the truth (how many rows actually exist in the database) and
-  // the actionable count (how many have a contact_name extracted):
-  //
-  //   "Brave (web) 84 / 18 actionable"
-  //
-  // Operator flagged 2026-05-19: 'if All=400 then sources must sum to
-  // 400 — otherwise tell me why they differ on screen'. The 'total'
-  // count sums to All; the 'actionable' count sums to the visible row
-  // count (post contact_name pre-filter). Both numbers honest, both
-  // visible. The status chips (Scored / Enriched / etc.) sum to the
-  // total too — full consistency across all chip groups.
-  const hasContactName = (p: Partner) =>
-    typeof p.contact_name === 'string' && p.contact_name.trim().length > 0;
+  // Source-tier chip counts. Single honest number per chip; sums to All.
+  // The previous "total / actionable" split was opaque — operator
+  // flagged 2026-05-19: "what does Brave 155/18 mean to a first-time
+  // user?". Now: one number, matches the All= count.
   const sourceCounts: Record<SourceTierKey, number> = {
     all: partners.length,
     linkedin_1st: partners.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
@@ -333,18 +347,6 @@ export function PipelineTable({
     linkedin_cold: partners.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
     brave: partners.filter(p => matchesSourceTier(p, 'brave')).length,
   };
-  const sourceActionableCounts: Record<SourceTierKey, number> = {
-    all: partners.filter(hasContactName).length,
-    linkedin_1st: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_1st')).length,
-    linkedin_2nd: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_2nd')).length,
-    linkedin_cold: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_cold')).length,
-    brave: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'brave')).length,
-  };
-  // Rows that match a source bucket but have no contact_name extracted
-  // — the gap between 'All' (status count denominator) and 'All sources'
-  // (post-filter visible). Surfaced beneath the chips as an explicit
-  // note so the operator knows where the difference comes from.
-  const needsContactCount = sourceCounts.all - sourceActionableCounts.all;
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -727,6 +729,54 @@ export function PipelineTable({
     }
   }
 
+  async function bulkFindEmails() {
+    if (selectedPartners.length === 0) return;
+    const n = selectedPartners.length;
+    // Hunter is the right tool for COMPANY-only rows (no contact yet).
+    // If the selection includes rows that already have emails, the server
+    // will skip them — but we warn here so the operator's mental model
+    // matches what'll happen.
+    const noEmailCount = selectedPartners.filter(p => !p.contact_email).length;
+    if (noEmailCount === 0) {
+      setMessage('All selected rows already have an email — nothing to enrich. Pick rows from the "Company only" or "Has LinkedIn only" filter.');
+      return;
+    }
+    const skipCount = n - noEmailCount;
+    const confirmMsg = `Find emails for ${noEmailCount} prospect${noEmailCount === 1 ? '' : 's'} via Hunter.io?\n\n` +
+      (skipCount > 0 ? `(${skipCount} of your ${n} selected already have an email — those will be skipped.)\n\n` : '') +
+      `Each lookup costs ~$0.04 — total ~$${(noEmailCount * 0.04).toFixed(2)}. Rows that return a verified contact will land as 'contact_found' and become actionable in the table.`;
+    if (!confirm(confirmMsg)) return;
+
+    setLoading('find_emails');
+    setNextCta(null);
+    setMessage(`Running Hunter on ${noEmailCount} prospect${noEmailCount === 1 ? '' : 's'}…`);
+    try {
+      const res = await fetch('/api/partners/bulk-hunter', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(`Error: ${data.error || 'hunter lookup failed'}`);
+        return;
+      }
+      const enriched = data.enriched ?? 0;
+      const noEmails = data.no_emails ?? 0;
+      const errors = data.errors ?? 0;
+      setMessage(
+        `Hunter finished. Enriched: ${enriched}. No email found: ${noEmails}. Errors: ${errors}. ` +
+        `Refresh the page to see updated rows — or filter to "Has email + name" to see the ones now actionable.`,
+      );
+      setSelected(new Set());
+      router.refresh();
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function bulkDelete() {
     if (selectedPartners.length === 0) return;
     const n = selectedPartners.length;
@@ -990,54 +1040,49 @@ export function PipelineTable({
       </div>
 
       {/* Source filter tabs — LinkedIn 1st / 2nd / cold / Brave.
-          Counts show "total / actionable" — the total matches the
-          status-chip sum (= partners.length), the actionable shows
-          how many have a contact extracted. The gap = no-contact rows
-          hidden by the table's contact_name pre-filter. */}
-      <div className="flex gap-1 mb-1 flex-wrap">
-        {SOURCE_TABS.map(tab => {
-          const total = sourceCounts[tab.key];
-          const actionable = sourceActionableCounts[tab.key];
-          const showSplit = total !== actionable;
-          return (
-            <button
-              key={tab.key}
-              onClick={() => { setSourceFilter(tab.key); setSelected(new Set()); }}
-              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-                sourceFilter === tab.key
-                  ? tab.key === 'linkedin_1st'
-                    ? 'bg-corp-green-500/20 text-corp-green-400'
-                    : tab.key === 'linkedin_2nd'
-                    ? 'bg-blue-500/20 text-blue-400'
-                    : tab.key === 'brave'
-                    ? 'bg-purple-500/20 text-purple-400'
-                    : 'bg-dark-700 text-dark-200'
-                  : 'text-dark-400 hover:text-white hover:bg-dark-800'
-              }`}
-              title={showSplit ? `${total} total · ${actionable} with contact (rest awaiting enrichment)` : `${total} total`}
-            >
-              {tab.label}{' '}
-              <span className="text-dark-500 ml-1">
-                {showSplit ? `${total} / ${actionable}` : total}
-              </span>
-            </button>
-          );
-        })}
+          Single honest count per chip; sums to All. Operator narrows
+          further with the Contact-status filter below. */}
+      <div className="flex gap-1 mb-2 flex-wrap">
+        {SOURCE_TABS.map(tab => (
+          <button
+            key={tab.key}
+            onClick={() => { setSourceFilter(tab.key); setSelected(new Set()); }}
+            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+              sourceFilter === tab.key
+                ? tab.key === 'linkedin_1st'
+                  ? 'bg-corp-green-500/20 text-corp-green-400'
+                  : tab.key === 'linkedin_2nd'
+                  ? 'bg-blue-500/20 text-blue-400'
+                  : tab.key === 'brave'
+                  ? 'bg-purple-500/20 text-purple-400'
+                  : 'bg-dark-700 text-dark-200'
+                : 'text-dark-400 hover:text-white hover:bg-dark-800'
+            }`}
+          >
+            {tab.label} <span className="text-dark-500 ml-1">{sourceCounts[tab.key]}</span>
+          </button>
+        ))}
       </div>
-      {needsContactCount > 0 && (
-        <p className="text-[11px] text-dark-500 mb-3 leading-snug">
-          Source chips show <span className="text-dark-300">total / actionable</span>.{' '}
-          <span className="text-dark-300">{sourceCounts.all}</span> rows match the status total above;{' '}
-          <span className="text-dark-300">{sourceActionableCounts.all}</span> have a contact extracted and appear in the table;{' '}
-          <span className="text-dark-300">{needsContactCount}</span> need contact enrichment (mostly Brave-discovered companies without an associated person — run Hunter or re-discover to attach contacts).
-        </p>
-      )}
 
-      {/* Quality filters — min score, exclude out-of-scope, hide low conf.
-          Compose with everything above; batch actions fire on the
-          intersection. Layout deliberately compact so it doesn't dominate
-          the page above the table. */}
+      {/* Quality filters — Contact status, Min score, Exclude out-of-scope,
+          Hide low conf, Hide already targeted. Compose with everything
+          above; batch actions fire on the intersection. */}
       <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
+        <label className="flex items-center gap-1.5 text-dark-400">
+          <span>Contact</span>
+          <select
+            value={contactFilter}
+            onChange={(e) => { setContactFilter(e.target.value as ContactStatusKey); setSelected(new Set()); }}
+            className="bg-dark-800 border border-dark-700 rounded px-1.5 py-0.5 text-xs text-dark-200 focus:border-corp-green-500 focus:outline-none"
+            title="Narrow by what outreach handle the row has. 'Company only' = no person attached yet — bulk-select these and click Find emails to run Hunter."
+          >
+            <option value="all">All</option>
+            <option value="full">Has email + name</option>
+            <option value="has_li">Has LinkedIn only</option>
+            <option value="has_email">Has email only</option>
+            <option value="company_only">Company only (no person yet)</option>
+          </select>
+        </label>
         <label className="flex items-center gap-1.5 text-dark-400">
           <span>Min score</span>
           <input
@@ -1181,6 +1226,15 @@ export function PipelineTable({
               >
                 {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Restart plan'}
                 <span className="text-xs text-dark-500 ml-1">(if wrong template assigned)</span>
+              </button>
+              <button
+                onClick={bulkFindEmails}
+                disabled={loading !== null}
+                className="text-emerald-300 hover:text-emerald-200 underline underline-offset-2 disabled:opacity-50"
+                title="Run Hunter.io against the selected prospects' domains to find a verified decision-maker email. Best used after filtering to 'Company only' or 'Has LinkedIn only'. ~$0.04 per lookup."
+              >
+                {loading === 'find_emails' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Find emails'}
+                <span className="text-xs text-dark-500 ml-1">(Hunter — for Company-only rows)</span>
               </button>
               <button
                 onClick={bulkDelete}
