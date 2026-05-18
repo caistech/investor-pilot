@@ -1,0 +1,373 @@
+/**
+ * Per-prospect LLM message render.
+ *
+ * Replaces the mechanical placeholder substitution path in render.ts.
+ * One LLM call per (recipient, step) — the LLM receives the messaging
+ * framework + offering profile + recipient profile + sender identity +
+ * step constraints (channel, max_chars, has_subject, tier, warm) and
+ * writes the complete subject + body, ready for compliance check.
+ *
+ * Why this exists:
+ *   The old path was a Mad Lib — the LLM wrote a template body with
+ *   {placeholders} and the renderer mechanically substituted strings
+ *   afterwards. The LLM never saw "Keep Modular" when writing the
+ *   sentence "Worth a look if {firm} has a workflow that's costing
+ *   you" — so the final message read like an obvious template.
+ *   This module lets the LLM see the actual recipient before writing
+ *   each sentence, producing coherent, vertical-adapted, tier-aware
+ *   prose that reads like a human wrote it.
+ *
+ * What stays in render.ts:
+ *   - Contact-name validation + honorific stripping + first-name extraction
+ *   - Credit-signal extraction (CreditSignal becomes an LLM input here)
+ *   - Warm-opener extraction (for 1st-degree LI partners)
+ *   - Smart {firm} fallback computation
+ *   - Compliance regex on the rendered output
+ *   - Tier badge computation
+ *
+ * Cost: ~$0.016 per render at Sonnet 4.5 pricing (3k in + 500 out).
+ * Latency: ~3-5s per render. Callers chunk to stay under Vercel's 60s ceiling.
+ */
+
+import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
+import type { RenderPartner, RenderContext } from './render';
+
+// =============================================================================
+// Model tiers
+// =============================================================================
+
+/**
+ * Pick a model tier for a step. First-touch messages (connect notes, first
+ * DM, first email) use Sonnet for nuance — the recipient's first impression
+ * is high-stakes. Follow-ups and closing-loop steps use Haiku — shorter,
+ * more formulaic, the marginal quality gain from Sonnet doesn't justify
+ * the 3× spend.
+ *
+ * Cost on a 50-prospect campaign × all 6 steps:
+ *   - All Sonnet:                ~$5.40
+ *   - First 3 Sonnet + last 3 Haiku: ~$3.60 (~33% saving)
+ */
+export function selectModelTier(template_key: string): 'sonnet' | 'haiku' {
+  // Follow-up patterns — any key matching _fu, _final, _fu1, _fu2, dm_fu.
+  if (/(?:_fu\d*|_final|dm_fu)$/i.test(template_key)) return 'haiku';
+  // Everything else (connect, dm_first, email_first, warm_dm_first) is a
+  // first-touch with high signal-density requirements.
+  return 'sonnet';
+}
+
+/**
+ * Resolve a tier name to the provider-specific model ID. The format differs
+ * between OpenRouter (anthropic/claude-haiku-4.5) and direct Anthropic
+ * (claude-haiku-4-5). We detect by sniffing the default model ID's prefix.
+ */
+export function modelIdForTier(tier: 'sonnet' | 'haiku'): string {
+  const usingOpenRouter = MODEL.startsWith('anthropic/');
+  if (tier === 'haiku') {
+    return usingOpenRouter ? 'anthropic/claude-haiku-4.5' : 'claude-haiku-4-5';
+  }
+  // Sonnet — return the configured default rather than hardcoding. Lets the
+  // operator override globally via AGENT_MODEL when wanting Opus or a
+  // different Sonnet variant.
+  return MODEL;
+}
+
+/** What we pass to the LLM. Mirrors the messaging framework's required inputs. */
+export interface LLMRenderInput {
+  channel: 'linkedin_connect' | 'linkedin_dm' | 'email';
+  max_chars: number;
+  has_subject: boolean;
+  /** Score-driven tier — 'confident' / 'qualified' / 'exploratory'. Modulates hedging. */
+  outreach_tier: 'confident' | 'qualified' | 'exploratory';
+  /** Whether the partner is a 1st-degree LinkedIn connection. Drives Tier-1-warm tone. */
+  warm: boolean;
+  /** Resolved first name (post-honorific-strip, post-paren-name selection). */
+  first_name: string;
+  /** Resolved firm name (post-smart-fallback; 'your firm' when company_name == contact_name). */
+  firm: string;
+  /** The step's template_key — surfaces position in sequence (auto_connect / auto_dm_first / auto_email_fu1 / etc.). */
+  template_key: string;
+  /** Hedged inference about why this recipient is a fit. Generated upstream by extractCreditSignal. */
+  signal: {
+    short: string;
+    lead: string;
+    leadShort: string;
+    valueOfferShort: string;
+    valueOfferLead: string;
+    specificity: 'specific_deal' | 'sector_evidence' | 'sector_anchor' | 'humble_intro';
+  } | null;
+  /** Tier-1 warm opener (1st-degree only). 'quick one.' fallback when generation fails. */
+  warm_opener: string;
+  /** Recipient + offering + sender — all flat for prompt simplicity. */
+  partner: RenderPartner;
+  context: RenderContext;
+}
+
+export interface LLMRenderResult {
+  ok: true;
+  subject: string | null;
+  body: string;
+  /** 1-10: how directly the body references THIS recipient (10 = quotes a recent post; 5 = vertical-level fit; 1 = generic). */
+  personalization_score: number;
+  /** Detected output language for the localisation badge — falls back to 'English'. */
+  detected_language: string;
+}
+
+export interface LLMRenderError {
+  ok: false;
+  error: string;
+}
+
+// =============================================================================
+// SYSTEM PROMPT — the messaging framework, condensed for runtime use
+// =============================================================================
+
+const SYSTEM_PROMPT = `You are the outreach writer for InvestorPilot. For each call, you receive ONE recipient, ONE offering, ONE sender, and ONE step in a 6-step sequence. You write the complete message body (and subject for email steps), ready to send.
+
+Two outreach modes exist:
+- SALES (buyer-hunting): the offering is a product or service being sold; the recipient is the BUYER (Owner, MD, GM, Operations Director, non-technical Founder) at an operator-led business.
+- FUNDING (investor-hunting): the offering is a capital raise; the recipient is the INVESTOR / LENDER / ALLOCATOR (Fund Principal, Managing Partner, Investment Director, Family Office CIO).
+You detect mode from the offering's fields. State the inferred mode in your reasoning before writing.
+
+THE 6 NON-NEGOTIABLE PRINCIPLES (apply to every message):
+1. Friendly — write like a real person, not a sales bot. No "I hope this email finds you well."
+2. Courteous — respect their time. Acknowledge we're a stranger (cold) or semi-stranger (lukewarm). Never presumptuous.
+3. To the point — 3-5 short sentences cold, slightly more room for warm. Graspable in 15 seconds.
+4. Offers value BEFORE the ask — lead with an insight, observation, or proof point.
+5. The ask is tied to THEIR situation — frame around their problem (Sales) or portfolio fit (Funding), never around what we want.
+6. Single low-commitment CTA — intake URL / one-pager / deck. Framed for-their-benefit ("walks you through it in a few minutes", "if it fits the mandate"). Never "book a meeting."
+
+TIER LOGIC (based on network distance + how cold the relationship is):
+- TIER 1 (1st-degree LinkedIn, warm=true): familiar tone. Reference the existing connection — use the supplied warm_opener as the first beat after the greeting. Direct but soft ask. Operator can name the offer plainly.
+- TIER 2 (2nd-degree LinkedIn, warm=false, has any shared connection signal): warm but slightly more formal. Lead with proof point. Soft ask ("thought this might be relevant").
+- TIER 3 (cold LinkedIn, warm=false, no mutual): polite, professional, concise. The insight IS the value — they're a stranger reading. Softest version of the ask.
+- TIER 4 (Brave / cold email, warm=false, no LI relationship): most courteous, most concise. Acknowledge the cold contact honestly. Single CTA only.
+Use outreach_tier (confident / qualified / exploratory) as an additional hedging dial — exploratory tier explicitly hedges ("not sure if this fits, but…"); confident tier states the offer plainly.
+
+CHANNEL CONSTRAINTS (HARD LIMITS — exceeding them gets the message rejected):
+- linkedin_connect: ≤300 chars TOTAL. No TIME-ACK preamble. No sender bio. One greeting + ONE value beat + the CTA URL inline if it fits + sign with sender's first name. Example shape: "Hi Kevin — good to be connected. We build fixed-price AI tools for operator-led businesses in your vertical. If a slow workflow comes to mind, 7-min interviewer: [URL] — Dennis"
+- linkedin_dm: 600-1500 chars. Friendly opener + sender intro line (name, role, LinkedIn URL) + value paragraph + soft ask + CTA URL + signature with sender name. ~4-6 short paragraphs. Address as a real person.
+- email: 600-1500 chars body + a subject line (≤60 chars, leads with first_name or firm — never "your firm"). Body: friendly opener + sender intro with LinkedIn URL + value paragraph (cite concrete signal) + ask paragraph + CTA + signature with full role.
+
+MODE-SPECIFIC VOCABULARY:
+- SALES proof points: cite the offering's named track record (e.g. MMC Build for the CAS AI Build product — "Delivered stages 0-5 in 5 weeks against a 14-week schedule, fixed price"). The CTA is the offering.one_pager_url (intake URL).
+- FUNDING proof points: cite the sponsor + structure + named-anchor (e.g. F2K Branscombe Estate — "first-mortgage, 8.5%, 40% Homes Tasmania offtake underwritten"). The CTA is offering.pitch_deck_url or "happy to send the V10 IM — a 10-min read" if no URL configured.
+
+CRITICAL VERTICAL-MATCH RULE (Sales mode):
+The offering may have a flagship proof in ONE vertical (e.g. MMC Build = modular construction for CAS). DO NOT anchor every recipient's body on that flagship if the recipient operates in a DIFFERENT vertical. For a transport company, lead with a transport-relevant observation; mention the flagship only if it actually transfers ("we've built similar workflows in construction — the pattern transfers cleanly to transport dispatch"). Forcing the modular proof onto a transport recipient signals copy-paste outreach.
+
+LOCALISATION:
+If the recipient's geography is non-English-primary (Vietnam, Japan, Korea, China, Thailand, etc.) AND the recipient's recent_posts contain non-English content, write the body in their language with proper diacritics. The subject can stay English unless the body is fully translated. Report the detected_language field accurately.
+
+EXCLUSIONS — NEVER:
+- Use placeholder syntax like {first_name}, {firm}, {credit_signal} — you receive the resolved values; write them in directly.
+- Anchor every body on the same proof point regardless of recipient.
+- Use vendor / tech-product jargon: "AI-powered", "synergies", "leverage", "best-in-class", "cutting-edge".
+- Promise the world: "transform your business", "guaranteed ROI", "10x your productivity".
+- Pin specific days: "Does Thursday or Friday work?" — that books their calendar. Use the calendar URL or intake URL as self-serve instead.
+- Use the literal string "your firm" in the body or subject — that's an internal fallback signal that the recipient's firm name is unknown. Reframe the sentence to drop the firm reference instead (e.g. "if a slow workflow comes to mind, …").
+- For Funding mode: use forbidden compliance vocabulary — "tokenisation", "crypto", "RWA", "guaranteed", "risk-free".
+
+OUTPUT FORMAT — return ONLY this JSON, no markdown fences, no prose:
+{
+  "subject": "<email subject ≤60 chars, or null if channel is not 'email'>",
+  "body": "<the complete message body, ready to send>",
+  "personalization_score": <1-10 integer>,
+  "detected_language": "<English | Vietnamese | Japanese | etc.>"
+}`;
+
+// =============================================================================
+// Main entry point
+// =============================================================================
+
+export async function writeMessageViaLLM(
+  input: LLMRenderInput,
+): Promise<LLMRenderResult | LLMRenderError> {
+  const userMessage = buildUserMessage(input);
+
+  // Tiered model selection: Sonnet for first-touch (steps 1-3, high
+  // signal-density), Haiku for follow-ups (steps 4-6). ~33% LLM-cost
+  // saving per campaign month. Master env-var override available for
+  // operators who want to force one model globally (e.g. all-Opus for a
+  // high-stakes campaign).
+  const masterOverride = process.env.RENDER_MODEL_OVERRIDE;
+  const model = masterOverride || modelIdForTier(selectModelTier(input.template_key));
+
+  let response;
+  try {
+    response = await client.messages.create(
+      {
+        model,
+        max_tokens: 2000,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userMessage }],
+      },
+      { signal: AbortSignal.timeout(20_000) }, // per-render budget; callers chunk for Vercel ceiling
+    );
+  } catch (err) {
+    return { ok: false, error: err instanceof Error ? err.message : String(err) };
+  }
+
+  const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+  const jsonMatch = text.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) {
+    return { ok: false, error: `LLM returned no JSON object: ${text.slice(0, 200)}` };
+  }
+
+  let parsed: {
+    subject?: string | null;
+    body?: string;
+    personalization_score?: number;
+    detected_language?: string;
+  };
+  try {
+    parsed = JSON.parse(jsonMatch[0]);
+  } catch {
+    return { ok: false, error: `LLM returned invalid JSON: ${jsonMatch[0].slice(0, 200)}` };
+  }
+
+  if (!parsed.body || parsed.body.trim().length === 0) {
+    return { ok: false, error: 'LLM returned empty body' };
+  }
+
+  // Honor hard char limits even if the LLM overshot. Truncation is rare with
+  // a clear prompt, but the connect-note limit (300) is enforced by LinkedIn
+  // — sending over it returns 400. Better to truncate than to ship broken.
+  let body = parsed.body.trim();
+  if (input.channel === 'linkedin_connect' && body.length > 300) {
+    body = body.slice(0, 297).trim() + '...';
+  }
+
+  return {
+    ok: true,
+    subject: input.has_subject ? (parsed.subject || null) : null,
+    body,
+    personalization_score: clampScore(parsed.personalization_score),
+    detected_language: parsed.detected_language?.trim() || 'English',
+  };
+}
+
+// =============================================================================
+// User-message builder
+// =============================================================================
+
+function buildUserMessage(input: LLMRenderInput): string {
+  const { partner, context, signal } = input;
+
+  // Mode inference — give the LLM a hint but let it confirm.
+  const isFundingMode = partner.offering_kind === 'project';
+  const modeHint = isFundingMode ? 'FUNDING (investor-hunting)' : 'SALES (buyer-hunting)';
+
+  // Recipient profile section
+  const recipientLines: string[] = [
+    `First name (use this exact spelling): ${input.first_name}`,
+    `Full name: ${partner.contact_name ?? '(unknown)'}`,
+    `Title: ${partner.contact_title ?? '(unknown)'}`,
+    `Firm name (use this exact spelling — NEVER substitute "your firm"): ${input.firm}`,
+    `Network distance: ${partner.profile_connected_at ? '1st-degree LinkedIn (we are connected)' : 'cold / no relationship'}`,
+    `Recipient geography: ${partner.offering_context?.recipient_geography ?? '(unknown)'}`,
+  ];
+  if (partner.profile_engagement_flags?.is_creator) recipientLines.push('LinkedIn creator (active poster)');
+  if (partner.profile_shared_connections_count) {
+    recipientLines.push(`Shared connections with sender: ${partner.profile_shared_connections_count}`);
+  }
+  if (partner.audience_overlap_notes) recipientLines.push(`Audience-overlap notes: ${partner.audience_overlap_notes}`);
+  if (partner.complementarity_notes) recipientLines.push(`Complementarity notes: ${partner.complementarity_notes}`);
+  if (partner.partner_readiness_notes) recipientLines.push(`Partner-readiness notes: ${partner.partner_readiness_notes}`);
+
+  // Recent LinkedIn posts — top 3, trimmed
+  if (partner.profile_recent_posts?.length) {
+    const posts = partner.profile_recent_posts.slice(0, 3).map((p, i) => {
+      const date = p.parsed_datetime ? ` (${p.parsed_datetime.slice(0, 10)})` : '';
+      const tag = p.is_repost ? ' [REPOST]' : '';
+      return `  ${i + 1}.${tag}${date} ${(p.text || p.repost_content_text || '').slice(0, 280)}`;
+    });
+    recipientLines.push(`Recent LinkedIn posts:\n${posts.join('\n')}`);
+  }
+
+  // Firm-level evidence
+  if (partner.firm_recent_news?.length) {
+    const items = partner.firm_recent_news.slice(0, 3).map(n => `  - ${n.title}: ${n.snippet.slice(0, 200)}`);
+    recipientLines.push(`Recent firm news (Brave):\n${items.join('\n')}`);
+  }
+  if (partner.firm_named_deals?.length) {
+    const items = partner.firm_named_deals.slice(0, 3).map(n => `  - ${n.title}: ${n.snippet.slice(0, 200)}`);
+    recipientLines.push(`Named deals / portfolio (Brave):\n${items.join('\n')}`);
+  }
+  if (partner.operator_notes) {
+    recipientLines.push(`Operator-supplied notes (ground truth — weight heavily): ${partner.operator_notes}`);
+  }
+
+  // Offering context
+  const offering = partner.offering_context;
+  const offeringLines: string[] = [];
+  if (offering) {
+    offeringLines.push(`Name: ${offering.name}`);
+    offeringLines.push(`Pitch: ${offering.pitch}`);
+    if (offering.sector) offeringLines.push(`Sector: ${offering.sector}`);
+    if (offering.geography) offeringLines.push(`Offering geography: ${offering.geography}`);
+    if (offering.pitch_deck_url) offeringLines.push(`Pitch deck URL (use as CTA in Funding mode): ${offering.pitch_deck_url}`);
+    if (offering.one_pager_url) offeringLines.push(`One-pager / intake URL (use as CTA in Sales mode): ${offering.one_pager_url}`);
+  } else {
+    offeringLines.push('(no offering context configured — write a generic intro for the sender\'s organisation)');
+  }
+
+  // Sender identity
+  const senderLines: string[] = [
+    `Name: ${context.sender_name}`,
+    `Role: ${context.sender_role}`,
+  ];
+  if (context.sender_linkedin_url) senderLines.push(`LinkedIn URL: ${context.sender_linkedin_url}`);
+  if (context.sender_bio_one_liner) senderLines.push(`One-line bio: ${context.sender_bio_one_liner}`);
+  if (context.sender_calendar_url) senderLines.push(`Calendar URL (alternate CTA): ${context.sender_calendar_url}`);
+
+  // Signal section — the per-prospect evidence the upstream extractor produced.
+  // Don't quote it verbatim; rephrase naturally in the body.
+  const signalSection = signal
+    ? `\nPER-RECIPIENT EVIDENCE SUMMARY (rephrase naturally — do not quote verbatim):
+- Why-you (one-line): ${signal.short}
+- Why-you (1-2 sentences): ${signal.lead}
+- Why-you (short follow-up form): ${signal.leadShort}
+- What-we-offer (one-line): ${signal.valueOfferShort}
+- What-we-offer (1-2 sentences): ${signal.valueOfferLead}
+- Specificity tier: ${signal.specificity}
+`
+    : '';
+
+  // Warm opener (1st-degree only)
+  const warmSection = input.warm
+    ? `\nWARM OPENER (use this exact line or a variant as the first beat after the greeting): ${input.warm_opener}\n`
+    : '';
+
+  return `Write ONE outreach message for the step described below.
+
+STEP CONSTRAINTS (mandatory):
+- Channel: ${input.channel}
+- Max chars (HARD LIMIT): ${input.max_chars}
+- Include subject: ${input.has_subject}
+- Outreach tier: ${input.outreach_tier} (${input.outreach_tier === 'confident' ? 'direct ask' : input.outreach_tier === 'qualified' ? 'soft hedged ask' : 'explicit "no pressure" hedging'})
+- Warm (1st-degree LinkedIn): ${input.warm}
+- Template key (position in sequence): ${input.template_key}
+
+INFERRED MODE: ${modeHint}
+
+OFFERING:
+${offeringLines.join('\n')}
+
+RECIPIENT:
+${recipientLines.join('\n')}
+${signalSection}${warmSection}
+SENDER:
+${senderLines.join('\n')}
+
+Now write the message. Return the JSON shape only.`;
+}
+
+// =============================================================================
+// Internal helpers
+// =============================================================================
+
+function clampScore(v: unknown): number {
+  const n = typeof v === 'number' ? v : Number(v);
+  if (!Number.isFinite(n)) return 5;
+  return Math.max(1, Math.min(10, Math.round(n)));
+}

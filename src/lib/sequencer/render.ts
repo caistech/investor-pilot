@@ -19,6 +19,7 @@
 
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { SEED_TEMPLATES, type SeedTemplate } from './seed-templates';
+import { writeMessageViaLLM } from './render-llm';
 
 /**
  * Per-organisation context the renderer needs to fill `{sender_name}` and
@@ -334,27 +335,112 @@ export async function renderStep(
   // Defensive truncation here means the connect note always renders.
   const creditSignalShort = (signal?.short || '').slice(0, 80).trim();
 
+  // Per-prospect LLM render. The LLM receives the framework + offering +
+  // recipient + sender + step constraints and writes the complete subject
+  // + body. Replaces the mechanical placeholder substitution + injection
+  // passes — see render-llm.ts for the prompt and rationale.
+  // Pre-LLM-render values are passed in so the LLM sees the resolved
+  // first_name (honorific-stripped, paren-preferred), the smart-fallback
+  // firm name, and the extracted credit_signal as ground truth.
+  const channel = (templateChannel(templateKey) ?? 'email') as 'linkedin_connect' | 'linkedin_dm' | 'email';
+  const hasSubject = !!template.subject || channel === 'email';
+  const outreachTier = computeOutreachTier(partner.weighted_score);
+
+  const llmResult = await writeMessageViaLLM({
+    channel,
+    max_chars: template.max_chars,
+    has_subject: hasSubject,
+    outreach_tier: outreachTier,
+    warm,
+    first_name: firstName,
+    firm: firmRendered,
+    template_key: templateKey,
+    signal: signal
+      ? {
+          short: signal.short,
+          lead: signal.lead,
+          leadShort: signal.leadShort,
+          valueOfferShort: signal.valueOfferShort,
+          valueOfferLead: signal.valueOfferLead,
+          specificity: signal.specificity,
+        }
+      : null,
+    warm_opener: warmOpener,
+    partner,
+    context,
+  });
+
+  if (!llmResult.ok) {
+    return { ok: false, reason: `LLM render failed: ${llmResult.error}`, blocker: 'llm_error' };
+  }
+
+  // Char-limit guard. writeMessageViaLLM enforces the connect-note 300
+  // cap internally (LinkedIn-mandated), but other channels can still
+  // overshoot. Reject overshoots rather than truncate mid-sentence.
+  if (template.max_chars && llmResult.body.length > template.max_chars) {
+    return {
+      ok: false,
+      reason: `LLM-rendered body ${llmResult.body.length} chars exceeds max ${template.max_chars} for ${templateKey}`,
+      blocker: 'llm_error',
+    };
+  }
+
+  // Personalization score, evidence_refs, and outreach_tier flow through to
+  // the existing compliance + approvals pipeline. Localisation handled by
+  // the LLM's detected_language output; the prompt instructs it to write
+  // in the recipient's language when geography signals it.
+  return {
+    ok: true,
+    subject: llmResult.subject,
+    body: llmResult.body,
+    evidence_refs: {
+      template_key: templateKey,
+      credit_signal: signal?.short || (warm ? 'warm_relationship' : ''),
+      signal_specificity: signal?.specificity || (warm ? 'first_degree_connection' : ''),
+      partner_score: partner.weighted_score,
+      warm,
+      target_language: llmResult.detected_language,
+      outreach_tier: outreachTier,
+      render_path: 'llm',
+    },
+    personalization_score: llmResult.personalization_score,
+    outreach_tier: outreachTier,
+  };
+}
+
+// =============================================================================
+// LEGACY MECHANICAL RENDER PATH — kept below as a reference / fallback while
+// the LLM-render path is the production source of truth. Not currently called.
+// Will be removed once the LLM-render path has shipped for a sprint without
+// regressions. See render-llm.ts for the active path.
+// =============================================================================
+
+async function _legacyMechanicalRender(
+  templateKey: string,
+  partner: RenderPartner,
+  context: RenderContext,
+  template: StepTemplate,
+  signal: CreditSignal | null,
+  warmOpener: string,
+  firstName: string,
+  firmRendered: string,
+  creditSignalShort: string,
+  projectUrlsBlock: string,
+  warm: boolean,
+): Promise<RenderResult> {
+  const tpl = template;
   const vars: Record<string, string> = {
     first_name: firstName,
     firm: firmRendered,
     credit_signal: creditSignalShort,
     credit_signal_lead: signal?.lead || '',
     credit_signal_lead_short: signal?.leadShort || '',
-    // "Give before take" — every cold message carries a concrete offer.
-    // Templates can opt in by using {value_offer} / {value_offer_lead}.
-    // Backward-compat: when a template body doesn't include either
-    // placeholder, the renderer auto-injects value_offer_lead before
-    // the ask paragraph (see post-substitute injection below).
     value_offer: signal?.valueOfferShort || '',
     value_offer_lead: signal?.valueOfferLead || '',
     warm_opener: warmOpener,
     project_urls_block: projectUrlsBlock,
     sender_name: context.sender_name,
     sender_role: context.sender_role,
-    // Courtesy-contract placeholders (migration 025). Empty strings when
-    // not configured — substituted blank rather than left as literal
-    // {placeholder} text, so a missing calendar URL doesn't surface
-    // "<<<{sender_calendar_url}>>>" to the recipient.
     sender_linkedin_url: context.sender_linkedin_url || '',
     sender_bio_one_liner: context.sender_bio_one_liner || '',
     sender_calendar_url: context.sender_calendar_url || '',
