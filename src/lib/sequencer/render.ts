@@ -762,6 +762,13 @@ function normaliseSubstitutionArtefacts(text: string): string {
   // the next line).
   out = out.replace(/(\w)\.\s+\.(?!\.)/g, '$1.');
 
+  // Collapse blank-line gutters left behind when a placeholder substitutes
+  // to empty (e.g. {credit_signal_lead} returns '' when the extractor
+  // didn't yield a signal). Three or more consecutive newlines → two.
+  // Run after substitution but before any caller-side trimming so the
+  // body reads cleanly: no eerie double blank lines between paragraphs.
+  out = out.replace(/\n{3,}/g, '\n\n');
+
   return out;
 }
 

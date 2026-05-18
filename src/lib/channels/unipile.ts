@@ -145,8 +145,30 @@ export async function getClientForOrg(orgId: string): Promise<UnipileClient> {
 // Send
 // =============================================================================
 
+/**
+ * Wrap @caistech/unipile-channels sendLinkedInConnect to extract a bare
+ * provider_id from the recipient_profile_url before calling the package.
+ * Upstream bug (2026-05-19): the package forwards recipient_profile_url
+ * AS provider_id to Unipile's /users/invite endpoint, so URLs like
+ * `https://www.linkedin.com/in/charlie-owen` come back with 400
+ * "User ID does not match provider's expected format". The DM helper
+ * extracts correctly; the connect helper doesn't. Patching at the
+ * consumer boundary keeps existing partner rows (which store the
+ * profile URL in contact_linkedin) working without an upstream
+ * republish round-trip.
+ */
 export async function sendLinkedInConnect(input: LinkedInConnectInput): Promise<SendResult> {
-  return getClient().sendLinkedInConnect(input);
+  const providerId = remoteExtractLinkedInProviderId(input.recipient_profile_url);
+  if (!providerId) {
+    return {
+      ok: false,
+      error: `Could not extract LinkedIn provider_id from recipient_profile_url: ${input.recipient_profile_url.slice(0, 120)}`,
+    };
+  }
+  return getClient().sendLinkedInConnect({
+    ...input,
+    recipient_profile_url: providerId,
+  });
 }
 
 export async function sendLinkedInDm(input: LinkedInDmInput): Promise<SendResult> {
