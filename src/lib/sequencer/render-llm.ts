@@ -202,45 +202,61 @@ NEVER
 
 CALIBRATION — two cold emails in two different recipient situations
 
-These illustrate the SHAPE you're aiming for — length, where the sender intro sits, where the proof sits (or doesn't), where the CTA sits, the tone of the close. The literal phrases are illustrative and will be different in your output. If your output contains sentences lifted from these examples, you have failed: those exact phrases will then appear across hundreds of unrelated outputs and the recipient will feel the template.
+These illustrate the SHAPE only — length, where the sender intro sits, where the proof sits (or doesn't), where the CTA sits. The specific phrasing is a trap: anything you lift verbatim will appear identically across hundreds of unrelated outputs and break the read. Notice how Example A and Example B differ in opener style, sender-intro placement, CTA framing, and sign-off — your output should differ from BOTH in literal wording.
 
 EXAMPLE A — recipient is IN the same vertical as the sender's flagship proof.
-The proof has earned its place. Lead with a firm-specific observation (something public the recipient has done / said / shipped), then the proof in one sentence, then a recipient-grounded ask. ~120 words.
+The proof has earned its place. Lead with a firm-specific signal (something public the recipient has done / said / shipped), then the proof in one sentence fused with the sender intro, then a recipient-grounded ask. ~110 words. Ends with a bare sign-off — no closing summary line.
 
-Subject: One slow handoff at [Firm]?
+Subject: Handoff layer at [Firm] — quick thought
 
 Hi [Name],
-Saw [Firm] just announced [public signal — e.g. a partnership / certification / opening]. The factory-to-site handoff layer is usually where that kind of growth bites first.
-Quick context — I'm [Sender] at [Sender Org]. We shipped an end-to-end platform for an Australian modular operator: Stages 0-5 in 5 weeks vs the 14-week baseline, fixed price.
-If a comparable handoff at [Firm] is still half-shipped, this 4-min intake describes what we'd actually build — no call, no commitment:
-[INTAKE URL]
+The [specific public thing they did — e.g. partnership, opening, milestone] caught my eye. At your scale, the factory-to-site handoff is usually where that kind of growth bites first.
 
-Worth a look either way.
+I'm [Sender] — last year my team shipped an end-to-end platform for an Australian modular operator. Compressed their Stages 0-5 timeline meaningfully, fixed price, no in-house developers required.
+
+If a comparable handoff at [Firm] is in your sights, here's the 4-min scoping walkthrough:
+[INTAKE URL]
 
 [Sender]
 linkedin.com/in/[sender]
 
 EXAMPLE B — recipient is in a DIFFERENT vertical from the sender's flagship proof.
-The flagship is NOT the lead. Often the right call is to omit the flagship entirely and let the vertical-level observation + intake URL do the work. When the flagship IS mentioned, it's a one-line credibility marker AFTER the recipient-vertical observation has earned the read — never the bridge sentence. ~110 words.
+The flagship is NOT the lead. Often the right call is to omit the flagship entirely. When it IS mentioned, it's a one-line credibility marker AFTER the recipient-vertical observation has earned the read — never the bridge sentence. ~100 words. Ends with a "Cheers," sign-off — visibly different shape from Example A.
 
-Subject: One slow process at [Firm]?
+Subject: One thing in [recipient vertical]
 
 Hi [Name],
-Dispatch scheduling, route optimisation, and compliance logging are usually the three that quietly eat the most fleet-side time — and the tools to fix one of them have crossed the line from "needs a dev team" to "ship in a month".
-Quick context — I'm [Sender] at [Sender Org]. We're a small Aus build shop; recent platforms have shipped in 5-week sprints against typical 14-week schedules.
-This 4-min intake describes what we'd build for a fleet specifically — no call, no commitment:
+Three things usually quietly eat the most [vertical]-side time: [specific 1], [specific 2], [specific 3]. The tooling to fix one of them is now a measured-in-weeks job, not a measured-in-quarters job.
+
+[Sender] here — small Aus shop, fixed-scope platform work for operator-led teams across construction, logistics, and adjacent ops.
+
+If you'd find it useful, here's what a build for a [vertical] team would actually look like:
 [INTAKE URL]
 
-Worth a look either way.
-
+Cheers,
 [Sender]
 linkedin.com/in/[sender]
 
 CONTRAST — what these two examples teach
-- Example A's opener cites the recipient firm specifically; Example B's opener is vertical-level because we have no firm-specific signal. Both lead with the recipient, not the sender.
-- Example A names the flagship proof (same vertical = relevant). Example B alludes to "5-week sprints" without naming the modular flagship (different vertical = forcing it would signal copy-paste).
-- Both bury the sender intro inside one sentence ("Quick context — I'm…"). Neither leads with "Dennis McMahon here, Director at…" — that pattern is what kills the read.
-- Both end with the same single low-commitment CTA shape, but the phrasing varies. Your version should vary again.
+- A's opener cites the recipient firm specifically (we have firm-level signal). B's opener is vertical-level (we don't). Lead with the recipient either way; never with the sender.
+- A names the flagship proof and fuses it with the sender intro into ONE sentence. B keeps the sender intro brief, separate, and never names the flagship surface.
+- A's CTA frame is "here's the 4-min scoping walkthrough"; B's is "here's what a build for a [vertical] team would actually look like". Same underlying shape, different words.
+- A ends with a bare sign-off ([Sender] alone). B ends with "Cheers, [Sender]". These differ on purpose — pick a sign-off that fits your message, don't pick the same one every time.
+
+DO NOT COPY THESE PHRASES VERBATIM — they were the failure mode of the previous calibration AND the failure mode of an earlier version of this one. If you use any of them word-for-word, the recipient will recognise the template immediately:
+- "production AI tools for operator-led businesses"
+- "Stages 0 through 5 in 5 weeks against a 14-week schedule"
+- "still half-manual and quietly costing real money" / "half-manual and quietly expensive"
+- "If something like that comes to mind at [Firm]"
+- "this intake walks you through describing it in a few minutes"
+- "this AI interviewer walks you through describing it"
+- "No call, no commitment" / "no call, no commitment"
+- "Worth a look either way" / "Either way, worth a look"
+- "Quick context — I'm [Sender] at [Sender Org]"
+- "the tools to fix [X] have crossed the line from 'needs a dev team' to 'ship in a month'"
+- "happy to set up a free pilot — no commitment beyond seeing whether it actually moves the needle"
+- "shipped in 5-week sprints against typical 14-week schedules"
+If you find yourself reaching for any of these, STOP and write something fresh. The recipient has likely received outreach from this system before; using identical phrasing twice in a row is what gives the template away.
 
 WEAK example — what to avoid:
 
