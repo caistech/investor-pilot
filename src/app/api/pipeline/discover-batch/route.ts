@@ -634,16 +634,27 @@ export async function POST(request: Request) {
   // when sequencing — that's when the rich data actually matters.
   const profileEnrichmentOutcomes: Array<{ status: string }> = [];
 
-  // Auto-Hunter for Brave-sourced candidates — top N by score only. Brave
-  // returns COMPANIES, not people; Hunter attaches a verified decision-maker
-  // email per firm. Capped at HUNTER_AT_DISCOVERY_CAP to bound wall time
-  // (~5s/call × 8 / 4-wide = ~10s); lower-scored Brave rows can be
-  // operator-triggered via /api/admin/refresh-enrichment later.
+  // Auto-Hunter for Brave-sourced candidates. Brave returns COMPANIES, not
+  // people; Hunter attaches a verified decision-maker email per firm.
+  // Capped at HUNTER_AT_DISCOVERY_CAP to bound wall time (~5s/call × 8 /
+  // 4-wide = ~10s); lower-scored Brave rows can be operator-triggered via
+  // /api/admin/refresh-enrichment later.
+  //
+  // Round-robin across vertical buckets (2026-05-19): previously the
+  // selection was top-N-by-score, which stacked the entire enrichment
+  // budget on the offering's flagship vertical (e.g. all 20 slots on
+  // modular construction for CAS AI Build, because the scorer rewarded
+  // flagship-vertical-match heavily). Operator flagged: 'why so many
+  // modular companies when there are so many other sectors that need
+  // AI solutions?' — answer was scorer bias + top-N-globally enrichment.
+  // Round-robin spreads slots across the LLM scorer's category buckets
+  // so the operator sees variety. Within each bucket we still sort by
+  // weighted_score descending — so highest-scoring transport sits next
+  // to highest-scoring construction.
   const hunterEnrichmentOutcomes: Array<{ partner_id: string; status: string; email?: string | null }> = [];
-  const braveScoredRows = scoredResults
-    .filter(r => r.status !== 'error' && r.partner_id && r.source === 'brave' && typeof r.weighted_score === 'number')
-    .sort((a, b) => (b.weighted_score || 0) - (a.weighted_score || 0))
-    .slice(0, HUNTER_AT_DISCOVERY_CAP);
+  const eligibleBraveRows = scoredResults
+    .filter(r => r.status !== 'error' && r.partner_id && r.source === 'brave' && typeof r.weighted_score === 'number');
+  const braveScoredRows = roundRobinAcrossCategories(eligibleBraveRows, HUNTER_AT_DISCOVERY_CAP);
   if (braveScoredRows.length > 0) {
     log('hunter_enrichment_start', { count: braveScoredRows.length });
     const ids = braveScoredRows.map(r => r.partner_id as string);
@@ -746,6 +757,47 @@ export async function POST(request: Request) {
     scoring_errors: scoringErrorSamples,
     top_results: topResults,
   });
+}
+
+/**
+ * Pick rows round-robin across LLM-scorer category buckets, capped at N.
+ * Within each bucket rows are sorted by weighted_score descending. We
+ * pop the top of each bucket in turn until the cap is reached.
+ *
+ * Why: top-N-globally stacked the enrichment budget on the offering's
+ * flagship vertical when the scorer over-rewarded matches against the
+ * flagship's named proof. Round-robin guarantees a spread across the
+ * verticals the operator's ICP actually targets. The scorer-prompt
+ * vertical-neutrality rule (added same commit) flattens the score
+ * distribution; round-robin guarantees the distribution shows up in
+ * the enriched set even if the scorer drifts.
+ *
+ * Rows without a category fall into a single 'uncategorised' bucket so
+ * they still get a slot rather than being dropped silently.
+ */
+function roundRobinAcrossCategories<T extends { category?: string | null; weighted_score?: number | null }>(
+  rows: T[],
+  cap: number,
+): T[] {
+  const buckets = new Map<string, T[]>();
+  for (const row of rows) {
+    const key = row.category && /^out[_ ]?of[_ ]?scope$/i.test(row.category) ? '__excluded__' : (row.category || 'uncategorised');
+    if (key === '__excluded__') continue;
+    if (!buckets.has(key)) buckets.set(key, []);
+    buckets.get(key)!.push(row);
+  }
+  buckets.forEach(arr => {
+    arr.sort((a: T, b: T) => (b.weighted_score || 0) - (a.weighted_score || 0));
+  });
+  const out: T[] = [];
+  const bucketArrays = Array.from(buckets.values());
+  let i = 0;
+  while (out.length < cap && bucketArrays.some(b => b.length > 0)) {
+    const bucket = bucketArrays[i % bucketArrays.length];
+    if (bucket.length > 0) out.push(bucket.shift()!);
+    i++;
+  }
+  return out;
 }
 
 /**

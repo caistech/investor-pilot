@@ -139,6 +139,19 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
     ? `\n\nHARD-GATE FILTERS (apply BEFORE the dimension scoring rubric — a candidate that fails ANY of these is out_of_scope and the rubric below does not save them):\n${hardGateLines.join('\n')}`
     : '';
 
+  // Vertical-neutrality rule. The offering's pitch / scoring_rubric /
+  // KB often features ONE flagship vertical heavily (e.g. CAS AI Build's
+  // MMC Build proof = modular construction; LingoPure's flagship deal =
+  // Vietnam B2B SaaS). Without this rule, the scorer reads the pitch and
+  // gives candidates in the flagship vertical a 9+ while equally valid
+  // candidates in other listed ICP verticals score 7-8. Operator flagged
+  // 2026-05-19: 'why so many modular companies in the search when there
+  // are so many other sectors that need AI solutions?' — answer: scorer
+  // bias toward the flagship proof. This rule corrects it.
+  const verticalNeutralitySection = product.icp_verticals?.trim()
+    ? `\n\nVERTICAL NEUTRALITY (mandatory):\nThe offering's pitch / KB may feature ONE flagship proof point in a specific vertical (e.g. a flagship customer, a named platform, a marquee deal). The ICP, however, lists multiple eligible verticals: ${product.icp_verticals.trim()}.\n\nScore candidates EQUALLY across all listed ICP verticals based on operator fit, NOT on similarity to the flagship vertical. A construction operator with manual compliance pain should score the same as a transport operator with manual dispatch pain — both face the operational problems this offering solves. Do NOT add a bonus for "exact flagship vertical" or "same domain as the named proof point". The flagship is one example, not a scoring axis.`
+    : '';
+
   // Anchor what the offering actually IS and what value it delivers, so
   // the scorer can reason "would this candidate plausibly buy what we
   // sell?" rather than "does the candidate's vague description overlap
@@ -168,7 +181,7 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
     : '';
 
   return `${pitchLine}. Given a person/firm description from search results, score them on 5 dimensions for fit.
-${assetGeoLine}${fundingTypeLine}${offeringAnchorSection}${hardGateSection}
+${assetGeoLine}${fundingTypeLine}${offeringAnchorSection}${hardGateSection}${verticalNeutralitySection}
 
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
