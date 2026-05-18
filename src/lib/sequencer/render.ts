@@ -309,10 +309,35 @@ export async function renderStep(
     ? ''
     : `\nProject details: ${urls.join(' · ')}\n`;
 
+  // {firm} smart fallback. The discovery pipeline falls back to
+  // `person.full_name` for company_name when Unipile doesn't return a
+  // `current_company` field AND `extractCompanyFromHeadline` can't pull
+  // a firm name from the headline. That leaks the contact's own name
+  // into the {firm} slot, producing rendered messages like "Happy to
+  // walk through what one could look like for Angela Mansell FCIOB".
+  // When we detect that footgun, render "your firm" instead — it reads
+  // naturally in every template context the connect note + DM uses.
+  const companyName = (partner.company_name || '').trim();
+  const contactNameTrimmed = (partner.contact_name || '').trim();
+  const companyIsContactName =
+    companyName.length > 0 &&
+    contactNameTrimmed.length > 0 &&
+    companyName.toLowerCase() === contactNameTrimmed.toLowerCase();
+  const firmRendered = companyIsContactName || companyName.length === 0
+    ? 'your firm'
+    : companyName;
+
+  // {credit_signal} hard-cap at 80 chars. The extractor prompt says
+  // "≤80 chars" but the LLM occasionally returns 100-150-char phrases
+  // which then blow the connect note's 300-char LinkedIn cap and the
+  // whole step gets compliance_blocked with no obvious cause.
+  // Defensive truncation here means the connect note always renders.
+  const creditSignalShort = (signal?.short || '').slice(0, 80).trim();
+
   const vars: Record<string, string> = {
     first_name: firstName,
-    firm: partner.company_name,
-    credit_signal: signal?.short || '',
+    firm: firmRendered,
+    credit_signal: creditSignalShort,
     credit_signal_lead: signal?.lead || '',
     credit_signal_lead_short: signal?.leadShort || '',
     // "Give before take" — every cold message carries a concrete offer.
