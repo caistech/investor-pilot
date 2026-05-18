@@ -186,7 +186,7 @@ export function computeOutreachTier(score: number | null | undefined): OutreachT
 export interface RenderError {
   ok: false;
   reason: string;
-  blocker: 'missing_contact' | 'no_credit_signal' | 'unknown_template' | 'llm_error';
+  blocker: 'missing_contact' | 'no_credit_signal' | 'unknown_template' | 'llm_error' | 'missing_offering_url';
 }
 
 export type RenderResult = RenderedMessage | RenderError;
@@ -345,6 +345,33 @@ export async function renderStep(
   const channel = (templateChannel(templateKey) ?? 'email') as 'linkedin_connect' | 'linkedin_dm' | 'email';
   const hasSubject = !!template.subject || channel === 'email';
   const outreachTier = computeOutreachTier(partner.weighted_score);
+
+  // Refuse to render without an intake/deck URL. The system prompt tells
+  // the LLM "intake URL required on every step"; if we don't supply one,
+  // the LLM either hallucinates a plausible-looking domain
+  // (corporateai.com.au/intake, aiapply.co/intake/..., etc.) or echoes
+  // a literal placeholder string ([INTAKE_URL_REQUIRED]) into the body
+  // sent to the recipient. Operator hit this 2026-05-19 on the AI tech
+  // solutions product (queue was 19 messages, ALL with fake or
+  // placeholder URLs).
+  //
+  // Connect notes get a pass IF the sender_calendar_url is available —
+  // 300-char notes can land with just the calendar link as the soft ask
+  // and no body URL. DMs and emails MUST have a real intake URL because
+  // they explicitly invite the recipient to click through.
+  const offeringKind = partner.offering_kind ?? 'product';
+  const intakeUrl = offeringKind === 'project'
+    ? (partner.offering_context?.pitch_deck_url || partner.offering_context?.one_pager_url)
+    : partner.offering_context?.one_pager_url;
+  if (!intakeUrl && channel !== 'linkedin_connect') {
+    const settingsPath = offeringKind === 'project' ? '/settings/projects' : '/settings/products';
+    const urlField = offeringKind === 'project' ? 'pitch_deck_url or one_pager_url' : 'one_pager_url';
+    return {
+      ok: false,
+      reason: `No intake URL configured on the ${offeringKind} "${partner.offering_context?.name ?? 'this offering'}". Open ${settingsPath}, edit the ${offeringKind}, and add a ${urlField}. The renderer refuses to invent URLs — without one the LLM would either hallucinate a domain or write literal placeholder text into the message.`,
+      blocker: 'missing_offering_url',
+    };
+  }
 
   const llmResult = await writeMessageViaLLM({
     channel,
