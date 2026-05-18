@@ -37,7 +37,7 @@ import {
 import { scoreAndUpsertCandidate, type ScoreCandidateInput } from '@/lib/discovery/scorer';
 import { buildScoringPrompt, type ScoringPromptProduct } from '@/lib/pipeline/scoring-prompt';
 import { generateLenderQueries } from '@/lib/discovery/query-generator';
-import { FUNDING_TYPE_BY_VALUE, type FundingType } from '@/lib/types';
+import { FUNDING_TYPE_BY_VALUE, PRODUCT_PROSPECT_TYPE_BY_VALUE, type FundingType } from '@/lib/types';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 // hunterDomainSearch is no longer called from this route — Hunter is
@@ -378,6 +378,15 @@ export async function POST(request: Request) {
       funding_target: offering.funding_target,
       geography: offering.geography,
       asset_class: offering.asset_class,
+      // Product-side prospect type. Mirrors funding_type on the project
+      // side — the operator-picked slug from the ICP dropdown becomes a
+      // TOP PRIORITY instruction at the top of the query-generator prompt.
+      // Sourced from products.icp_partner_type (UI now constrains to
+      // PRODUCT_PROSPECT_TYPE_OPTIONS via dropdown).
+      prospect_type: offering.icp_partner_type,
+      prospect_type_describe: offering.icp_partner_type
+        ? PRODUCT_PROSPECT_TYPE_BY_VALUE[offering.icp_partner_type]?.describe ?? null
+        : null,
     },
     knowledgeBase: (kbSources || []).map(s => ({
       title: s.title,

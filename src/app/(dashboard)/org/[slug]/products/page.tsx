@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { createClient } from '@/lib/supabase/client';
 import { Plus, Package, Sparkles, Loader2, ChevronDown, ChevronRight, Pencil, Trash2, Globe, FileText, Type, Power, PowerOff, Target } from 'lucide-react';
 import Link from 'next/link';
-import type { Product } from '@/lib/types';
+import { type Product, PRODUCT_PROSPECT_TYPE_OPTIONS, PRODUCT_PROSPECT_TYPE_BY_VALUE } from '@/lib/types';
 import SourceManager from '@/components/products/source-manager';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
@@ -31,6 +31,12 @@ const EMPTY_FORM = {
   icp_verticals: '', icp_buyer_title: '', icp_user_title: '',
   icp_stack_tools: '', traction_arr: '', traction_customers: '',
   partner_types: 'referral', exclusions: '',
+  // Operator-picked prospect type — TOP PRIORITY signal to the query
+  // generator (the dropdown's describe sentence becomes a non-negotiable
+  // instruction at the top of the discovery prompt). One of:
+  // 'buyer' / 'referral_partner' / 'integration_partner' / 'reseller' /
+  // 'strategic' — see PRODUCT_PROSPECT_TYPE_OPTIONS.
+  icp_partner_type: 'buyer',
 };
 
 interface SetupSnapshot {
@@ -157,6 +163,7 @@ export default function ProductsPage() {
         traction_customers: data.traction_customers || '',
         partner_types: data.partner_types || 'referral',
         exclusions: data.exclusions || '',
+        icp_partner_type: data.icp_partner_type || prev.icp_partner_type || 'buyer',
       }));
       setFilled(true);
       setShowDetails(true);
@@ -244,6 +251,7 @@ export default function ProductsPage() {
       traction_customers: product.traction_customers || '',
       partner_types: product.partner_types || 'referral',
       exclusions: product.exclusions || '',
+      icp_partner_type: product.icp_partner_type || 'buyer',
     });
     setEditingId(product.id);
     setFilled(true);
@@ -473,6 +481,26 @@ export default function ProductsPage() {
                     className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
                     placeholder="What does this product do in one sentence?"
                   />
+                </div>
+                <div>
+                  <label className="block text-sm text-dark-300 mb-1">
+                    Who do we want to reach?
+                    <span className="text-dark-600 ml-1">(drives Discovery — picks the right prospect type)</span>
+                  </label>
+                  <select
+                    value={form.icp_partner_type}
+                    onChange={(e) => setForm({ ...form, icp_partner_type: e.target.value })}
+                    className="w-full bg-dark-800 border border-dark-600 rounded-lg px-4 py-2 text-white focus:border-corp-green-500 focus:outline-none"
+                  >
+                    {PRODUCT_PROSPECT_TYPE_OPTIONS.map((opt) => (
+                      <option key={opt.value} value={opt.value}>{opt.label}</option>
+                    ))}
+                  </select>
+                  {form.icp_partner_type && PRODUCT_PROSPECT_TYPE_BY_VALUE[form.icp_partner_type] && (
+                    <p className="text-xs text-dark-500 mt-1 leading-snug">
+                      {PRODUCT_PROSPECT_TYPE_BY_VALUE[form.icp_partner_type].describe}
+                    </p>
+                  )}
                 </div>
               </>
             )}

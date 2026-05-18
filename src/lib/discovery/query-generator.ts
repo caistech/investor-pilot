@@ -27,6 +27,16 @@ export interface ProductForQueryGen {
   icp_buyer_title: string | null;
   icp_stage: string | null;
   exclusions: string | null;
+  /**
+   * Product-side prospect-type slug (migration not required — UI-enforced
+   * enum from PRODUCT_PROSPECT_TYPE_OPTIONS). Caller resolves to the
+   * describe sentence and passes BOTH the slug and the describe so the
+   * LLM sees the explicit operator instruction AT THE TOP of the prompt,
+   * not buried in soft hints. Mirrors funding_type / funding_type_describe
+   * on the project side.
+   */
+  prospect_type?: string | null;
+  prospect_type_describe?: string | null;
   // Project-specific (optional — present when generator is called for a project)
   sponsor?: string | null;
   project_type?: string | null;
@@ -220,7 +230,11 @@ OFFERING:
 Name: ${input.product.name}
 Description: ${input.product.description || input.product.one_sentence_description || '(none)'}
 Core mechanism: ${input.product.core_mechanism || '(none)'}
-Buyer/lender outcomes: ${input.product.customer_outcomes || '(none)'}
+Buyer/lender outcomes: ${input.product.customer_outcomes || '(none)'}${
+  input.product.prospect_type_describe
+    ? `\n\nPROSPECT TYPE TO FIND (TOP PRIORITY — generate queries that match THIS profile only): ${input.product.prospect_type_describe}\n`
+    : ''
+}
 ICP buyer title: ${input.product.icp_buyer_title || '(none)'}
 ICP company size: ${input.product.icp_company_size || '(none)'}
 ICP verticals: ${input.product.icp_verticals || '(none)'}

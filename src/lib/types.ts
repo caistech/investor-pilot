@@ -54,6 +54,15 @@ export interface Product {
   traction_logos: string | null;
   partner_types: string;
   exclusions: string | null;
+  /**
+   * Operator-picked prospect type from PRODUCT_PROSPECT_TYPE_OPTIONS.
+   * One of: 'buyer' / 'referral_partner' / 'integration_partner' /
+   * 'reseller' / 'strategic'. Drives query generator + scorer + renderer
+   * as a TOP PRIORITY signal — the dropdown's describe sentence is
+   * injected at the top of the discovery prompt. Legacy products may
+   * have null / free-text values; those rows degrade gracefully.
+   */
+  icp_partner_type?: string | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
@@ -186,6 +195,64 @@ export const PARTNER_TYPE_OPTIONS: Array<{ value: string; label: string; describ
   { value: 'partner', label: 'Channel partner', describe: 'GTM or distribution partner — reseller, integration, referral, co-marketing' },
   { value: 'funder', label: 'Funder (other)', describe: 'Grant maker, foundation, sponsor — non-dilutive / non-debt capital' },
 ];
+
+/**
+ * Curated prospect-type options for PRODUCT (Sales-mode) ICPs. Surfaced
+ * as a required dropdown on the Product setup form so the operator says
+ * EXPLICITLY who they want to reach, rather than the generator inferring
+ * from loose fields. Mirrors FUNDING_TYPE_BY_VALUE on the project side:
+ * each slug carries a `describe` sentence that drops into the query
+ * generator + scorer + renderer prompts as a TOP PRIORITY instruction.
+ *
+ * Operator flagged 2026-05-19: 'in ICP setup we need a dropdown so we
+ * can say Buyers wanted / Partners wanted / Seed investors / Series A
+ * — so the generator's pickup is explicit'.
+ *
+ * Persisted in products.icp_partner_type. Legacy rows with non-matching
+ * values (e.g. blank, free-text 'buyer/lender') keep working; the
+ * dropdown is the path forward for newly-edited products.
+ */
+export interface ProductProspectTypeOption {
+  value: string;
+  label: string;
+  describe: string;
+}
+
+export const PRODUCT_PROSPECT_TYPE_OPTIONS: ProductProspectTypeOption[] = [
+  {
+    value: 'buyer',
+    label: 'Buyers — operators who would buy this',
+    describe: 'BUYERS we want to reach: operator-led businesses that fit the ICP verticals + company size + buyer-title — the people who control budget and feel the operational pain this offering solves. Queries should surface real operating companies and their decision-makers, NOT vendors selling competing tools.',
+  },
+  {
+    value: 'referral_partner',
+    label: 'Referral partners — businesses that would send us customers',
+    describe: 'REFERRAL PARTNERS we want to reach: established businesses whose customers (or network) match our ICP and who would refer outbound for a commission or strategic alignment. Queries should surface advisory firms, consultancies, and complementary service providers serving the same vertical.',
+  },
+  {
+    value: 'integration_partner',
+    label: 'Integration partners — platforms we want to integrate with',
+    describe: 'INTEGRATION PARTNERS we want to reach: SaaS / platform companies whose tools the buyer already uses, and where a technical or co-marketing integration creates value for both sides. Queries should surface platform vendors with public APIs / partner programs in the buyer\'s stack.',
+  },
+  {
+    value: 'reseller',
+    label: 'Resellers / channel partners — businesses that would resell',
+    describe: 'RESELLERS we want to reach: established channel partners (agencies, MSPs, systems integrators) who package and resell similar offerings to their existing customer base. Queries should surface channel-program-eligible operators with a sales motion that fits this offering.',
+  },
+  {
+    value: 'strategic',
+    label: 'Strategic partners — broader / mixed',
+    describe: 'STRATEGIC PARTNERS we want to reach: a mix of referral, integration, or co-marketing relationships with operators in the same vertical or adjacent. Queries should surface established businesses where mutual value can be assembled, not strictly one motion.',
+  },
+];
+
+/** Flat lookup keyed by value — used to render labels and look up the
+ * describe string inside discovery / ICP / scoring / render prompts. */
+export const PRODUCT_PROSPECT_TYPE_BY_VALUE: Record<string, ProductProspectTypeOption> =
+  PRODUCT_PROSPECT_TYPE_OPTIONS.reduce((acc, opt) => {
+    acc[opt.value] = opt;
+    return acc;
+  }, {} as Record<string, ProductProspectTypeOption>);
 
 /**
  * Map funding_type → the default partner_types slug. Auto-derived when
