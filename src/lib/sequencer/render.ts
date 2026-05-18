@@ -1046,7 +1046,11 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
   // experience with the problem. The model can draw that inference if
   // we give it the offering context.
   const offering = partner.offering_context;
-  const offeringSection = offering
+  // Only render the WHAT WE'RE PITCHING block when we actually have an
+  // offering. Orphan partners (no project/product) get a minimal context
+  // that carries recipient_geography for localisation but has empty
+  // name/pitch — surfacing those as bare fields confuses the LLM.
+  const offeringSection = offering && offering.name
     ? `\nWHAT WE'RE PITCHING TO THEM:
 - Name: ${offering.name}
 - Pitch: ${offering.pitch}
@@ -1054,7 +1058,9 @@ async function extractCreditSignal(partner: RenderPartner): Promise<CreditSignal
 - Geography of the offering: ${offering.geography ?? '(unspecified)'}
 - Recipient's geography (helps with cultural / market inferences): ${offering.recipient_geography ?? '(unspecified)'}
 `
-    : '';
+    : offering && offering.recipient_geography
+      ? `\nRECIPIENT'S GEOGRAPHY (helps with cultural / market inferences): ${offering.recipient_geography}\n`
+      : '';
 
   const prompt = `You're a senior research analyst preparing personalised cold outreach to a ${recipientNoun}. Two outputs are required: (a) a personalised fit angle, and (b) a concrete value offer FROM US TO THEM, before we ask for anything. We must read as offerers, not takers.
 

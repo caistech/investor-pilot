@@ -512,6 +512,23 @@ async function loadOfferingContext(
       one_pager_url: (data.one_pager_url as string) || null,
     };
   }
+  // Orphan partners (no project, no product) still need geography to flow
+  // through to the renderer's localisation check, otherwise Vietnamese /
+  // Korean / Japanese prospects render in English even though the geography
+  // hint widening landed upstream. Return a minimal context carrying only
+  // recipient_geography — the extractor prompt's offeringSection is gated
+  // on a non-empty name so we don't feed an empty pitch block to the LLM.
+  if (ref.recipient_category) {
+    return {
+      name: '',
+      pitch: '',
+      sector: null,
+      geography: null,
+      recipient_geography: ref.recipient_category,
+      pitch_deck_url: null,
+      one_pager_url: null,
+    };
+  }
   return null;
 }
 
