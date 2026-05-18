@@ -61,11 +61,32 @@ if (!process.env.UNIPILE_API_KEY && process.env.NODE_ENV === 'production') {
 // shared key is one cached client and each BYOK org is its own.
 const clientCache = new Map<string, UnipileClient>();
 
+/**
+ * Normalise the Unipile base URL so a missing protocol can't silently
+ * break searches. The shared @caistech/unipile-channels package builds
+ * request URLs via `new URL(`${baseUrl}/api/v1/...`)` — if baseUrl is
+ * `api44.unipile.com:17412` (no scheme), URL parses `api44.unipile.com:`
+ * as the *protocol* and fetch sends to a garbled address. No exception
+ * is thrown; the search just returns empty. We hit this 2026-05-18:
+ * UNIPILE_BASE_URL stored without `https://` on Vercel + .env.local,
+ * every LinkedIn search returned 0 results with zero error logs.
+ * Normalise here so future env-config slips fail loudly OR are silently
+ * corrected, not silently broken.
+ */
+function normaliseUnipileBaseUrl(raw: string | undefined): string | undefined {
+  if (!raw) return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed) return undefined;
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return `https://${trimmed}`;
+}
+
 export async function resolveUnipileCredentials(orgId?: string): Promise<{
   apiKey: string | null;
   baseUrl: string | undefined;
   source: 'org' | 'env' | 'none';
 }> {
+  const baseUrl = normaliseUnipileBaseUrl(process.env.UNIPILE_BASE_URL);
   if (orgId) {
     const admin = createServiceClient();
     const { data: org } = await admin
@@ -76,7 +97,7 @@ export async function resolveUnipileCredentials(orgId?: string): Promise<{
     if (org?.unipile_api_key) {
       return {
         apiKey: org.unipile_api_key,
-        baseUrl: process.env.UNIPILE_BASE_URL,
+        baseUrl,
         source: 'org',
       };
     }
@@ -84,7 +105,7 @@ export async function resolveUnipileCredentials(orgId?: string): Promise<{
   const envKey = process.env.UNIPILE_API_KEY ?? null;
   return {
     apiKey: envKey,
-    baseUrl: process.env.UNIPILE_BASE_URL,
+    baseUrl,
     source: envKey ? 'env' : 'none',
   };
 }
@@ -103,7 +124,7 @@ function getClient(): UnipileClient {
   if (!apiKey) {
     throw new Error('UNIPILE_API_KEY env var is not set');
   }
-  return clientFor(apiKey, process.env.UNIPILE_BASE_URL);
+  return clientFor(apiKey, normaliseUnipileBaseUrl(process.env.UNIPILE_BASE_URL));
 }
 
 /**

@@ -69,14 +69,29 @@ type NetworkTier = '1st' | '2nd' | 'cold';
 //   Total target: ~50-60s. Stays under Vercel's 60s client-edge timeout.
 // LinkedIn profile-only enrichment moved to a separate operator-triggered
 // endpoint (was costing another ~10s here and pushed total over).
-const DEFAULT_QUERY_COUNT = 6;                  // 3 LinkedIn + 3 Brave (50/50 split)
+// Wall-time budget (with maxDuration=300s via vercel.json — Vercel Pro):
+//   Searches: 10 queries × 3 tiers × 25 LinkedIn = up to 750 person-results
+//             + 10 queries × 25 Brave = up to 250 page-results. With
+//             SEARCH_CONCURRENCY=4 and ~5-12s per call, ~60-90s wall.
+//   Scoring: up to 150 candidates × ~4s / 8 concurrent = ~75s.
+//   Hunter (top 20 Brave): ~5s × 20 / 4-wide = ~25s.
+//   Total target: ~180-200s, well inside the 300s ceiling.
+//
+// The 20-cap that was here before was a wall-time guard back when
+// maxDuration was 60s. With 300s available, the cap was making
+// discovery look broken on common B2B ICPs (10–500 employee
+// operationally-heavy businesses) where the real pool runs into the
+// hundreds per search. Lifted to 150 — high enough that the operator
+// actually sees the diversity Brave + Unipile return, low enough that
+// scoring + Hunter stay inside budget.
+const DEFAULT_QUERY_COUNT = 10;                 // 5 LinkedIn + 5 Brave (50/50 split)
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
-const CANDIDATES_PER_QUERY = 5;                 // LinkedIn — kept tight
-const BRAVE_CANDIDATES_PER_QUERY = 10;          // Brave — 2x LinkedIn since web search returns more diverse hits
-const MAX_TOTAL_CANDIDATES = 20;                // reverted from 40 — keeps scoring batch bounded
-const SEARCH_TIMEOUT_MS = 12_000;               // per-search timeout — one stuck Unipile call can't kill the batch
-const HUNTER_AT_DISCOVERY_CAP = 8;              // cap on Brave-sourced rows we'll Hunter-enrich at discovery; rest defer to operator-triggered enrich
+const CANDIDATES_PER_QUERY = 25;                // LinkedIn — Unipile caps at 100, 25 gives variety without spamming
+const BRAVE_CANDIDATES_PER_QUERY = 25;          // Brave — pulls more per query so the publisher-filter has slack
+const MAX_TOTAL_CANDIDATES = 150;               // lifted from 20 (which dated from the 60s wall-time era)
+const SEARCH_TIMEOUT_MS = 15_000;               // per-search timeout — Unipile cold-tier searches can take ~10s
+const HUNTER_AT_DISCOVERY_CAP = 20;             // top 20 Brave-sourced rows get Hunter-enriched at discovery time
 const HUNTER_CONCURRENCY = 4;
 const HUNTER_TIMEOUT_MS = 8_000;
 
