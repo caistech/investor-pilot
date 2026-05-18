@@ -86,11 +86,40 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Multi-org active-org sync. Only fires on /org/[slug]/* routes (which
-  // don't exist until Lane C lands; this is the gate that catches them
-  // when they do). Reads the slug, verifies membership, syncs
-  // profiles.active_organisation_id so the JWT claim minted on next
-  // refresh reflects the URL the user is actually viewing.
+  // Legacy dashboard URLs (/dashboard, /partners, /products, etc.) →
+  // redirect to /org/<active-slug>/<suffix> so internal bookmarks and
+  // external deep-links still work after the routing refactor.
+  const legacyDashboardPaths = [
+    '/dashboard', '/partners', '/products', '/projects', '/discover',
+    '/approvals', '/outreach', '/sequences', '/sessions', '/channels',
+    '/settings',
+  ];
+  const isLegacyDashboard = legacyDashboardPaths.some(
+    (p) => path === p || path.startsWith(p + '/'),
+  );
+  if (isLegacyDashboard && user) {
+    const { data: profile } = await supabase
+      .from('profiles')
+      .select('active_organisation_id')
+      .eq('id', user.id)
+      .maybeSingle();
+    if (profile?.active_organisation_id) {
+      const { data: org } = await supabase
+        .from('organisations')
+        .select('slug')
+        .eq('id', profile.active_organisation_id)
+        .maybeSingle();
+      if (org?.slug) {
+        const url = request.nextUrl.clone();
+        url.pathname = `/org/${org.slug}${path}`;
+        return NextResponse.redirect(url);
+      }
+    }
+  }
+
+  // Multi-org active-org sync on /org/[slug]/*. Reads the slug, verifies
+  // membership, syncs profiles.active_organisation_id so the JWT claim
+  // minted on next refresh reflects the URL the user is actually viewing.
   const orgMatch = path.match(/^\/org\/([^\/]+)(\/|$)/);
   if (orgMatch && user) {
     const slug = orgMatch[1];

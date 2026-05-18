@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { usePathname } from 'next/navigation';
+import { usePathname, useParams } from 'next/navigation';
 import {
   LayoutDashboard, Users, Package, MessageSquare, Search,
   Settings, LogOut, Zap, Send, Inbox, Workflow, Plug, Briefcase,
@@ -11,50 +11,53 @@ import {
 import { createClient } from '@/lib/supabase/client';
 import { ElevenLabsWidget } from '@/components/layout/elevenlabs-widget';
 
-// Ordered by operator journey: Dashboard → Set up (Settings → Products →
-// Projects → Channels) → Find & approve (Discover → Prospects → Approvals)
-// → Track (Outreach → Sessions) → Reference (Sequences).
-const navGroups: Array<{ label: string | null; items: Array<{ href: string; label: string; icon: typeof LayoutDashboard }> }> = [
+// Suffixes (not absolute paths) so we can prefix /org/<slug> at render time.
+// Ordered by operator journey: Dashboard → Set up → Find & approve → Track → Reference.
+const navGroups: Array<{ label: string | null; items: Array<{ suffix: string; label: string; icon: typeof LayoutDashboard }> }> = [
   {
     label: null,
     items: [
-      { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { suffix: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
     ],
   },
   {
     label: 'Set up',
     items: [
-      { href: '/settings', label: 'Settings', icon: Settings },
-      { href: '/products', label: 'Products (Sales)', icon: Package },
-      { href: '/projects', label: 'Projects (Funding)', icon: Briefcase },
-      { href: '/channels', label: 'Channels', icon: Plug },
+      { suffix: '/settings', label: 'Settings', icon: Settings },
+      { suffix: '/products', label: 'Products (Sales)', icon: Package },
+      { suffix: '/projects', label: 'Projects (Funding)', icon: Briefcase },
+      { suffix: '/channels', label: 'Channels', icon: Plug },
     ],
   },
   {
     label: 'Find & approve',
     items: [
-      { href: '/discover', label: 'Discover', icon: Search },
-      { href: '/partners', label: 'Prospects', icon: Users },
-      { href: '/approvals', label: 'Approvals', icon: Inbox },
+      { suffix: '/discover', label: 'Discover', icon: Search },
+      { suffix: '/partners', label: 'Prospects', icon: Users },
+      { suffix: '/approvals', label: 'Approvals', icon: Inbox },
     ],
   },
   {
     label: 'Track',
     items: [
-      { href: '/outreach', label: 'Outreach', icon: Send },
-      { href: '/sessions', label: 'Sessions', icon: MessageSquare },
+      { suffix: '/outreach', label: 'Outreach', icon: Send },
+      { suffix: '/sessions', label: 'Sessions', icon: MessageSquare },
     ],
   },
   {
     label: 'Reference',
     items: [
-      { href: '/sequences', label: 'Sequences', icon: Workflow },
+      { suffix: '/sequences', label: 'Sequences', icon: Workflow },
     ],
   },
 ];
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const params = useParams<{ slug?: string }>();
+  const slug = params?.slug;
+  const orgPrefix = slug ? `/org/${slug}` : '';
+  const homeHref = slug ? `/org/${slug}/dashboard` : '/dashboard';
   const supabase = createClient();
   const [open, setOpen] = useState(false);
 
@@ -68,7 +71,7 @@ export default function Sidebar() {
       {/* Mobile-only top bar — hamburger + brand. Sticky so it stays visible
           while the user scrolls a long page. Hidden on lg+. */}
       <div className="lg:hidden sticky top-0 z-30 bg-dark-900 border-b border-dark-700 px-4 py-3 flex items-center justify-between">
-        <Link href="/dashboard" className="flex items-center gap-2">
+        <Link href={homeHref} className="flex items-center gap-2">
           <Zap className="w-5 h-5 text-corp-green-500" />
           <span className="text-lg font-bold">InvestorPilot</span>
         </Link>
@@ -103,7 +106,7 @@ export default function Sidebar() {
       >
         <div className="p-6 border-b border-dark-700 flex items-start justify-between">
           <div>
-            <Link href="/dashboard" onClick={() => setOpen(false)} className="flex items-center gap-2">
+            <Link href={homeHref} onClick={() => setOpen(false)} className="flex items-center gap-2">
               <Zap className="w-6 h-6 text-corp-green-500" />
               <span className="text-xl font-bold">InvestorPilot</span>
             </Link>
@@ -127,11 +130,12 @@ export default function Sidebar() {
                 </p>
               )}
               {group.items.map((item) => {
-                const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
+                const href = `${orgPrefix}${item.suffix}`;
+                const isActive = pathname === href || pathname.startsWith(href + '/');
                 return (
                   <Link
-                    key={item.href}
-                    href={item.href}
+                    key={item.suffix}
+                    href={href}
                     onClick={() => setOpen(false)}
                     className={isActive ? 'nav-link-active flex items-center gap-3' : 'nav-link flex items-center gap-3'}
                   >

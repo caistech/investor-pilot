@@ -12,36 +12,38 @@ export async function GET(request: Request) {
     const { data, error } = await supabase.auth.exchangeCodeForSession(code);
 
     if (!error && data.user) {
-      // Use service client for org/profile creation (bypasses RLS)
+      // Service client for org/profile/membership creation (bypasses RLS).
       const admin = createServiceClient();
 
-      // Check if profile exists
       const { data: profile } = await admin
         .from('profiles')
-        .select('id')
+        .select('id, active_organisation_id')
         .eq('id', data.user.id)
         .single();
 
       if (!profile) {
         const meta = data.user.user_metadata;
-        // Teams iteration: when /api/team/invite calls
-        // inviteUserByEmail with { data: { organisation_id, role } }, the
-        // invitee lands here with org_id in metadata. Join them to the
-        // existing org rather than creating a fresh one.
+        // Teams iteration: /api/team/invite stamps invited_org metadata
+        // on the new auth user; if present, join that org as the invited
+        // role rather than creating a fresh one.
         const invitedOrgId = meta?.organisation_id || meta?.invited_organisation_id;
         const invitedRole = meta?.role || 'member';
 
         if (invitedOrgId) {
-          // Invited member — join existing org, no new org created
           await admin.from('profiles').insert({
             id: data.user.id,
+            active_organisation_id: invitedOrgId,
             organisation_id: invitedOrgId,
             full_name: meta?.full_name || null,
             email: data.user.email,
             role: invitedRole === 'admin' || invitedRole === 'owner' ? invitedRole : 'member',
           });
+          await admin.from('memberships').insert({
+            user_id: data.user.id,
+            organisation_id: invitedOrgId,
+            role: invitedRole === 'admin' || invitedRole === 'owner' ? invitedRole : 'member',
+          });
         } else {
-          // Fresh signup — create org and make user the owner
           const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
           const { data: org } = await admin
             .from('organisations')
@@ -56,9 +58,15 @@ export async function GET(request: Request) {
           if (org) {
             await admin.from('profiles').insert({
               id: data.user.id,
+              active_organisation_id: org.id,
               organisation_id: org.id,
               full_name: meta?.full_name || null,
               email: data.user.email,
+              role: 'owner',
+            });
+            await admin.from('memberships').insert({
+              user_id: data.user.id,
+              organisation_id: org.id,
               role: 'owner',
             });
           }

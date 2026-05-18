@@ -4,6 +4,13 @@ import { SetupBanner } from '@/components/layout/setup-banner';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
 
+/**
+ * Backstop: if the user has no org at all (rare — should be handled by
+ * /auth/callback), create one with them as owner. Sets both
+ * active_organisation_id + organisation_id and inserts a memberships row
+ * so the multi-org refactor (migration 029) has the right data layer
+ * from the start.
+ */
 async function ensureOrgAndProfile() {
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
@@ -11,10 +18,11 @@ async function ensureOrgAndProfile() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
-    .single();
+    .select('active_organisation_id')
+    .eq('id', user.id)
+    .maybeSingle();
 
-  if (profile?.organisation_id) return;
+  if (profile?.active_organisation_id) return;
 
   const admin = createServiceClient();
   const meta = user.user_metadata;
@@ -35,14 +43,26 @@ async function ensureOrgAndProfile() {
   if (!profile) {
     await admin.from('profiles').insert({
       id: user.id,
+      active_organisation_id: org.id,
       organisation_id: org.id,
       full_name: meta?.full_name || null,
       email: user.email,
       role: 'owner',
     });
   } else {
-    await admin.from('profiles').update({ organisation_id: org.id }).eq('id', user.id);
+    await admin
+      .from('profiles')
+      .update({ active_organisation_id: org.id })
+      .eq('id', user.id);
   }
+
+  await admin
+    .from('memberships')
+    .insert({
+      user_id: user.id,
+      organisation_id: org.id,
+      role: 'owner',
+    });
 }
 
 export default async function DashboardLayout({
