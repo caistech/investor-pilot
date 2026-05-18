@@ -66,14 +66,20 @@ export async function updateSession(request: NextRequest) {
     }
   }
 
-  // Protect API routes — but allow auth callbacks AND inbound webhooks.
-  // Webhooks come from third-party servers (Resend, Unipile) with no
-  // Supabase auth cookie; they validate themselves via svix signature
-  // (Resend) or shared-secret header (Unipile) inside the route handler.
-  // /api/team/invite/<token> GET is public (the /invite/accept page fetches
-  // invitation metadata before the recipient is signed in). The route
-  // handler itself rejects POST/DELETE without auth. POST is also
-  // protected by the user-email match check inside the handler.
+  // Protect API routes — but allow auth callbacks, inbound webhooks,
+  // and Vercel cron. Webhooks come from third-party servers (Resend,
+  // Unipile) with no Supabase auth cookie; they validate themselves via
+  // svix signature (Resend) or shared-secret header (Unipile) inside
+  // the route handler. /api/cron/* runs unauthenticated to the cookie
+  // layer because Vercel cron sends a Bearer CRON_SECRET header instead
+  // — the route handler self-validates that secret before doing any
+  // work. Without this allowlist entry the cron has been silently
+  // 401-ing for days even when the secret was correct, and any operator
+  // trying to trigger /api/cron/sequencer via curl hits the same wall.
+  // /api/team/invite/<token> GET is public (the /invite/accept page
+  // fetches invitation metadata before the recipient is signed in).
+  // The route handler itself rejects POST/DELETE without auth. POST is
+  // also protected by the user-email match check inside the handler.
   const isPublicInviteGet =
     request.method === 'GET' &&
     /^\/api\/team\/invite\/[^\/]+$/.test(path);
@@ -82,6 +88,7 @@ export async function updateSession(request: NextRequest) {
     path.startsWith('/api') &&
     !path.startsWith('/api/auth') &&
     !path.startsWith('/api/webhooks') &&
+    !path.startsWith('/api/cron') &&
     !isPublicInviteGet
   ) {
     if (!user) {
