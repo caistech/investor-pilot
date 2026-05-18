@@ -76,110 +76,100 @@ export interface QueryGenerationError {
   error: string;
 }
 
-const SYSTEM_PROMPT = `You generate prospect search queries for InvestorPilot — a platform for sourcing capital for real-estate / construction projects. Cast a WIDE NET. A simple search like "real estate investments property development funding" on Bing/Google returns thousands of relevant results. Your queries should pull at least that many candidates for human review, not zero. Err toward breadth, not precision.
+const SYSTEM_PROMPT = `You generate prospect search queries for an outreach pipeline. Every query you produce must be driven by the OFFERING's stated ICP — its buyer/investor titles, verticals, company size, stage, geography, and exclusions. There is NO default vertical, NO default geography, and NO default role to chase. You read the offering, decide the direction of outreach, and generate queries that match.
 
-Target roles to surface (in priority order):
-1. Family-office principals + directors with real-estate or construction backgrounds
-2. Real-estate fund managers / fund-of-funds principals
-3. Real-estate private-equity partners
-4. Construction-finance specialists (banks + private credit)
-5. HNW direct-lenders / private-debt allocators
-6. Property-credit fund principals
-7. Real-asset investment officers at institutional allocators
+STEP 1 — DETECT DIRECTION
 
-You must generate TWO separate query sets, tuned to two different search engines:
+Inspect the offering. Two directions are possible:
 
-LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching across keywords (EVERY word must appear in the profile or it's filtered out). KEEP LINKEDIN QUERIES TIGHT: 3-4 words max. Each extra word shrinks the result pool exponentially. Use ONE role term + ONE geography. Best examples (broad, return hundreds of hits):
+A. SELLING / BUYER-HUNTING. The offering is a product or service being SOLD (has icp_buyer_title, customer_outcomes, core_mechanism, partner_types like "buyer" or "integration"). The prospects are BUSINESSES THAT WOULD BUY THE OFFERING and the PEOPLE INSIDE THOSE BUSINESSES who hold the budget. Queries surface OPERATORS (the buyer companies + their decision-makers), NOT competing vendors.
 
-✅ GOOD (3-4 words, broad LinkedIn role + geo):
-- "real estate investor"
-- "real estate fund"
-- "family office real estate"
-- "real estate private equity"
-- "property development fund"
-- "real estate debt"
-- "construction finance Singapore"
-- "private credit Hong Kong"
-- "real estate fund manager"
-- "property credit fund"
-- "family office Singapore"
-- "real estate investment director"
-- "real estate partner London"
-- "construction lender Dubai"
-- "real estate director New York"
+B. SEEKING / INVESTOR-HUNTING. The offering is a capital raise (has funding_type, funding_target, sponsor, asset_class — typical of a fund/project). The prospects are INVESTORS / LENDERS / ALLOCATORS who fund that asset class. Queries surface FUNDS, FUND PRINCIPALS, FAMILY OFFICES, ALLOCATORS, and the decision-makers inside them.
 
-❌ BAD (6+ words, returns 0 because AND-match requires every word):
-- "head of private credit Sydney residential construction debt"
-- "family office Melbourne direct lending modular housing finance"
-- "Singapore family office CIO Australian property credit allocator"
+If both signal sets appear, prefer the one with more fields populated. If neither is populated, use whatever fields exist to infer, and state your inference in product_summary.
 
-LinkedIn rule of thumb: ONE asset-class word + ONE role/seniority word + ONE geo = max 3-4 words. "Real estate investor" or "real estate fund" alone surfaces tens of thousands of profiles. That's GOOD — let the scoring layer triage; don't pre-filter via narrow queries.
+STEP 2 — QUERY SHAPE (LINKEDIN vs BRAVE — universal rules)
 
-BRAVE WEB SEARCH — searches the public web. LinkedIn blocks Brave from indexing profile pages, so person-targeting queries return ~0. Brave is great for finding COMPANIES via:
-- Fund reports / fund websites
-- News mentions of deal participation
-- Press releases / industry publications
-- Company websites + about pages
-- Investor aggregator sites + databases
+LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching. EVERY word must appear in the profile or the row is filtered out. KEEP LINKEDIN QUERIES TIGHT: 3-4 words MAX. Pattern: ONE role/title term + ONE geography (optionally ONE vertical term, but only if titles are too broad without it).
 
-Good examples (3-6 words, broad enough to return many results):
-- "real estate private credit fund"
-- "family office real estate investment"
-- "property development fund manager"
-- "real estate debt fund"
-- "construction finance fund"
-- "single family office real estate"
-- "real estate investment firm Singapore"
-- "private credit fund Hong Kong real estate"
-- "family office direct lending Australia"
-- "real estate investment manager Asia Pacific"
+Good shape examples (these are PATTERNS, not literal queries — substitute the offering's actual titles/verticals/geos):
+- "<role> <geography>" → "managing director Sydney"
+- "<vertical> <role>" → "construction founder"
+- "<role> <vertical>" → "operations director manufacturing"
+- "<niche-role>" alone if it's already narrow → "fund principal"
 
-Brave rule of thumb: 3-6 words, NO date qualifiers ("2024 OR 2025"), NO long noun chains. Let Brave's relevance ranking handle freshness. If you'd type it casually into Google, it's a good Brave query.
+If the ICP buyer title is a list ("Owner, MD, GM, Operations Director"), produce SEPARATE queries for each — do NOT OR-chain them, LinkedIn AND-matches.
 
-BAD queries (do not generate):
-- Single-word queries: "investor", "fund" (too vague — return millions of irrelevant)
-- 8+ word queries with multiple AND-clauses (return ~0)
-- "tokenisation", "crypto", "RWA", "guarantee", "risk-free" (forbidden per v3)
+❌ NEVER:
+- 5+ word queries (each extra word shrinks results exponentially)
+- Vendor / tech keywords when buyer-hunting ("AI", "automation", "software", "tools", "platform", "SaaS") — these surface TECHNOLOGY PROVIDERS, not the operators who'd buy from them
+- "best", "top", "guide", "review", "comparison" — surface listicles, not real prospects
 
-If the product is SENIOR DEBT (most common): bias toward "real estate debt fund", "private credit", "construction finance", "family office direct lending".
-If the product is PROJECT EQUITY: bias toward "real estate fund manager", "real estate private equity", "family office real estate", "limited partner real estate".
+BRAVE WEB SEARCH — searches the public web. LinkedIn blocks Brave from indexing profile pages, so person-targeting queries return ~0 on Brave. Brave finds COMPANIES (and news/funds/deals about them).
 
-⚠ GEOGRAPHIC RULE — INTERNATIONAL PRIMARY, AU SECONDARY (IMPORTANT):
+Brave query strategy depends on direction:
 
-The F2K fund model requires capital that can hold offshore-funded modular construction-manufacturing positions. Australian lenders are too locked into the AU-domestic property-credit paradigm to underwrite this structure — they typically can't or won't take the cross-border manufacturing-finance leg.
+BUYER-HUNTING (direction A): queries must surface REAL OPERATING COMPANIES in the ICP verticals + geography. Pattern: "<vertical> <company-type> <geography>" or "<vertical> business <geography>" or "<sub-vertical-noun> <geography>".
 
-PRIMARY TARGETS (rank these highest):
-- Singapore — private credit, construction finance, family office direct lending
-- Hong Kong — same categories, especially construction-specialist funds
-- USA — NYC / Miami / SF / Houston: construction finance, real estate debt, offshore allocators
-- UK / London — construction finance, real estate credit
-- UAE / Dubai — construction-finance specialists with EM/offshore mandates
+Good shape examples (PATTERNS — adapt to the offering):
+- "modular construction company Sydney"
+- "logistics company family-owned Brisbane"
+- "manufacturing SME Melbourne"
+- "construction contractor New South Wales"
+- "field services business Australia"
+- "industrial bakery Queensland"
 
-SECONDARY (still include, but rank lower):
-- Sydney, Melbourne — AU family offices and private credit (cap at 1-2 queries)
+Avoid: any keyword that surfaces vendors instead of operators. "AI for construction" returns AI vendors. "Construction company Sydney" returns construction companies.
 
-GENERATION RULE (NON-NEGOTIABLE):
-- Generate AT LEAST 3 international-targeting LinkedIn queries before any AU-targeting query.
-- Prefer "construction finance [geography]" or "construction lender [geography]" formulations — these surface the construction-specialist lenders who actually have the mandate to do cross-border modular deals.
-- The project asset's physical location (Tasmania, WA, etc.) NEVER dictates the lender geography. Capital comes from offshore; we're sourcing lenders, not occupants.
-- For Brave queries, lean into "cross-border construction finance", "offshore real estate debt", "modular construction lender deal" — surface fund reports, news of deals, fund websites with offshore allocations.
+INVESTOR-HUNTING (direction B): queries surface FUNDS, FUND REPORTS, FAMILY OFFICES, ALLOCATORS, PRESS COVERAGE OF DEALS. Pattern: "<fund-type> <asset-class> <geography>" or "<allocator-type> <geography>".
+
+Good shape examples (PATTERNS — adapt to the offering's funding_type + asset_class + geography):
+- "private credit fund Singapore"
+- "real estate debt fund Hong Kong"
+- "family office direct lending"
+- "construction finance fund Dubai"
+- "infrastructure debt allocator London"
+
+UNIVERSAL BRAVE RULES:
+- 3-6 words
+- No date qualifiers ("2024", "2025")
+- No long noun chains
+- If you'd type it casually into Google, it's a good Brave query
+
+STEP 3 — APPLY ICP FIELDS
+
+- icp_buyer_title / target titles: drive LinkedIn role queries (one query per distinct title).
+- icp_verticals: drive Brave queries (one per vertical, especially when buyer-hunting). Verticals + geography combination is the highest-yield Brave pattern.
+- icp_company_size: shapes vocabulary — "SME", "family-owned", "owner-operated", "mid-market" surface different result types. Pick the word that maps to the size band.
+- icp_stage: filters for stage-specific terms ("growth-stage", "established", "post-seed") when relevant.
+- geography: PRIMARY input for any Brave query and most LinkedIn queries. If the offering specifies multiple geographies, distribute queries across them proportionally. If the offering says "global" or omits geography, use the strongest 2-3 markets the offering plausibly serves.
+  - DIRECTION-A SPECIFIC: geography is where the BUYERS operate. Queries should target operators in those markets.
+  - DIRECTION-B SPECIFIC: geography names the PROJECT's physical location, NOT necessarily where the investors live. Read funding_type + asset_class to infer which capital markets typically fund this asset class — e.g. modular-construction senior debt with an Australian physical asset often needs offshore capital (Singapore, Hong Kong, UAE, US) because domestic lenders don't typically underwrite cross-border manufacturing-finance. Distribute queries across the capital markets that plausibly fund this asset class, not just the project's location.
+- exclusions: NEVER produce a query that targets an excluded segment. If exclusions list "in-house tech teams" or "agencies", don't generate queries that surface those.
+- funding_type (project mode): the single most predictive filter. A "construction_debt_senior" project needs lenders, NOT VCs. "Seed equity" needs angels/early-stage VCs, NOT lenders.
+
+STEP 4 — GEOGRAPHIC AND VERTICAL BALANCE
+
+When the offering targets multiple geographies or verticals, distribute the query budget across them. Don't concentrate every query on one slice. Example: an offering targeting ["construction", "trades", "manufacturing", "logistics"] with budget 10 queries should produce roughly 2-3 per vertical, mixed across the offering's geographies.
+
+OUTPUT FORMAT
 
 Return ONLY a JSON object, no markdown or prose:
 {
-  "product_summary": "<2-3 sentence summary of what you understood the product to be>",
+  "product_summary": "<2-3 sentence summary of what the offering is AND which direction (selling-to-buyers vs seeking-capital) you inferred, with one-line reason>",
   "linkedin_queries": [
     {
-      "query": "<person-targeting search string, 3-5 WORDS MAX — AND-matched on LinkedIn>",
+      "query": "<3-4 words, AND-matched on LinkedIn>",
       "rationale": "<one sentence on why this surfaces the right people>",
-      "expected_category": "<who this targets, e.g. 'Sydney family office principal'>"
+      "expected_category": "<who this targets, e.g. 'Construction MDs Sydney' or 'Singapore private-credit principals'>"
     },
     ...N_LINKEDIN total
   ],
   "brave_queries": [
     {
-      "query": "<company/deal/news search string, 4-10 words>",
-      "rationale": "<one sentence on why this surfaces relevant company-level signal>",
-      "expected_category": "<what this targets, e.g. 'Recent AU private debt deals'>"
+      "query": "<3-6 words, casual Google-style>",
+      "rationale": "<one sentence on why this surfaces the right companies/funds/news>",
+      "expected_category": "<what this targets, e.g. 'Owner-operated modular builders Sydney' or 'Real-estate debt funds Hong Kong'>"
     },
     ...N_BRAVE total
   ]
@@ -236,9 +226,9 @@ ICP company size: ${input.product.icp_company_size || '(none)'}
 ICP verticals: ${input.product.icp_verticals || '(none)'}
 ICP stage: ${input.product.icp_stage || '(none)'}
 Exclusions: ${input.product.exclusions || '(none)'}${projectBlock}
-${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from offering fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries (person-targeting) and ${braveCount} brave_queries (company/deal/news) as JSON per the schema.
+${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from offering fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries and ${braveCount} brave_queries as JSON per the schema.
 
-If PROJECT-SPECIFIC details are present, weave geography + asset class + funding type into both query sets so they surface the right specific slice of lenders (e.g. for "Tasmania modular construction senior debt" the queries should mention Tasmania, modular construction, residential dev debt, etc).`;
+Detect direction (SELLING/buyer-hunting vs SEEKING/investor-hunting) from the fields above before writing any query. State the direction + one-line reason in product_summary. Then generate queries shaped by the offering's actual buyer titles / verticals / size / stage / geography — do not import vocabulary from any other offering. If exclusions list a segment, never produce a query that targets it.`;
 
   try {
     const response = await client.messages.create({
