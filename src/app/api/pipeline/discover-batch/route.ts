@@ -38,6 +38,7 @@ import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
+import { isPublisherDomain, isJournalistOrAcademicTitle } from '@/lib/discovery/publisher-domains';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -487,12 +488,31 @@ export async function POST(request: Request) {
   // appears in the scoring rubric — discovery and scoring stay aligned.
   let scoringSystemPrompt: string;
   try {
+    // Pass through the full set of rich ICP fields the operator
+    // configured on the product / project card. Pre-2026-05-18 the
+    // scorer received only product_pitch + scoring_rubric + a few
+    // icp_* arrays, and the operator-set buyer_title / verticals /
+    // exclusions etc. were silently dropped — they appeared as soft
+    // hints in the per-candidate productContext message but were not
+    // hard-gating any score. That let articles' authors (journalists
+    // at Business Insider, SmartCompany, Yale SOM) get rated 8+
+    // because the article TOPIC matched the verticals while the
+    // contact's actual job title clearly did not match the buyer
+    // profile. See src/lib/pipeline/scoring-prompt.ts for the hard
+    // gate logic those fields now drive.
     const scoringInput: ScoringPromptProduct = {
       ...(offering as unknown as ScoringPromptProduct),
       funding_type: offering.funding_type,
       funding_type_describe: offering.funding_type
         ? FUNDING_TYPE_BY_VALUE[offering.funding_type as FundingType]?.describe ?? null
         : null,
+      icp_buyer_title: offering.icp_buyer_title,
+      icp_verticals: offering.icp_verticals,
+      icp_company_size: offering.icp_company_size,
+      icp_stage: offering.icp_stage,
+      exclusions: offering.exclusions,
+      customer_outcomes: offering.customer_outcomes,
+      core_mechanism: offering.core_mechanism,
     };
     scoringSystemPrompt = buildScoringPrompt(scoringInput);
   } catch (err) {
@@ -623,8 +643,31 @@ export async function POST(request: Request) {
             if (!result?.emails?.length) {
               return { partner_id: p.id as string, status: 'no_emails', email: null };
             }
+            // Prefer the highest-confidence email whose title isn't
+            // journalism/academia (the post-publisher-filter safety net).
+            // The publisher-domain blocklist already drops obvious media
+            // hostnames before we get here; this catches the long tail —
+            // corporate newsrooms, university PR offices, foundation
+            // domains where Hunter still returns a reporter / professor
+            // / postdoc as the top-confidence email. Promoting them
+            // turns the row into a "Journalist X at Y" prospect, which
+            // is exactly the bug we're closing.
             const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
-            const best = sorted[0];
+            const acceptable = sorted.find(e => !isJournalistOrAcademicTitle(e.position));
+            if (!acceptable) {
+              // All returned contacts were journalists / academics. Mark
+              // the row so the operator sees it was filtered (rather
+              // than silently disappearing into 'no_emails') and the
+              // tier-breakdown / out_of_scope counts are honest.
+              await db.from('partners').update({
+                category: 'out_of_scope',
+                audience_overlap_notes: 'Hunter only returned journalist/academic contacts at this domain — likely a media or research site, not a buyer.',
+                status: 'scored',
+                last_updated_at: new Date().toISOString(),
+              }).eq('id', p.id);
+              return { partner_id: p.id as string, status: 'journalist_skip', email: null };
+            }
+            const best = acceptable;
             await db.from('partners').update({
               contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
               contact_title: best.position || null,
@@ -653,6 +696,7 @@ export async function POST(request: Request) {
       attempted: hunterEnrichmentOutcomes.length,
       enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
       no_emails: hunterEnrichmentOutcomes.filter(o => o.status === 'no_emails').length,
+      journalist_skip: hunterEnrichmentOutcomes.filter(o => o.status === 'journalist_skip').length,
       errors: hunterEnrichmentOutcomes.filter(o => o.status === 'error').length,
     });
   }
@@ -748,9 +792,31 @@ async function fetchCandidates(
   // Brave — no network concept. Tag results as 'cold'. Use the higher
   // BRAVE_CANDIDATES_PER_QUERY since web search returns more diverse hits
   // and the per-result cost is lower than a LinkedIn API call.
+  //
+  // Publisher / journalism / academic domains get dropped here BEFORE
+  // they reach scoring + Hunter enrichment. Without this, Brave queries
+  // built from product ICP keywords routinely return articles ABOUT
+  // companies in the verticals — and Hunter on the article-publisher
+  // domain returns the article's AUTHOR (a journalist) rather than
+  // anyone at the subject company. The scorer then rates the article
+  // topic 8+ and the operator sees "Reporter at Business Insider"
+  // listed as a top prospect. See src/lib/discovery/publisher-domains.ts
+  // for the curated list + the reasoning.
   try {
     const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY, undefined, meterFor);
-    const candidates = searchResults.map(r => {
+    const filtered = searchResults.filter(r => {
+      try {
+        const host = new URL(r.url).hostname;
+        return !isPublisherDomain(host);
+      } catch {
+        return false;
+      }
+    });
+    const dropped = searchResults.length - filtered.length;
+    if (dropped > 0) {
+      console.log(`[discover-batch] Brave query "${job.query}": dropped ${dropped} publisher-domain results (kept ${filtered.length}/${searchResults.length})`);
+    }
+    const candidates = filtered.map(r => {
       const url = new URL(r.url);
       return {
         name: r.title.split(' - ')[0].split(' | ')[0].trim(),

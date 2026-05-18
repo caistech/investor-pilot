@@ -28,6 +28,24 @@ export interface ScoringPromptProduct {
    */
   funding_type?: string | null;
   funding_type_describe?: string | null;
+  /**
+   * Rich ICP fields the operator configured on the product / project
+   * card. Added 2026-05-18 — the scorer was previously flying blind on
+   * buyer_title etc., so Brave-derived "candidates" who were actually
+   * journalists at media companies (Business Insider, SmartCompany,
+   * Yale SOM) scored 8+ because their article TOPIC matched the
+   * verticals. Hard-gating these fields in the prompt sets the LLM up
+   * to reject obvious mismatches (title / vertical / company size /
+   * stage / explicit exclusions) without the operator having to
+   * re-write the scoring_rubric to handle each new failure mode.
+   */
+  icp_buyer_title?: string | null;
+  icp_verticals?: string | null;
+  icp_company_size?: string | null;
+  icp_stage?: string | null;
+  exclusions?: string | null;
+  customer_outcomes?: string | null;
+  core_mechanism?: string | null;
 }
 
 /**
@@ -81,8 +99,65 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
     ? `\n\nDO NOT REJECT (special cases — these may look adjacent to a reject category but are explicitly in scope):\n${specialCases.map((c) => `- ${c}`).join('\n')}`
     : '';
 
+  // Hard-gate the rich ICP fields the operator configured. Each that's
+  // set becomes an explicit reject criterion the LLM must apply before
+  // assigning any non-trivial score. Without this, the only "hard"
+  // filters the scorer saw were icp_reject_categories + funding_type;
+  // operator-set buyer_title / verticals / exclusions / company_size /
+  // stage went into the user-message productContext as soft hints and
+  // were routinely ignored when the article topic matched the rubric.
+  const hardGateLines: string[] = [];
+  if (product.icp_buyer_title?.trim()) {
+    hardGateLines.push(
+      `- BUYER TITLE: The contact must plausibly hold one of these titles (or a senior equivalent / superset): ${product.icp_buyer_title.trim()}. ` +
+        `Journalists, reporters, columnists, editors, staff writers, professors, researchers, postdoctoral fellows, and PhD candidates are NEVER valid buyers for this offering unless the buyer title explicitly names them. ` +
+        `If the contact's title clearly conflicts (e.g. "Reporter at Business Insider" when buyer is "CTO / Head of Product"), mark category="out_of_scope" and cap every dimension at 1.`,
+    );
+  }
+  if (product.icp_verticals?.trim()) {
+    hardGateLines.push(
+      `- VERTICALS: The company must operate in (or sell into) one of: ${product.icp_verticals.trim()}. ` +
+        `Companies whose primary business is outside this list — including media publishers, academic institutions, government agencies, and content aggregators that merely *cover* the verticals — should be marked out_of_scope.`,
+    );
+  }
+  if (product.icp_company_size?.trim()) {
+    hardGateLines.push(
+      `- COMPANY SIZE / STAGE PROFILE: Target is ${product.icp_company_size.trim()}. Mismatched scale (e.g. solo creator, Fortune 50, government department) is out_of_scope.`,
+    );
+  }
+  if (product.icp_stage?.trim()) {
+    hardGateLines.push(
+      `- COMPANY STAGE: ${product.icp_stage.trim()}. Companies clearly outside this stage band are out_of_scope.`,
+    );
+  }
+  if (product.exclusions?.trim()) {
+    hardGateLines.push(
+      `- EXPLICIT EXCLUSIONS (operator-defined — these MUST score 0-2 and category="out_of_scope"): ${product.exclusions.trim()}`,
+    );
+  }
+
+  const hardGateSection = hardGateLines.length > 0
+    ? `\n\nHARD-GATE FILTERS (apply BEFORE the dimension scoring rubric — a candidate that fails ANY of these is out_of_scope and the rubric below does not save them):\n${hardGateLines.join('\n')}`
+    : '';
+
+  // Anchor what the offering actually IS and what value it delivers, so
+  // the scorer can reason "would this candidate plausibly buy what we
+  // sell?" rather than "does the candidate's vague description overlap
+  // with the verticals list?".
+  const offeringAnchor: string[] = [];
+  if (product.core_mechanism?.trim()) {
+    offeringAnchor.push(`Core mechanism: ${product.core_mechanism.trim()}`);
+  }
+  if (product.customer_outcomes?.trim()) {
+    offeringAnchor.push(`Customer outcomes delivered: ${product.customer_outcomes.trim()}`);
+  }
+  const offeringAnchorSection = offeringAnchor.length > 0
+    ? `\n\nWHAT THIS OFFERING IS:\n${offeringAnchor.join('\n')}\n`
+    : '';
+
   return `${pitchLine}. Given a person/firm description from search results, score them on 5 dimensions for fit.
-${assetGeoLine}${fundingTypeLine}
+${assetGeoLine}${fundingTypeLine}${offeringAnchorSection}${hardGateSection}
+
 Return ONLY a JSON object with this exact structure (no markdown, no explanation):
 {
   "audience_overlap_score": <1-10>,

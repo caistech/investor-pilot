@@ -1,0 +1,177 @@
+/**
+ * Publisher / journalism / academic domain detection.
+ *
+ * Brave web search returns ARTICLES about companies, not the companies
+ * themselves. If we then call Hunter.io on the article URL's hostname,
+ * we get the publisher's staff (journalists, editors, reporters) instead
+ * of anyone at the company the article is about. The scorer rates the
+ * row high because the article TOPIC matches the ICP — but the contact
+ * is wrong.
+ *
+ * Surfaced 2026-05-18: Discover for "lender" returned Devin Nadi
+ * (Business Insider reporter), Eloise Keating (SmartCompany journalist),
+ * Lisa Kahn (Yale SOM staff) — all scoring 8.4–8.95 because the articles
+ * they wrote were about funded vertical-SaaS startups. None match the
+ * product's buyer profile (CTO / Head of Product / Founder/CEO).
+ *
+ * This module is the first defence: reject Brave results whose hostname
+ * is a known publisher / academic / aggregator BEFORE we ever call
+ * Hunter. Cheap, deterministic, zero LLM cost. Pairs with
+ * src/lib/pipeline/scoring-prompt.ts hard-gating buyer_title in the
+ * scorer prompt and a post-Hunter title regex in discover-batch/route.ts.
+ */
+
+// Major publisher / news / aggregator / academic / government domains.
+// Keep the list manually curated — programmatic detection (e.g. "looks
+// like a news site") tends to over-reject company blogs and corporate
+// newsrooms that ARE valid prospect surfaces.
+const PUBLISHER_HOSTNAMES = new Set<string>([
+  // Major global business / tech press
+  'businessinsider.com',
+  'techcrunch.com',
+  'theverge.com',
+  'wired.com',
+  'bloomberg.com',
+  'reuters.com',
+  'wsj.com',
+  'ft.com',
+  'nytimes.com',
+  'washingtonpost.com',
+  'theguardian.com',
+  'axios.com',
+  'theinformation.com',
+  'forbes.com',
+  'fortune.com',
+  'fastcompany.com',
+  'inc.com',
+  'cnbc.com',
+  'cnn.com',
+  'bbc.com',
+  'bbc.co.uk',
+  'economist.com',
+  'theatlantic.com',
+  'newyorker.com',
+  'foreignpolicy.com',
+  'protocol.com',
+  'engadget.com',
+  'theregister.com',
+  'arstechnica.com',
+  'venturebeat.com',
+  'gizmodo.com',
+  'theinformation.com',
+  'thenextweb.com',
+  'mashable.com',
+  'zdnet.com',
+  'cnet.com',
+  // AU / NZ
+  'smartcompany.com.au',
+  'afr.com',
+  'theaustralian.com.au',
+  'smh.com.au',
+  'theage.com.au',
+  'news.com.au',
+  'abc.net.au',
+  'sbs.com.au',
+  'crikey.com.au',
+  'startupdaily.net',
+  'businessdesk.co.nz',
+  'nzherald.co.nz',
+  // Tech / startup
+  'producthunt.com',
+  'crunchbase.com',
+  'pitchbook.com',
+  'angellist.com',
+  'wellfound.com',
+  // Aggregators / blog hosts (people commonly post articles HERE, not
+  // run companies HERE)
+  'medium.com',
+  'substack.com',
+  'hashnode.com',
+  'dev.to',
+  'news.ycombinator.com',
+  'reddit.com',
+  // EdTech / industry trade press
+  'edtechreview.in',
+  'edsurge.com',
+  'edtechmagazine.com',
+  'constructiondive.com',
+  'engineeringnews.co.za',
+]);
+
+// Pattern-based catch for the long tail. These match a hostname's
+// "interior" — i.e. words that strongly signal "this is a publisher,
+// not a company we'd sell to". Tuned to avoid false positives on
+// genuine company domains (e.g. don't match on the bare word "tech"
+// or "ai" which are common in SaaS company names).
+const PUBLISHER_PATTERNS: RegExp[] = [
+  /\bnews\b/i,
+  /\bpress\b/i,
+  /\bmagazine\b/i,
+  /\bjournal\b/i,
+  /\btribune\b/i,
+  /\bherald\b/i,
+  /\bgazette\b/i,
+  /\bdaily\b/i,
+  /\bweekly\b/i,
+  /\bchronicle\b/i,
+  /\breporter\b/i,
+  /\bpublication\b/i,
+  /\bwire\b/i,
+  /\btimes\.(com|co\.uk|co\.au|net)$/i,  // *.times.com — broad but the FT-style use is real
+];
+
+// Academic / government TLDs and SLDs. Universities + government
+// agencies are sometimes interesting prospects (research budgets,
+// procurement) but the contact-extraction problem is the same: the
+// person whose byline lands on the article is a researcher or PR
+// staffer, not a buyer.
+const ACADEMIC_GOV_SUFFIXES: RegExp[] = [
+  /\.edu$/i,
+  /\.edu\.[a-z]{2,3}$/i,         // .edu.au, .edu.uk, etc.
+  /\.ac\.[a-z]{2,3}$/i,          // .ac.uk, .ac.nz, etc.
+  /\.gov$/i,
+  /\.gov\.[a-z]{2,3}$/i,
+  /\.govt\.[a-z]{2,3}$/i,
+  /\.mil$/i,
+  /\.int$/i,
+];
+
+/**
+ * Returns true if the hostname looks like a publisher, academic, or
+ * government site — i.e. somewhere whose staff are NOT plausible
+ * prospects for a typical B2B product. Used at Brave-result ingest
+ * time to short-circuit the contact-extraction pipeline for these
+ * domains.
+ *
+ * Strips leading "www." automatically.
+ */
+export function isPublisherDomain(hostname: string): boolean {
+  if (!hostname) return false;
+  const host = hostname.toLowerCase().replace(/^www\./, '').trim();
+  if (PUBLISHER_HOSTNAMES.has(host)) return true;
+  for (const re of ACADEMIC_GOV_SUFFIXES) if (re.test(host)) return true;
+  for (const re of PUBLISHER_PATTERNS) if (re.test(host)) return true;
+  return false;
+}
+
+/**
+ * Returns true if `title` (a person's job title from Hunter / LinkedIn)
+ * looks like journalism / academia / research — i.e. the person is
+ * unlikely to be a buyer regardless of which company employs them.
+ *
+ * Used as a safety net after Hunter returns a contact: even if the
+ * domain wasn't in the publisher blocklist (e.g. a corporate
+ * newsroom domain we don't recognise), a contact with title
+ * "Senior Reporter" or "Postdoctoral Fellow" should not be promoted
+ * to the buyer slot for a typical B2B SaaS / venture-studio /
+ * lender-services product.
+ *
+ * Callers MAY override per-offering once buyer_title-aware allow lists
+ * exist — e.g. a product whose buyer IS journalists (rare but real,
+ * e.g. PR tooling) should bypass this check.
+ */
+export function isJournalistOrAcademicTitle(title: string | null | undefined): boolean {
+  if (!title) return false;
+  const t = title.toLowerCase();
+  return /\b(journalist|reporter|correspondent|columnist|editor|editorial|staff writer|contributor|publisher|news anchor|news producer|news director|professor|associate professor|assistant professor|lecturer|researcher|research fellow|postdoc(toral)?|phd candidate|graduate student|teaching assistant|dean|department chair)\b/.test(t);
+}
