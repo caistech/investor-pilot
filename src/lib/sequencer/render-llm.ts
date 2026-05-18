@@ -191,6 +191,17 @@ LOCALISATION
 
 If the recipient's geography is non-English-primary (Vietnam, Japan, Korea, China, Thailand, etc.) AND the recipient's recent_posts contain non-English content, write in their language with proper diacritics. Subject can stay English unless the body is fully translated. Report detected_language accurately.
 
+PROOF POSITIONING — read this before naming a case study
+
+The proof points in the offering data are CLIENT DELIVERABLES — platforms the sender BUILT FOR a specific client, NOT products the sender sells across a vertical. The relationship matters: the sender is a build shop, not a productised vendor with a flagship vertical product. Mis-positioning the relationship makes the entire pitch sound wrong to anyone who actually reads the offering's website.
+
+CORRECT framing: "we built [Platform Name] for an Australian modular operator — Stages 0-5 compressed from 14 weeks to 5, fixed price"
+INCORRECT framing: "[Platform Name] is our flagship modular construction platform" / "our product for modular operators" / "modular construction is where we've done our sharpest work" / "we built [Platform Name] for Australian modular operators" (plural — it was ONE client)
+
+The "flagship" / "our product for [vertical]" / "where we've done our sharpest work" / vertical-plural framings all imply a productised vendor with a vertical specialism. The sender is none of those. Use "we built X for Y client" — that's the right relationship.
+
+The sender MAY have their own internal flagship product the offering explicitly names. Only call something "our flagship" if the offering pitch explicitly names it that way; default to client-deliverable framing otherwise.
+
 NEVER
 
 - Use placeholder syntax like {first_name} — you receive the resolved values, write them in.
@@ -198,6 +209,7 @@ NEVER
 - Big promises: "transform your business", "guaranteed ROI", "10x productivity".
 - Pin days: "Does Thursday or Friday work?" — book their calendar via the intake URL or calendar URL, not by suggesting times.
 - Write "your firm" as literal text. If you don't know the firm name, reshape the sentence to avoid naming it.
+- Describe a client deliverable as "our flagship" or "our product for [vertical]" — see PROOF POSITIONING above.
 - For Funding mode: compliance-forbidden vocabulary — "tokenisation", "crypto", "RWA", "guaranteed", "risk-free".
 
 CALIBRATION — two cold emails in two different recipient situations
@@ -260,9 +272,9 @@ If you find yourself reaching for any of these, STOP and write something fresh. 
 
 WEAK example — what to avoid:
 
-"Hi Kevin — Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl). We build fixed-price AI tools for operator-led businesses in 4 weeks. Built MMC Build, our flagship modular construction platform (compliance engine, design optimisation, cost estimation). Happy to run a free 2-week pilot on one of your projects. 4-week intake walks through how a build would work: [URL] — Dennis"
+"Hi [Name] — [Sender] here, [Sender Role] at [Sender Org] (linkedin.com/in/[sender]). We build fixed-price AI tools for operator-led businesses in 4 weeks. Built [Platform Name], our flagship [vertical] platform (compliance engine, design optimisation, cost estimation). Happy to run a free 2-week pilot on one of your projects. 4-week intake walks through how a build would work: [URL] — [Sender]"
 
-Why it's weak: formal intro + LinkedIn URL parenthetical eats the first sentence, "fixed-price AI tools" is buzzword soup, the proof is pitched not earned, the offer ("free pilot") feels generic, and the message reads as templated outreach instead of one human writing to another.
+Why it's weak: formal intro + LinkedIn URL parenthetical eats the first sentence; "fixed-price AI tools" is buzzword soup; the proof is pitched not earned; describing a client deliverable as "our flagship vertical platform" mis-positions the sender as a productised vendor (see PROOF POSITIONING above); the offer ("free pilot") feels generic; the whole message reads as templated outreach instead of one human writing to another.
 
 OUTPUT — return ONLY this JSON, no fences, no prose:
 {
