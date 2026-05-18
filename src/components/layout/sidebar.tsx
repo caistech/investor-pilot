@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { createClient } from '@/lib/supabase/client';
 import { ElevenLabsWidget } from '@/components/layout/elevenlabs-widget';
+import OrgSwitcher from '@/components/layout/org-switcher';
 
 // Suffixes (not absolute paths) so we can prefix /org/<slug> at render time.
 // Ordered by operator journey: Dashboard → Set up → Find & approve → Track → Reference.
@@ -111,6 +112,7 @@ export default function Sidebar() {
               <span className="text-xl font-bold">InvestorPilot</span>
             </Link>
             <p className="text-dark-500 text-xs mt-1">by Corporate AI Solutions</p>
+            <OrgSwitcher />
           </div>
           <button
             onClick={() => setOpen(false)}
