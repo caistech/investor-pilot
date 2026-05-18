@@ -131,6 +131,12 @@ const ENRICH_MAX = 20;
 // heavier than Hunter email lookup) — server cap is 10. Same client-side
 // chunking pattern as Enrich + Render & Queue.
 const REENRICH_MAX = 10;
+// Reset is DB-only (no LLM, no external API) so the server cap is much
+// higher — 50 per request — but for operator selections of 100+ we still
+// need to chunk on the client. Same pattern as the heavier batch ops:
+// operator clicks once, sees batch progress, never hits a flat "exceeds
+// limit" wall. Server cap lives in src/app/api/sequences/reset/route.ts:32.
+const RESET_MAX = 50;
 
 /**
  * Translate skip reasons coming back from /api/sequences/assign-batch
@@ -621,42 +627,74 @@ export function PipelineTable({
 
   async function resetSequences() {
     if (selectedPartners.length === 0) return;
-    const n = selectedPartners.length;
+    const allIds = selectedPartners.map(p => p.id);
+    const n = allIds.length;
     const confirmMsg = `Restart the outreach plan for ${n} prospect${n === 1 ? '' : 's'}?\n\n` +
       `This clears the current template assignment and removes any queued or blocked drafts. ` +
       `Messages you've already sent — and any replies you've received — stay in your history. ` +
       `Use this when you assigned the wrong template (e.g. a sales sequence got picked instead of an investor one) and want to redo Plan Outreach cleanly.`;
     if (!confirm(confirmMsg)) return;
 
+    // Auto-chunk by RESET_MAX. Server caps each request at 50 partners
+    // (DB-only operation but bounded for safety). Same client-side
+    // chunking pattern as reEnrichEvidence / batchAction — operator
+    // clicks once, sees batch progress, never hits a flat "exceeds limit"
+    // wall. Without this chunking, selecting >50 prospects and clicking
+    // Restart plan returned a 400 with the server's "Batch size N exceeds
+    // limit 50" error and the operator had to manually trim selection.
+    const chunks: string[][] = [];
+    for (let i = 0; i < allIds.length; i += RESET_MAX) {
+      chunks.push(allIds.slice(i, i + RESET_MAX));
+    }
+
     setLoading('reset');
     setNextCta(null);
-    setMessage(`Restarting the outreach plan for ${n} prospect${n === 1 ? '' : 's'}…`);
+
+    let totalPartnersReset = 0;
+    let totalStepsDeleted = 0;
+    let totalDraftsDeleted = 0;
+    const errorMessages: string[] = [];
 
     try {
-      const res = await fetch('/api/sequences/reset', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
-      });
-      const rawBody = await res.text();
-      let data: { [k: string]: unknown };
-      try { data = JSON.parse(rawBody); } catch {
-        setMessage(`Something went wrong contacting the server (HTTP ${res.status}). It returned a non-JSON response — usually a timeout. Try again, or contact support if it persists.`);
-        return;
+      for (let i = 0; i < chunks.length; i += 1) {
+        const chunk = chunks[i];
+        const batchLabel = chunks.length > 1
+          ? `Batch ${i + 1} of ${chunks.length} (${chunk.length} prospects) — `
+          : '';
+        setMessage(`${batchLabel}restarting the outreach plan… ${totalPartnersReset} of ${n} done so far.`);
+
+        const res = await fetch('/api/sequences/reset', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partner_ids: chunk }),
+        });
+        const rawBody = await res.text();
+        let data: { [k: string]: unknown };
+        try { data = JSON.parse(rawBody); } catch {
+          errorMessages.push(`Batch ${i + 1}: server didn't respond properly (HTTP ${res.status} — usually a timeout). Try again in a minute.`);
+          continue;
+        }
+        if (!res.ok) {
+          errorMessages.push(`Batch ${i + 1}: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
+          continue;
+        }
+        totalPartnersReset += (data.partners_reset as number) || 0;
+        totalStepsDeleted += (data.steps_deleted as number) || 0;
+        totalDraftsDeleted += (data.messages_deleted as number) || 0;
       }
-      if (!res.ok) {
-        setMessage(`Couldn't restart the plan: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
-        return;
-      }
-      const partnersReset = (data.partners_reset as number) || 0;
-      const stepsDeleted = (data.steps_deleted as number) || 0;
-      const draftsDeleted = (data.messages_deleted as number) || 0;
+
+      const errorTrailer = errorMessages.length > 0
+        ? `\n\nThere ${errorMessages.length === 1 ? 'was 1 problem' : `were ${errorMessages.length} problems`} during this run:\n• ${errorMessages.slice(0, 3).join('\n• ')}${errorMessages.length > 3 ? `\n• …and ${errorMessages.length - 3} more` : ''}`
+        : '';
+
       setMessage(
-        `Cleared the plan for ${partnersReset} prospect${partnersReset === 1 ? '' : 's'}. ` +
-        `Removed ${stepsDeleted} scheduled step${stepsDeleted === 1 ? '' : 's'}` +
-        (draftsDeleted > 0 ? ` and ${draftsDeleted} queued draft${draftsDeleted === 1 ? '' : 's'}` : '') +
-        `. Sent and replied messages are untouched.\n` +
-        `Selection kept — click "2. Plan Outreach" to assign a fresh template.`,
+        `Cleared the plan for ${totalPartnersReset} prospect${totalPartnersReset === 1 ? '' : 's'}. ` +
+        `Removed ${totalStepsDeleted} scheduled step${totalStepsDeleted === 1 ? '' : 's'}` +
+        (totalDraftsDeleted > 0 ? ` and ${totalDraftsDeleted} queued draft${totalDraftsDeleted === 1 ? '' : 's'}` : '') +
+        `. Sent and replied messages are untouched.` +
+        (chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${RESET_MAX} prospects per pass.)` : '') +
+        `\nSelection kept — click "2. Plan Outreach" to assign a fresh template.` +
+        errorTrailer,
       );
       router.refresh();
     } catch (err) {
