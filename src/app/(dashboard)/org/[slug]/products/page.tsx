@@ -9,6 +9,8 @@ import SourceManager from '@/components/products/source-manager';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { PoolStatChip } from '@/components/pool/pool-stat-chip';
+import InterviewWizard from '@/components/products/interview-wizard';
+import type { SynthesizedProductProfile } from '@/lib/products/interview-synthesizer';
 
 const DETAIL_FIELDS = [
   { key: 'core_mechanism', label: 'Core Mechanism' },
@@ -54,6 +56,13 @@ interface SetupSnapshot {
 export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [showForm, setShowForm] = useState(false);
+  // The AI Interview is a parallel entry point to the manual form: same
+  // ultimate destination (the form, then save), but operator answers
+  // benefit-framed questions instead of typing 13 free-text fields. Shipped
+  // 2026-05-19 after the MMC Build mis-positioning incident showed that
+  // operator-typed prose in fields like "verticals" gets read as ground
+  // truth by every downstream LLM call.
+  const [showInterview, setShowInterview] = useState(false);
   const [loading, setLoading] = useState(false);
   const [filling, setFilling] = useState(false);
   const [filled, setFilled] = useState(false);
@@ -390,10 +399,61 @@ export default function ProductsPage() {
           <h1>Products</h1>
           <p className="text-dark-400 mt-1">Define your product profiles for partner discovery</p>
         </div>
-        <button onClick={() => setShowForm(true)} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Product
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => { setShowInterview(true); setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); setFilled(false); }}
+            className="btn-primary flex items-center gap-2"
+            title="Answer 8 short questions; the system synthesizes the product profile for you to review and edit before save. Recommended for new products — produces better-framed pitch and ICP fields than typing the full form by hand."
+          >
+            <Sparkles className="w-4 h-4" /> Use AI Interview
+          </button>
+          <button
+            onClick={() => { setShowForm(true); setShowInterview(false); }}
+            className="btn-secondary flex items-center gap-2"
+            title="Type all 13 product fields directly. Use this if you've already drafted the copy elsewhere and want to paste it in."
+          >
+            <Plus className="w-4 h-4" /> Add manually
+          </button>
+        </div>
       </div>
+
+      {showInterview && (
+        <div className="mb-8">
+          <InterviewWizard
+            onSynthesized={(profile: SynthesizedProductProfile) => {
+              // Populate the existing manual form with the synthesized fields
+              // so the operator can review and edit before save. We DON'T
+              // auto-save — the operator must see and approve the structured
+              // version before it lands. icp_partner_type defaults to 'buyer'
+              // since the interview question set is sales-side; the operator
+              // can change it in the form if the product targets a different
+              // prospect type.
+              setForm({
+                name: profile.name,
+                one_sentence_description: profile.one_sentence_description,
+                core_mechanism: profile.core_mechanism,
+                customer_outcomes: profile.customer_outcomes,
+                icp_company_size: profile.icp_company_size,
+                icp_stage: profile.icp_stage,
+                icp_verticals: profile.icp_verticals,
+                icp_buyer_title: profile.icp_buyer_title,
+                icp_user_title: profile.icp_user_title,
+                icp_stack_tools: profile.icp_stack_tools,
+                traction_arr: profile.traction_arr,
+                traction_customers: profile.traction_customers,
+                partner_types: 'referral',
+                exclusions: profile.exclusions,
+                icp_partner_type: 'buyer',
+              });
+              setShowInterview(false);
+              setShowForm(true);
+              setFilled(true);
+              setShowDetails(true);
+            }}
+            onCancel={() => setShowInterview(false)}
+          />
+        </div>
+      )}
 
       {showForm && (
         <form onSubmit={handleSave} className="card mb-8">
