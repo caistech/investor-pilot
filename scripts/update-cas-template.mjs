@@ -26,7 +26,7 @@ const steps = [
     delay_days: 0,
     template_key: 'auto_connect',
     description: 'LinkedIn connect / warm DM opener — Tier 1, ≤300 chars, friendly + soft intake ask',
-    body: `Hi {first_name} — good to be connected. We ship fixed-price AI builds for operator-led businesses (no in-house devs needed). If one slow workflow at {firm} comes to mind, this 7-min interviewer captures it, no call: ${INTAKE_URL} — {sender_name}`,
+    body: `Hi {first_name} — good to be connected. We build fixed-price AI tools for operator-led businesses (no in-house devs). If one slow workflow comes to mind, this 7-min interviewer captures it: ${INTAKE_URL} — {sender_name}`,
   },
   {
     step_index: 2,
