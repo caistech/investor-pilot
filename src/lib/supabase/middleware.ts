@@ -1,23 +1,31 @@
 import { createServerClient } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
-import { unstable_cache } from 'next/cache';
 
-const slugLookup = unstable_cache(
-  async (slug: string, anonKey: string, supabaseUrl: string): Promise<string | null> => {
-    const res = await fetch(`${supabaseUrl}/rest/v1/organisations?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`, {
+// Middleware runs in the Edge runtime by default; next/cache's
+// `unstable_cache` is not supported there and triggers
+// MIDDLEWARE_INVOCATION_FAILED at runtime. The slug→id lookup is one
+// cheap PostgREST call per /org/[slug]/* request — acceptable cost vs
+// the cache. If profiling shows the overhead matters, switch to a
+// Vercel Edge KV / Upstash cache (Edge-compatible), not unstable_cache.
+async function slugLookup(
+  slug: string,
+  anonKey: string,
+  supabaseUrl: string,
+): Promise<string | null> {
+  const res = await fetch(
+    `${supabaseUrl}/rest/v1/organisations?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`,
+    {
       headers: {
         apikey: anonKey,
         Authorization: `Bearer ${anonKey}`,
       },
       cache: 'no-store',
-    });
-    if (!res.ok) return null;
-    const rows = (await res.json()) as Array<{ id: string }>;
-    return rows[0]?.id ?? null;
-  },
-  ['org-slug-to-id'],
-  { revalidate: 300 },
-);
+    },
+  );
+  if (!res.ok) return null;
+  const rows = (await res.json()) as Array<{ id: string }>;
+  return rows[0]?.id ?? null;
+}
 
 export async function updateSession(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
