@@ -12,8 +12,47 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { braveWebSearch, type MeterFor } from '@/lib/agent/brave-tools';
+import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { meterTokens } from '@/lib/usage/events';
+
+/**
+ * Hunter call for a Brave candidate's domain. Wrapped with timeout +
+ * try/catch so Hunter failures (rate limit, no result) never block
+ * scoring. Returns the best-confidence email payload or null.
+ */
+async function lookupHunterContactForBrave(
+  domain: string,
+  meterFor?: MeterFor,
+): Promise<{
+  contact_name: string | null;
+  contact_title: string | null;
+  contact_email: string;
+  contact_linkedin: string | null;
+  email_confidence: number;
+} | null> {
+  try {
+    const result = await Promise.race([
+      hunterDomainSearch(domain, meterFor),
+      new Promise<null>((_, reject) =>
+        setTimeout(() => reject(new Error('hunter timeout')), 8_000),
+      ),
+    ]);
+    if (!result?.emails?.length) return null;
+    const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
+    const best = sorted[0];
+    if (!best?.value) return null;
+    return {
+      contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
+      contact_title: best.position || null,
+      contact_email: best.value,
+      contact_linkedin: best.linkedin || null,
+      email_confidence: best.confidence,
+    };
+  } catch {
+    return null;
+  }
+}
 
 // SCORING_PROMPT was hardcoded here (and duplicated in discover/route.ts) prior
 // to Phase C of the multi-tenant config layer. Both call sites now build the
@@ -141,18 +180,40 @@ export async function scoreAndUpsertCandidate(
     // 2026-05-17 after a LingoPure Seed run reported 1/20 candidates
     // aborted at 8s; 8-wide concurrency × 3 chunks × 10s = 30s of LLM
     // wall, comfortably inside Vercel's 60s ceiling.
-    const response = await client.messages.create(
-      {
-        model: MODEL,
-        max_tokens: 500,
-        system: scoringSystemPrompt,
-        messages: [{
-          role: 'user',
-          content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
-        }],
-      },
-      { signal: AbortSignal.timeout(10000) },
-    );
+    //
+    // Parallel Brave-Hunter (2026-05-19): for Brave-sourced candidates,
+    // kick off the Hunter domain search in parallel with the LLM scorer.
+    // Both finish in roughly the same window (~3-8s each), and the joined
+    // result feeds two decisions:
+    //   1. UPSERT vs DISCARD — if the scorer says out_of_scope AND Hunter
+    //      found no email, the row is dead weight; we return early without
+    //      writing to the DB. Stops the Prospects view from accumulating
+    //      unreachable Brave shells. Operator flagged 2026-05-19: 'why
+    //      waste my space with Brave output I can't contact?'
+    //   2. CONTACT ATTACHMENT — Hunter's best-confidence contact (name,
+    //      title, email, LinkedIn) goes onto the upsert when found, so
+    //      the row lands as 'contact_found' instead of 'scored' and skips
+    //      the separate post-scoring Hunter pass.
+    const hunterPromise: Promise<Awaited<ReturnType<typeof lookupHunterContactForBrave>>> =
+      candidate.source === 'brave' && candidate.domain
+        ? lookupHunterContactForBrave(candidate.domain, options?.meterFor)
+        : Promise.resolve(null);
+
+    const [response, hunterContact] = await Promise.all([
+      client.messages.create(
+        {
+          model: MODEL,
+          max_tokens: 500,
+          system: scoringSystemPrompt,
+          messages: [{
+            role: 'user',
+            content: `${productContext}\n\nCandidate to score: ${candidate.name} (${candidate.domain})\nSource: ${candidate.source}${personContext}\nDescription: ${candidate.description || 'No description available'}${enrichment}`,
+          }],
+        },
+        { signal: AbortSignal.timeout(10000) },
+      ),
+      hunterPromise,
+    ]);
 
     meterTokens(options?.meterFor, response, MODEL);
 
@@ -231,6 +292,53 @@ export async function scoreAndUpsertCandidate(
       : project_id ? 'lender' : 'buyer';
     const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : fallbackPartnerType;
 
+    // DISCARD branch for Brave candidates. If the scorer says out_of_scope
+    // AND Hunter found no email, the row is dead weight — we'd persist a
+    // company shell with no contact, no in-scope value, and no realistic
+    // path to outreach. Skip the upsert entirely; the candidate is dropped.
+    // Operator flagged 2026-05-19: 'why waste my space with Brave output
+    // I can't contact?'
+    //
+    // Note: in-scope candidates with no email still get persisted — the
+    // operator may want to manually find a contact (LinkedIn enrichment,
+    // company website crawl, etc.). And out-of-scope candidates WITH a
+    // valid email get persisted too — sometimes Hunter surfaces a real
+    // decision-maker at a company the scorer ranked low, and the operator
+    // can override with their own judgement.
+    if (candidate.source === 'brave' && isOutOfScope && !hunterContact) {
+      return {
+        company_name: candidate.name,
+        domain: candidate.domain,
+        source: candidate.source,
+        status: 'discarded',
+        weighted_score: weightedScore,
+      };
+    }
+
+    // Merge Hunter-found contact onto the upsert when present. Hunter data
+    // wins over the original Brave-candidate fields (which are usually
+    // null for Brave-sourced rows anyway). For LinkedIn-sourced candidates,
+    // we never run Hunter — hunterContact stays null and the candidate's
+    // own contact fields propagate through unchanged.
+    const finalContactName = hunterContact?.contact_name ?? candidate.contact_name;
+    const finalContactTitle = hunterContact?.contact_title ?? candidate.contact_title;
+    const finalContactLinkedin = hunterContact?.contact_linkedin ?? candidate.contact_linkedin;
+    const finalContactEmail = hunterContact?.contact_email ?? null;
+    const finalEmailConfidence = hunterContact?.email_confidence ?? null;
+    const finalEmailStatus = hunterContact
+      ? (hunterContact.email_confidence >= 70 ? 'verified' : 'probable')
+      : null;
+    // Status reflects whether we have an actionable contact:
+    //   - LinkedIn-sourced → contact_found (LI URL is itself a contact)
+    //   - Brave + Hunter found email → contact_found
+    //   - Brave + no email → scored (operator can manually attach a contact)
+    const finalStatus =
+      candidate.source === 'linkedin' || candidate.source === 'sales_nav'
+        ? 'contact_found'
+        : hunterContact
+          ? 'contact_found'
+          : 'scored';
+
     const upsertResult = await upsertPartner(db, {
       organisation_id,
       product_id,
@@ -239,9 +347,7 @@ export async function scoreAndUpsertCandidate(
       domain: candidate.domain,
       category: scores.category || null,
       partner_type: partnerType,
-      status: candidate.source === 'linkedin' || candidate.source === 'sales_nav'
-        ? 'contact_found'
-        : 'scored',
+      status: finalStatus,
       source: candidate.source,
       weighted_score: weightedScore,
       confidence_score: scores.confidence_score || 'normal',
@@ -255,9 +361,13 @@ export async function scoreAndUpsertCandidate(
       reachability_notes: scores.reachability_notes,
       strategic_leverage_score: capDim(scores.strategic_leverage_score),
       strategic_leverage_notes: scores.strategic_leverage_notes,
-      contact_name: candidate.contact_name,
-      contact_title: candidate.contact_title,
-      contact_linkedin: candidate.contact_linkedin,
+      contact_name: finalContactName,
+      contact_title: finalContactTitle,
+      contact_linkedin: finalContactLinkedin,
+      contact_email: finalContactEmail,
+      email_confidence: finalEmailConfidence,
+      email_status: finalEmailStatus,
+      contact_source: hunterContact ? 'hunter_at_discovery' : undefined,
       network_distance: candidate.network_distance,
       first_seen_in_run_id: options?.runId || null,
     });

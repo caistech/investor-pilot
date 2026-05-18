@@ -40,7 +40,10 @@ import { generateLenderQueries } from '@/lib/discovery/query-generator';
 import { FUNDING_TYPE_BY_VALUE, type FundingType } from '@/lib/types';
 import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
-import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
+// hunterDomainSearch is no longer called from this route — Hunter is
+// now inline in scoreAndUpsertCandidate (parallel with LLM scoring).
+// Keeping the import would trigger a lint warning. The function still
+// lives in @/lib/agent/hunter-tools for other callers (refresh-enrichment).
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 import { isPublisherDomain } from '@/lib/discovery/publisher-domains';
 
@@ -91,9 +94,11 @@ const CANDIDATES_PER_QUERY = 25;                // LinkedIn — Unipile caps at 
 const BRAVE_CANDIDATES_PER_QUERY = 20;          // Brave — API max is 20 per request; exceeding it returns 422 Unprocessable Entity
 const MAX_TOTAL_CANDIDATES = 150;               // lifted from 20 (which dated from the 60s wall-time era)
 const SEARCH_TIMEOUT_MS = 15_000;               // per-search timeout — Unipile cold-tier searches can take ~10s
-const HUNTER_AT_DISCOVERY_CAP = 30;             // top 30 Brave-sourced rows get Hunter-enriched at discovery time (round-robin across verticals — see roundRobinAcrossCategories)
-const HUNTER_CONCURRENCY = 4;
-const HUNTER_TIMEOUT_MS = 8_000;
+// HUNTER_AT_DISCOVERY_CAP / HUNTER_CONCURRENCY / HUNTER_TIMEOUT_MS removed
+// 2026-05-19 — Hunter now runs inline per Brave candidate inside
+// scoreAndUpsertCandidate, alongside the LLM scorer. There's no separate
+// post-scoring loop to cap. Per-candidate Hunter timeout (8s) lives
+// inside lookupHunterContactForBrave in src/lib/discovery/scorer.ts.
 
 // Tier → Unipile network_distance integer-array filter, or undefined to omit.
 // '1st' / '2nd' filter to specific degrees. 'cold' omits the filter entirely
@@ -634,100 +639,31 @@ export async function POST(request: Request) {
   // when sequencing — that's when the rich data actually matters.
   const profileEnrichmentOutcomes: Array<{ status: string }> = [];
 
-  // Auto-Hunter for Brave-sourced candidates. Brave returns COMPANIES, not
-  // people; Hunter attaches a verified decision-maker email per firm.
-  // Capped at HUNTER_AT_DISCOVERY_CAP to bound wall time (~5s/call × 8 /
-  // 4-wide = ~10s); lower-scored Brave rows can be operator-triggered via
-  // /api/admin/refresh-enrichment later.
+  // Hunter enrichment is now INLINE in scoreAndUpsertCandidate (parallel
+  // with the LLM scorer). The separate post-scoring Hunter pass that
+  // used to live here is gone — see src/lib/discovery/scorer.ts
+  // lookupHunterContactForBrave + the parallel Promise.all wrapper.
   //
-  // Round-robin across vertical buckets (2026-05-19): previously the
-  // selection was top-N-by-score, which stacked the entire enrichment
-  // budget on the offering's flagship vertical (e.g. all 20 slots on
-  // modular construction for CAS AI Build, because the scorer rewarded
-  // flagship-vertical-match heavily). Operator flagged: 'why so many
-  // modular companies when there are so many other sectors that need
-  // AI solutions?' — answer was scorer bias + top-N-globally enrichment.
-  // Round-robin spreads slots across the LLM scorer's category buckets
-  // so the operator sees variety. Within each bucket we still sort by
-  // weighted_score descending — so highest-scoring transport sits next
-  // to highest-scoring construction.
+  // Benefits:
+  //   - Every Brave candidate gets Hunter (was capped at top-30 by score).
+  //   - DISCARD branch: Brave candidates where scorer says out_of_scope
+  //     AND Hunter returns no email are dropped without persisting — no
+  //     more dead-weight company shells polluting Prospects.
+  //   - Wall time is roughly unchanged: scoring and Hunter happen in
+  //     the same Promise.all per candidate (~max 8-10s), not in serial
+  //     phases. The post-pass Hunter loop that used to consume ~25s of
+  //     additional wall time is gone.
+  //
+  // Operator flagged 2026-05-19: 'why waste my space with Brave output
+  // I can't contact?' — answered structurally rather than via UI filters.
   const hunterEnrichmentOutcomes: Array<{ partner_id: string; status: string; email?: string | null }> = [];
-  const eligibleBraveRows = scoredResults
-    .filter(r => r.status !== 'error' && r.partner_id && r.source === 'brave' && typeof r.weighted_score === 'number');
-  const braveScoredRows = roundRobinAcrossCategories(eligibleBraveRows, HUNTER_AT_DISCOVERY_CAP);
-  if (braveScoredRows.length > 0) {
-    log('hunter_enrichment_start', { count: braveScoredRows.length });
-    const ids = braveScoredRows.map(r => r.partner_id as string);
-    const { data: braveRows } = await db
-      .from('partners')
-      .select('id, domain, contact_email')
-      .in('id', ids);
-    const candidates = (braveRows || []).filter(
-      p => p.domain && !/\//.test(p.domain as string) && !p.contact_email,
-    );
-    for (let i = 0; i < candidates.length; i += HUNTER_CONCURRENCY) {
-      const slice = candidates.slice(i, i + HUNTER_CONCURRENCY);
-      const batch = await Promise.all(
-        slice.map(async (p) => {
-          try {
-            // Race Hunter against a hard timeout. hunterDomainSearch doesn't
-            // accept a signal yet, so we use Promise.race — slow calls just
-            // get abandoned (their socket leak gets cleaned up at function
-            // exit) rather than blocking the rest of the batch.
-            const result = await Promise.race([
-              hunterDomainSearch(p.domain as string, meterFor),
-              new Promise<null>((_, reject) =>
-                setTimeout(() => reject(new Error('hunter timeout')), HUNTER_TIMEOUT_MS),
-              ),
-            ]);
-            if (!result?.emails?.length) {
-              return { partner_id: p.id as string, status: 'no_emails', email: null };
-            }
-            // Take Hunter's highest-confidence contact. Title-based
-            // filtering belongs in the scorer's buyer_title hard-gate
-            // (the LLM applies the operator's profile against the
-            // contact's title), not in this layer — that way a product
-            // whose buyer profile DOES include journalists / academics
-            // / researchers isn't fighting hardcoded reject regexes.
-            const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
-            const best = sorted[0];
-            await db.from('partners').update({
-              contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
-              contact_title: best.position || null,
-              contact_email: best.value,
-              contact_linkedin: best.linkedin || null,
-              email_confidence: best.confidence,
-              email_status: best.confidence >= 70 ? 'verified' : 'probable',
-              contact_source: 'hunter_at_discovery',
-              status: 'contact_found',
-              last_updated_at: new Date().toISOString(),
-            }).eq('id', p.id);
-            return { partner_id: p.id as string, status: 'enriched', email: best.value };
-          } catch (err) {
-            return {
-              partner_id: p.id as string,
-              status: 'error',
-              email: null,
-              _err: err instanceof Error ? err.message : String(err),
-            };
-          }
-        }),
-      );
-      hunterEnrichmentOutcomes.push(...batch);
-    }
-    log('hunter_enrichment_done', {
-      attempted: hunterEnrichmentOutcomes.length,
-      enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
-      no_emails: hunterEnrichmentOutcomes.filter(o => o.status === 'no_emails').length,
-      errors: hunterEnrichmentOutcomes.filter(o => o.status === 'error').length,
-    });
-  }
+  const discardedCount = scoredResults.filter(r => r.status === 'discarded').length;
 
   log('done', {
     candidates_scored: candidatesScored,
     candidates_failed: candidatesFailed,
+    candidates_discarded: discardedCount,
     profile_enriched: profileEnrichmentOutcomes.filter(o => o.status === 'partial' || o.status === 'success').length,
-    hunter_enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
   });
 
   await finaliseRun('completed', {

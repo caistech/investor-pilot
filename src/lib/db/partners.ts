@@ -27,6 +27,15 @@ export interface PartnerUpsertData {
   contact_name?: string;
   contact_title?: string;
   contact_linkedin?: string;
+  // Pre-populated when the scorer ran a parallel Hunter lookup on a Brave
+  // candidate's domain (parallel-Hunter path, 2026-05-19). Skips the
+  // separate post-scoring Hunter pass for these rows. null for LinkedIn-
+  // sourced candidates (no Hunter call) or for Brave hits where Hunter
+  // returned no usable email.
+  contact_email?: string | null;
+  email_confidence?: number | null;
+  email_status?: string | null;
+  contact_source?: string;
   // Tier-prioritised discovery: '1st' = direct LinkedIn connection (warm DM
   // template, no connect step). '2nd' = mutual connection. 'cold' = no path.
   network_distance?: '1st' | '2nd' | 'cold';
