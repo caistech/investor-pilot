@@ -1,13 +1,33 @@
 # InvestorPilot — Outreach Messaging Framework
 
-**Product:** Corporate AI Solutions — AI Builds for Operator-Led Businesses
-**Applies to:** Products (Sales) outreach in InvestorPilot
-**Audience:** Buyers — owners and operators of established, operator-led businesses
+**Applies to:** every outreach surface in InvestorPilot — Products (Sales)
+AND Projects (Funding).
+**Audience:** depends on the offering — buyers when selling a product,
+investors/lenders when seeking capital.
 
-This file tells Claude Code how to tailor outreach messages for every prospect.
-The six principles below are non-negotiable and apply to *every* message. What
-changes between prospects is **tier** (connection degree) and **personalisation
-depth** (how much we actually know about them).
+This file tells Claude Code how to tailor outreach messages for every
+prospect, regardless of mode. The six principles below are non-negotiable
+and apply to *every* message. What changes between prospects is **tier**
+(connection degree), **personalisation depth** (how much we know about
+them), and **mode** (which kind of proof / CTA bank to draw from).
+
+---
+
+## Two modes, same patterns
+
+InvestorPilot supports two outreach directions. The shape of the message
+is identical; only the *content bank* changes.
+
+| | Sales (Products) | Funding (Projects) |
+|---|---|---|
+| **Goal** | Sell the offering to operators | Source capital for the offering |
+| **Prospect** | Buyer / decision-maker inside an operator-led business | Investor / lender / allocator inside a fund or family office |
+| **Value line** | Industry observation + product proof point | Sponsor track record + relevant deal proof |
+| **The ask** | Workflow problem ("a slow process worth fixing") | Capital fit ("an asset class worth a look") |
+| **CTA** | AI interviewer intake link (low-commitment) | Deck / one-pager / intro call (operator-set) |
+
+The 6 principles, the 4 tiers, the message anatomy, and the exclusion
+checklist all apply to BOTH modes without modification.
 
 ---
 
@@ -23,62 +43,65 @@ depth** (how much we actually know about them).
    relevant proof point. The prospect gets something useful even if they
    never reply.
 5. **The ask is tied to their situation** — Frame around *their* operational
-   problem (a slow, costly, or broken workflow), not our product. We sell
-   "AI solutions for business problems," so the ask must connect to a
-   business problem they plausibly have.
-6. **Includes the AI interviewer link** — Every message ends with a soft
-   invitation to the intake link so they can describe their own problem on
-   their own time:
-
-   `https://connexions-silk.vercel.app/p/platform-trust-sprint-intake`
-
-   The link is framed as *low-commitment and for their benefit*
-   ("walks you through it in a few minutes," "no call needed"), never as
-   "book a demo."
+   problem (Sales) or *their* portfolio fit (Funding). Never lead with
+   what we want. Always lead with why this is relevant to them.
+6. **Includes a single low-commitment CTA** — Every message ends with a
+   soft invitation to a *for-their-benefit* artefact:
+   - **Sales:** AI interviewer link
+     (`https://connexions-silk.vercel.app/p/platform-trust-sprint-intake`),
+     framed as "walks you through it in a few minutes," "no call needed."
+   - **Funding:** deck, one-pager, or 15-min intro — whatever the
+     operator has configured on the project. Framed as "if it looks
+     relevant," not "book a meeting."
 
 ---
 
 ## Tier logic — what each prospect type sees
 
-Classify every prospect into one of four tiers and apply the matching logic.
-The biggest variable is how warm the relationship is.
+Classify every prospect into one of four tiers and apply the matching
+logic. Tiers map to network distance + how cold the relationship is, and
+work identically across both modes.
 
 ### Tier 1 — 1st-degree LinkedIn connections (WARM)
 
-We're already connected. Permission to be direct already exists.
+Already connected. Permission to be direct already exists.
 
-- **Tone:** Familiar, relaxed. Reference the existing connection
-  ("good to be connected," or a shared group/mutual context if known).
+- **Tone:** Familiar, relaxed. Reference the existing connection.
 - **Value-first:** Lead with a genuine, specific observation about their
-  business or industry.
-- **The ask:** Direct but soft. We can name the offer plainly — they know us.
+  business / portfolio / thesis.
+- **The ask:** Direct but soft. Mode-specific:
+  - Sales: name the offer plainly — they know us.
+  - Funding: state the asset class + sponsor + ticket band plainly.
 - **Link framing:** "If it's relevant, this walks through it" — casual.
-- **Channel:** LinkedIn DM preferred. Keep it short — DMs that scroll get ignored.
+- **Channel:** LinkedIn DM preferred. Keep it short.
 
 ### Tier 2 — 2nd-degree LinkedIn connections (LUKEWARM)
 
 One mutual connection away. Some social proof exists; full trust does not.
 
-- **Tone:** Warm but slightly more formal than Tier 1. Establish the bridge early.
-- **Value-first:** Open with the mutual connection *or* a relevant proof point
-  (e.g. the MMC Build result) — this borrows credibility.
-- **The ask:** Slightly softer than Tier 1. Frame as "thought this might be
+- **Tone:** Warm but slightly more formal than Tier 1.
+- **Value-first:** Open with the mutual connection *or* a relevant proof
+  point (product proof for Sales / deal proof for Funding) — borrows
+  credibility.
+- **The ask:** Slightly softer than Tier 1. "Thought this might be
   relevant" rather than a pitch.
-- **Link framing:** "No call needed — this just lets you describe what's slow
-  on your side."
-- **Channel:** LinkedIn connection request + note, or DM if already connected.
+- **Link framing:** "No call needed — this just lets you describe what's
+  slow" (Sales) / "Deck attached if you want the structure" (Funding).
+- **Channel:** LinkedIn connection note, or DM if already connected.
 
 ### Tier 3 — Lower-than-2nd-degree LinkedIn (COLD-ish)
 
 Discovered via LinkedIn but no real network bridge.
 
 - **Tone:** Polite, professional, concise. We are a stranger — earn the read.
-- **Value-first:** Must lead with proof or a sharp industry-specific insight.
-  No mutual connection to lean on, so the *insight itself* is the value.
+- **Value-first:** Must lead with proof or a sharp industry-specific
+  insight. No mutual connection to lean on, so the *insight itself* is
+  the value.
 - **The ask:** The softest version. We are offering a way for *them* to
-  articulate a problem, not asking them to buy.
-- **Link framing:** Position the link as the entire ask — "if a slow process
-  comes to mind, this captures it in a few minutes."
+  evaluate — not asking them to commit.
+- **Link framing:** Position the link / deck as the entire ask — "if a
+  slow process comes to mind, this captures it in a few minutes" (Sales)
+  / "if it fits the mandate, the deck is the fastest read" (Funding).
 - **Channel:** LinkedIn note (300-char limit — be ruthless) or email.
 
 ### Tier 4 — Brave search prospects (COLD)
@@ -87,14 +110,16 @@ Found on the open web. No LinkedIn relationship at all. Reached by email.
 
 - **Tone:** Most courteous and most concise. Acknowledge the cold contact
   honestly without apologising for existing.
-- **Value-first:** Lead with the strongest, most specific proof point we have
-  *and* a reason we're contacting *them specifically* (their industry, a
-  visible operational signal). Relevance is everything for cold email.
-- **The ask:** Entirely problem-framed. Never "we'd love to work with you."
-  Instead: "you may have a workflow that's costing more than it should."
-- **Link framing:** The link is the only call to action. No phone number,
-  no "reply to schedule." Just the intake link, framed as a few-minute,
-  no-pressure way to describe their problem.
+- **Value-first:** Lead with the strongest, most specific proof point we
+  have *and* a reason we're contacting *them specifically* (their vertical,
+  a visible operational signal, a fund mandate alignment). Relevance is
+  everything for cold email.
+- **The ask:** Entirely problem-framed (Sales) or fit-framed (Funding).
+  Never "we'd love to work with you." Instead: "you may have a workflow
+  that's costing more than it should" / "this may fit the construction-
+  finance slice of your mandate."
+- **Link framing:** The single CTA. No phone number, no "reply to
+  schedule." Just the interviewer link (Sales) or deck (Funding).
 - **Channel:** Email. Needs a subject line.
 
 ---
@@ -104,59 +129,85 @@ Found on the open web. No LinkedIn relationship at all. Reached by email.
 Independent of tier, grade how much you actually *know* about the prospect
 and scale specificity accordingly.
 
-- **High info** (job-management tools visible, recent hiring, specific vertical,
-  posts about a pain point): Reference the concrete signal in the value line.
-  This is where messages convert.
-- **Low info** (just name, title, company, vertical): Fall back to the
-  vertical-level pain point. Use the ICP verticals and the typical operator
-  pain — manual processes, spreadsheets doing jobs they shouldn't, no in-house
-  tech team.
+- **High info** (Sales: job-management tools visible, recent hiring,
+  specific vertical, posts about a pain point. Funding: stated thesis,
+  recent deal participation, fund-of-record on a comparable, public
+  mandate): reference the concrete signal in the value line. This is
+  where messages convert.
+- **Low info** (just name, title, company/fund, vertical): fall back to
+  vertical-level pain (Sales) or asset-class-level fit (Funding).
 
-**Rule:** Never fake specificity. A generic-but-honest message beats a falsely
-personalised one.
+**Rule:** Never fake specificity. A generic-but-honest message beats a
+falsely personalised one.
 
-### ICP verticals (for the value/bridge line)
+### Sales mode — ICP verticals (for the value/bridge line)
 
-Construction and modular building, trades and field services, manufacturing,
-logistics and distribution, transport, property and real estate, professional
-services — operationally heavy industries where manual process is a visible,
-measurable cost.
+Construction and modular building, trades and field services,
+manufacturing, logistics and distribution, transport, property and real
+estate, professional services — operationally heavy industries where
+manual process is a visible, measurable cost.
+
+### Funding mode — asset classes (for the value/bridge line)
+
+Construction finance / senior debt, real estate private credit, modular
+construction equity, B2B SaaS Series A/SAFE, infrastructure debt — match
+the project's `funding_type` + `asset_class` to the allocator's stated
+mandate.
 
 ### Proof points to draw from
 
+**Sales (default proofs):**
 - 35+ live AI platforms delivered.
-- MMC Build platform for Australian modular construction: Stages 0–5 delivered
-  in 5 weeks against a 14-week schedule.
+- MMC Build platform for Australian modular construction: Stages 0–5
+  delivered in 5 weeks against a 14-week schedule.
 - Fixed-price, delivered in weeks, no in-house developers needed.
+
+**Funding (per-project proofs):**
+Draw from the project's configured fields — `sponsor`, `funding_target`,
+`asset_class`, `geography`, deck URL, one-pager URL. Add the comparables
+the operator has put in the project's KB.
 
 ---
 
 ## Hard exclusions — do NOT send to these
 
-Drop these prospects before drafting:
+### Sales mode
 
 - Businesses with an in-house technical or AI team.
-- CTOs / engineering leads as the buyer (wrong fit — this offer is for
-  businesses *without* that capability).
-- Pre-revenue startups and venture studios (separate product profile).
+- CTOs / engineering leads as the buyer.
+- Pre-revenue startups and venture studios.
 - Large enterprises wanting heavy custom integration.
 - Agencies looking for a white-label dev shop.
 - Businesses with no budget allocated for tooling.
 
-**Target buyer titles:** Owner, Managing Director, General Manager, Operations
-Director, non-technical Founder — the person who controls budget and feels
-the pain.
+**Target buyer titles:** Owner, Managing Director, General Manager,
+Operations Director, non-technical Founder — the person who controls
+budget and feels the pain.
+
+### Funding mode
+
+- Allocators whose stated mandate excludes the project's asset class.
+- Tokenisation / crypto / RWA platforms (forbidden vocabulary per
+  compliance — see `src/lib/compliance/rules.ts`).
+- Friends-and-family or angel-only investors when the project is
+  institutional-sized.
+- Domestic-only lenders when the project needs cross-border capital
+  (e.g. AU domestic property credit for offshore modular construction).
+
+**Target investor titles:** Principal, Managing Partner, Investment
+Director, Portfolio Manager, Head of Private Credit, Family Office CIO
+— decision-makers, not analysts.
 
 ---
 
-## Message anatomy (the skeleton — every message)
+## Message anatomy (the skeleton — every message, both modes)
 
 ```
 [1] Opener        -> friendly + tier-appropriate relationship hook
-[2] Value line    -> insight or proof point (the "before the ask")
-[3] Bridge        -> connect that value to a problem THEY plausibly have
-[4] The ask       -> soft, problem-framed, tied to their situation
-[5] The link      -> intake link, framed as low-commitment + for their benefit
+[2] Value line    -> insight / proof point (the "before the ask")
+[3] Bridge        -> connect that value to a problem (Sales) or fit (Funding) THEY plausibly have
+[4] The ask       -> soft, problem-framed or fit-framed, tied to their situation
+[5] The link/CTA  -> intake link (Sales) or deck/one-pager (Funding), framed as low-commitment + for their benefit
 [6] Sign-off      -> short, human
 ```
 
@@ -166,47 +217,49 @@ Cold messages compress steps 1–3; they never skip step 2.
 
 ## Worked examples
 
-### Tier 1 — 1st-degree, high info (LinkedIn DM)
+### Sales — Tier 1, 1st-degree, high info (LinkedIn DM)
 
 > Hi [Name] — good to be connected. I noticed [Company] is running on
-> [simPRO/ServiceM8/etc.] — most operators I talk to have one process around
-> that which is still half-manual and quietly expensive. We build production
-> AI tools that close exactly those gaps, fixed-price, in weeks (no dev team
-> needed). If a slow process comes to mind, this AI interviewer captures it
-> in a few minutes — no call required:
+> [simPRO/ServiceM8/etc.] — most operators I talk to have one process
+> around that which is still half-manual and quietly expensive. We build
+> production AI tools that close exactly those gaps, fixed-price, in
+> weeks (no dev team needed). If a slow process comes to mind, this AI
+> interviewer captures it in a few minutes — no call required:
 > https://connexions-silk.vercel.app/p/platform-trust-sprint-intake
 > — Dennis
 
-### Tier 2 — 2nd-degree, low info (connection note)
+### Sales — Tier 3, lower-than-2nd-degree (LinkedIn note, ~300 chars)
 
-> Hi [Name] — we're connected through [Mutual]. We build fixed-price AI tools
-> for operator-led businesses in [vertical] — recently delivered a
-> modular-construction platform in 5 weeks against a 14-week schedule. If
-> there's a workflow on your side that's slower or costlier than it should be,
-> this walks through it in a few minutes, no call: [link]
+> Hi [Name] — we build fixed-price AI tools for [vertical] businesses
+> without an in-house tech team. 35+ delivered. If one slow, costly
+> process at [Company] comes to mind, this captures it in a few minutes,
+> no call: [link]
 
-### Tier 3 — lower-than-2nd-degree (LinkedIn note, ~300 chars)
+### Funding — Tier 1, 1st-degree (LinkedIn DM)
 
-> Hi [Name] — we build fixed-price AI tools for [vertical] businesses without
-> an in-house tech team. 35+ delivered. If one slow, costly process at
-> [Company] comes to mind, this captures it in a few minutes, no call: [link]
+> Hi [Name] — good to be connected. We're working with [Sponsor] on a
+> [AUD 50M] [senior-debt facility / Series A] for [asset class +
+> geography]. The structure is the same shape your fund did with
+> [comparable] in [year]. If the construction-finance slice of your
+> mandate is still active, the deck is a 5-min read:
+> [deck_url]
+> — Dennis
 
-### Tier 4 — Brave / cold email
+### Funding — Tier 4, cold email
 
-> **Subject:** A faster way to fix one slow workflow at [Company]
+> **Subject:** [Sponsor] [asset class] — fit check for [Allocator]?
 >
 > Hi [Name],
 >
-> I'll be brief — we work with [vertical] businesses that know a process is
-> slow or costly but don't have a tech team to fix it. We've delivered 35+
-> live AI platforms, including one that shipped in 5 weeks against a 14-week
-> schedule.
+> I'll be brief — we're raising [AUD 50M] for [Sponsor]'s
+> [construction-debt-senior] facility against [physical asset] in
+> [geography]. [Public mandate signal — e.g. "your Q1 letter noted a
+> rotation into private credit"] suggested it might fit.
 >
-> If a costly manual process at [Company] comes to mind, this AI interviewer
-> lets you describe it in a few minutes — no call, no commitment:
-> https://connexions-silk.vercel.app/p/platform-trust-sprint-intake
+> Deck (5-min read) if it's worth a look: [deck_url]
 >
-> Either way, worth a look.
+> No reply needed if it doesn't sit in the mandate. Either way, worth a
+> quick look.
 >
 > — Dennis, Corporate AI Solutions
 
@@ -219,20 +272,23 @@ Cold messages compress steps 1–3; they never skip step 2.
 | **Relationship** | Connected | 1 mutual | None on LI | None at all |
 | **Tone** | Familiar | Warm, semi-formal | Polite, concise | Most courteous, tightest |
 | **Length** | 4–6 sentences | 4–5 | 3–4 | 4–5 + subject line |
-| **Value line** | Specific observation | Mutual OR proof point | Proof or sharp insight | Strongest proof + why-them |
-| **Ask hardness** | Direct but soft | Softer | Softest | Problem-framed only |
+| **Value line (Sales)** | Specific observation | Mutual OR product proof | Sharp insight | Strongest proof + why-them |
+| **Value line (Funding)** | Sponsor + structure | Mutual OR deal proof | Asset-class proof | Mandate signal + why-them |
+| **Ask hardness** | Direct but soft | Softer | Softest | Problem-/fit-framed only |
 | **Channel** | LI DM | LI note/DM | LI note or email | Email |
-| **Link framing** | "if relevant" | "no call needed" | "the whole ask" | "only CTA, few mins" |
+| **CTA (Sales)** | Intake "if relevant" | Intake "no call needed" | Intake "the whole ask" | Intake "only CTA" |
+| **CTA (Funding)** | Deck "if it fits" | Deck "no call needed" | Deck "the whole ask" | Deck "only CTA" |
 
 ---
 
 ## Checklist before any message is sent
 
-- [ ] Prospect is NOT on the hard-exclusion list.
+- [ ] Prospect is NOT on the mode-appropriate hard-exclusion list.
 - [ ] Tier correctly identified (1 / 2 / 3 / 4).
 - [ ] All 6 principles present.
 - [ ] Value appears BEFORE the ask.
-- [ ] Ask is framed as the prospect's problem, not our product.
-- [ ] Intake link included and framed as low-commitment.
+- [ ] Ask is framed as the prospect's problem (Sales) or fit (Funding),
+      not our product/raise.
+- [ ] Single low-commitment CTA included and framed for-their-benefit.
 - [ ] Length matches the tier.
 - [ ] No faked personalisation.
