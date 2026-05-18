@@ -89,12 +89,23 @@ export default async function PartnersPage() {
       .filter((id): id is string => !!id),
   );
 
+  // Header count matches what the table actually renders. PipelineTable
+  // pre-filters rows without a contact_name (Brave-sourced company-only
+  // listings and the like — see pipeline-table.tsx line 282). If we report
+  // the raw count here, the chip 'Brave (web) 20' or the 'All N' counter
+  // disagrees with what's visible, which is what prompted '20 brave but 0
+  // shown' confusion 2026-05-19.
+  const actionableCount =
+    (partners || []).filter(
+      (p) => typeof p.contact_name === 'string' && (p.contact_name as string).trim().length > 0,
+    ).length;
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1>Prospects</h1>
-          <p className="text-dark-400 mt-1">{partners?.length || 0} prospects in pipeline</p>
+          <p className="text-dark-400 mt-1">{actionableCount} prospects in pipeline</p>
         </div>
         <Link href="/sessions" className="btn-primary">
           Discover More

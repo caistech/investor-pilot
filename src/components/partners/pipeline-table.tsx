@@ -312,15 +312,22 @@ export function PipelineTable({
   });
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
-  // Counts for source-tier tabs reflect ALL partners (not respecting the
-  // status filter) so the operator can see total volume per source at a
-  // glance before narrowing.
+  // Counts for source-tier tabs reflect ALL partners IGNORING status / search
+  // / quality toggles (so the operator can see total volume per source at a
+  // glance before narrowing), but APPLY the contact_name pre-filter that the
+  // displayed list applies. Otherwise the chips advertise rows that don't
+  // exist in the table — e.g. 'Brave (web) 20' when all 20 Brave hits are
+  // company-only listings with no contact_name extracted, so clicking it
+  // shows 'No partners in this stage' (operator-flagged 2026-05-19).
+  const hasContactName = (p: Partner) =>
+    typeof p.contact_name === 'string' && p.contact_name.trim().length > 0;
+  const countable = partners.filter(hasContactName);
   const sourceCounts: Record<SourceTierKey, number> = {
-    all: partners.length,
-    linkedin_1st: partners.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
-    linkedin_2nd: partners.filter(p => matchesSourceTier(p, 'linkedin_2nd')).length,
-    linkedin_cold: partners.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
-    brave: partners.filter(p => matchesSourceTier(p, 'brave')).length,
+    all: countable.length,
+    linkedin_1st: countable.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
+    linkedin_2nd: countable.filter(p => matchesSourceTier(p, 'linkedin_2nd')).length,
+    linkedin_cold: countable.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
+    brave: countable.filter(p => matchesSourceTier(p, 'brave')).length,
   };
 
   function toggleSelect(id: string) {
