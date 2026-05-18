@@ -13,18 +13,32 @@ export const dynamic = 'force-dynamic';
 
 export default async function SettingsPage() {
   const supabase = createClient();
-  const { data: profile } = await supabase.from('profiles').select('*, organisations(*)').single();
+  // Read the user's profile + their ACTIVE org (post migration 029). The
+  // legacy `organisations(*)` shorthand became ambiguous when migration
+  // 029 added a second FK (active_organisation_id) — PostgREST returns
+  // 300 PGRST201 and the page renders "not set" for every field. The
+  // !profiles_active_organisation_id_fkey alias picks the FK we actually
+  // want: the org corresponding to /org/[slug]/* which middleware keeps
+  // in sync with profiles.active_organisation_id.
+  const { data: profile } = await supabase
+    .from('profiles')
+    .select('*, organisations!profiles_active_organisation_id_fkey(*)')
+    .single();
+  const activeOrgId = (profile as { active_organisation_id?: string | null } | null)?.active_organisation_id
+    || profile?.organisation_id
+    || '';
 
-  // Channels summary
+  // Channels summary — scope to the active org so multi-org users see
+  // counts for the org they're currently viewing, not their legacy one.
   const { count: activeChannels } = await supabase
     .from('client_channels')
     .select('*', { count: 'exact', head: true })
-    .eq('organisation_id', profile?.organisation_id || '')
+    .eq('organisation_id', activeOrgId)
     .eq('status', 'active');
   const { count: pausedChannels } = await supabase
     .from('client_channels')
     .select('*', { count: 'exact', head: true })
-    .eq('organisation_id', profile?.organisation_id || '')
+    .eq('organisation_id', activeOrgId)
     .eq('status', 'paused');
 
   // First active product — used as the editing target for the Phase B/C
@@ -34,7 +48,7 @@ export default async function SettingsPage() {
   const { data: primaryProduct } = await supabase
     .from('products')
     .select('id, name, product_pitch, facility_summary, asset_class, geography, ticket_size_min_label, ticket_size_max_label, draft_compliance_forbidden_terms, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
-    .eq('organisation_id', profile?.organisation_id || '')
+    .eq('organisation_id', activeOrgId)
     .eq('is_active', true)
     .order('created_at', { ascending: true })
     .limit(1)
@@ -42,8 +56,8 @@ export default async function SettingsPage() {
 
   // Monthly usage snapshot (used by <UsageCard />). Skipped if there's no
   // org yet — the empty-state of the page won't reach the cards anyway.
-  const usage = profile?.organisation_id
-    ? await getMonthlyUsage(profile.organisation_id)
+  const usage = activeOrgId
+    ? await getMonthlyUsage(activeOrgId)
     : null;
 
   return (

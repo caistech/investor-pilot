@@ -19,7 +19,7 @@ import { authenticateAndGetDb } from '@/lib/agent/db';
 const MAX_NAME = 200;
 
 export async function PATCH(request: Request) {
-  const { user, db, error } = await authenticateAndGetDb();
+  const { db, orgId, error } = await authenticateAndGetDb();
   if (error) return error;
 
   const body = (await request.json().catch(() => ({}))) as { name?: string };
@@ -31,19 +31,14 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: `name exceeds ${MAX_NAME} chars` }, { status: 400 });
   }
 
-  const { data: profile } = await db
-    .from('profiles')
-    .select('organisation_id, role')
-    .eq('id', user!.id)
-    .single();
-  if (!profile?.organisation_id) {
-    return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
+  if (!orgId) {
+    return NextResponse.json({ error: 'No active organisation for this user' }, { status: 400 });
   }
 
   const { error: updateErr } = await db
     .from('organisations')
     .update({ name })
-    .eq('id', profile.organisation_id);
+    .eq('id', orgId);
   if (updateErr) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
   }

@@ -30,7 +30,7 @@ interface PatchBody {
 }
 
 export async function PATCH(request: Request) {
-  const { user, db, error } = await authenticateAndGetDb();
+  const { db, orgId, error } = await authenticateAndGetDb();
   if (error) return error;
 
   const body = (await request.json().catch(() => ({}))) as PatchBody;
@@ -39,20 +39,15 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'template_id and step_index required' }, { status: 400 });
   }
 
-  const { data: profile } = await db
-    .from('profiles')
-    .select('organisation_id')
-    .eq('id', user!.id)
-    .single();
-  if (!profile?.organisation_id) {
-    return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
+  if (!orgId) {
+    return NextResponse.json({ error: 'No active organisation for this user' }, { status: 400 });
   }
 
   const { data: template } = await db
     .from('sequence_templates')
     .select('id, steps')
     .eq('id', body.template_id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', orgId)
     .single();
 
   if (!template) {

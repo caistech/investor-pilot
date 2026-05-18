@@ -24,7 +24,7 @@ interface SenderPatchBody {
 }
 
 export async function PATCH(request: Request) {
-  const { user, db, error } = await authenticateAndGetDb();
+  const { user, db, orgId, error } = await authenticateAndGetDb();
   if (error) return error;
 
   const body = (await request.json().catch(() => ({}))) as SenderPatchBody;
@@ -63,14 +63,8 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ error: 'sender_role cannot be blank' }, { status: 400 });
   }
 
-  const { data: profile } = await db
-    .from('profiles')
-    .select('organisation_id')
-    .eq('id', user!.id)
-    .single();
-
-  if (!profile?.organisation_id) {
-    return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
+  if (!orgId) {
+    return NextResponse.json({ error: 'No active organisation for this user' }, { status: 400 });
   }
 
   const update: Record<string, string | null> = {};
@@ -88,7 +82,7 @@ export async function PATCH(request: Request) {
   const { error: updateErr } = await db
     .from('organisations')
     .update(update)
-    .eq('id', profile.organisation_id);
+    .eq('id', orgId);
 
   if (updateErr) {
     return NextResponse.json({ error: updateErr.message }, { status: 500 });
