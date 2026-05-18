@@ -78,12 +78,21 @@ export async function POST(request: Request) {
     );
   }
 
+  // Scope choices:
+  //   'queued'              → only queued_for_approval (default-narrow)
+  //   'compliance_blocked'  → only compliance_blocked
+  //   'both'                → queued + blocked + skipped + failed (default-wide).
+  //                            Operator flagged 2026-05-19: 358 skipped
+  //                            rows in CAS org from an earlier 'Clear all'
+  //                            click. They want them resurrected with the
+  //                            new prompt. 'skipped' and 'failed' are
+  //                            recoverable so we include them here.
   const scopeStatuses =
     body.scope === 'queued'
       ? ['queued_for_approval']
       : body.scope === 'compliance_blocked'
         ? ['compliance_blocked']
-        : ['queued_for_approval', 'compliance_blocked'];
+        : ['queued_for_approval', 'compliance_blocked', 'skipped', 'failed'];
 
   let stepsQuery = db
     .from('sequence_steps')

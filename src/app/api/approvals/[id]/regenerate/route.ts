@@ -26,13 +26,13 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('organisation_id, active_organisation_id')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  const orgId = (profile?.active_organisation_id || profile?.organisation_id) as string | undefined;
+  if (!orgId) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
-  const orgId = profile.organisation_id;
 
   // Pull the step we're regenerating so we can scope runSequencer to its
   // partner and verify the org boundary.
@@ -47,11 +47,12 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   // Only regenerate from one of the renderable states. Sent / replied is
   // historical and should never be rewritten; pending will be picked up
-  // by the cron without intervention.
-  const REGENERABLE = new Set(['queued_for_approval', 'compliance_blocked', 'failed']);
+  // by the cron without intervention. 'skipped' is recoverable —
+  // operator may have clicked Clear earlier and now wants the row back.
+  const REGENERABLE = new Set(['queued_for_approval', 'compliance_blocked', 'failed', 'skipped']);
   if (!REGENERABLE.has(step.status as string)) {
     return NextResponse.json(
-      { error: `Step is ${step.status}; only queued_for_approval / compliance_blocked / failed can be regenerated` },
+      { error: `Step is ${step.status}; only queued_for_approval / compliance_blocked / failed / skipped can be regenerated` },
       { status: 400 },
     );
   }
