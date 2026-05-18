@@ -91,7 +91,7 @@ const CANDIDATES_PER_QUERY = 25;                // LinkedIn — Unipile caps at 
 const BRAVE_CANDIDATES_PER_QUERY = 20;          // Brave — API max is 20 per request; exceeding it returns 422 Unprocessable Entity
 const MAX_TOTAL_CANDIDATES = 150;               // lifted from 20 (which dated from the 60s wall-time era)
 const SEARCH_TIMEOUT_MS = 15_000;               // per-search timeout — Unipile cold-tier searches can take ~10s
-const HUNTER_AT_DISCOVERY_CAP = 20;             // top 20 Brave-sourced rows get Hunter-enriched at discovery time
+const HUNTER_AT_DISCOVERY_CAP = 30;             // top 30 Brave-sourced rows get Hunter-enriched at discovery time (round-robin across verticals — see roundRobinAcrossCategories)
 const HUNTER_CONCURRENCY = 4;
 const HUNTER_TIMEOUT_MS = 8_000;
 

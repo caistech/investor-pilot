@@ -312,23 +312,39 @@ export function PipelineTable({
   });
   const selectedPartners = filtered.filter(p => selected.has(p.id));
 
-  // Counts for source-tier tabs reflect ALL partners IGNORING status / search
-  // / quality toggles (so the operator can see total volume per source at a
-  // glance before narrowing), but APPLY the contact_name pre-filter that the
-  // displayed list applies. Otherwise the chips advertise rows that don't
-  // exist in the table — e.g. 'Brave (web) 20' when all 20 Brave hits are
-  // company-only listings with no contact_name extracted, so clicking it
-  // shows 'No partners in this stage' (operator-flagged 2026-05-19).
+  // Source-tier tab counts. TWO numbers per chip so the operator sees
+  // both the truth (how many rows actually exist in the database) and
+  // the actionable count (how many have a contact_name extracted):
+  //
+  //   "Brave (web) 84 / 18 actionable"
+  //
+  // Operator flagged 2026-05-19: 'if All=400 then sources must sum to
+  // 400 — otherwise tell me why they differ on screen'. The 'total'
+  // count sums to All; the 'actionable' count sums to the visible row
+  // count (post contact_name pre-filter). Both numbers honest, both
+  // visible. The status chips (Scored / Enriched / etc.) sum to the
+  // total too — full consistency across all chip groups.
   const hasContactName = (p: Partner) =>
     typeof p.contact_name === 'string' && p.contact_name.trim().length > 0;
-  const countable = partners.filter(hasContactName);
   const sourceCounts: Record<SourceTierKey, number> = {
-    all: countable.length,
-    linkedin_1st: countable.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
-    linkedin_2nd: countable.filter(p => matchesSourceTier(p, 'linkedin_2nd')).length,
-    linkedin_cold: countable.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
-    brave: countable.filter(p => matchesSourceTier(p, 'brave')).length,
+    all: partners.length,
+    linkedin_1st: partners.filter(p => matchesSourceTier(p, 'linkedin_1st')).length,
+    linkedin_2nd: partners.filter(p => matchesSourceTier(p, 'linkedin_2nd')).length,
+    linkedin_cold: partners.filter(p => matchesSourceTier(p, 'linkedin_cold')).length,
+    brave: partners.filter(p => matchesSourceTier(p, 'brave')).length,
   };
+  const sourceActionableCounts: Record<SourceTierKey, number> = {
+    all: partners.filter(hasContactName).length,
+    linkedin_1st: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_1st')).length,
+    linkedin_2nd: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_2nd')).length,
+    linkedin_cold: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'linkedin_cold')).length,
+    brave: partners.filter(p => hasContactName(p) && matchesSourceTier(p, 'brave')).length,
+  };
+  // Rows that match a source bucket but have no contact_name extracted
+  // — the gap between 'All' (status count denominator) and 'All sources'
+  // (post-filter visible). Surfaced beneath the chips as an explicit
+  // note so the operator knows where the difference comes from.
+  const needsContactCount = sourceCounts.all - sourceActionableCounts.all;
 
   function toggleSelect(id: string) {
     setSelected(prev => {
@@ -939,28 +955,49 @@ export function PipelineTable({
         ))}
       </div>
 
-      {/* Source filter tabs — LinkedIn 1st / 2nd / cold / Brave */}
-      <div className="flex gap-1 mb-2 flex-wrap">
-        {SOURCE_TABS.map(tab => (
-          <button
-            key={tab.key}
-            onClick={() => { setSourceFilter(tab.key); setSelected(new Set()); }}
-            className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
-              sourceFilter === tab.key
-                ? tab.key === 'linkedin_1st'
-                  ? 'bg-corp-green-500/20 text-corp-green-400'
-                  : tab.key === 'linkedin_2nd'
-                  ? 'bg-blue-500/20 text-blue-400'
-                  : tab.key === 'brave'
-                  ? 'bg-purple-500/20 text-purple-400'
-                  : 'bg-dark-700 text-dark-200'
-                : 'text-dark-400 hover:text-white hover:bg-dark-800'
-            }`}
-          >
-            {tab.label} <span className="text-dark-500 ml-1">{sourceCounts[tab.key]}</span>
-          </button>
-        ))}
+      {/* Source filter tabs — LinkedIn 1st / 2nd / cold / Brave.
+          Counts show "total / actionable" — the total matches the
+          status-chip sum (= partners.length), the actionable shows
+          how many have a contact extracted. The gap = no-contact rows
+          hidden by the table's contact_name pre-filter. */}
+      <div className="flex gap-1 mb-1 flex-wrap">
+        {SOURCE_TABS.map(tab => {
+          const total = sourceCounts[tab.key];
+          const actionable = sourceActionableCounts[tab.key];
+          const showSplit = total !== actionable;
+          return (
+            <button
+              key={tab.key}
+              onClick={() => { setSourceFilter(tab.key); setSelected(new Set()); }}
+              className={`px-2.5 py-1 text-xs rounded-md transition-colors ${
+                sourceFilter === tab.key
+                  ? tab.key === 'linkedin_1st'
+                    ? 'bg-corp-green-500/20 text-corp-green-400'
+                    : tab.key === 'linkedin_2nd'
+                    ? 'bg-blue-500/20 text-blue-400'
+                    : tab.key === 'brave'
+                    ? 'bg-purple-500/20 text-purple-400'
+                    : 'bg-dark-700 text-dark-200'
+                  : 'text-dark-400 hover:text-white hover:bg-dark-800'
+              }`}
+              title={showSplit ? `${total} total · ${actionable} with contact (rest awaiting enrichment)` : `${total} total`}
+            >
+              {tab.label}{' '}
+              <span className="text-dark-500 ml-1">
+                {showSplit ? `${total} / ${actionable}` : total}
+              </span>
+            </button>
+          );
+        })}
       </div>
+      {needsContactCount > 0 && (
+        <p className="text-[11px] text-dark-500 mb-3 leading-snug">
+          Source chips show <span className="text-dark-300">total / actionable</span>.{' '}
+          <span className="text-dark-300">{sourceCounts.all}</span> rows match the status total above;{' '}
+          <span className="text-dark-300">{sourceActionableCounts.all}</span> have a contact extracted and appear in the table;{' '}
+          <span className="text-dark-300">{needsContactCount}</span> need contact enrichment (mostly Brave-discovered companies without an associated person — run Hunter or re-discover to attach contacts).
+        </p>
+      )}
 
       {/* Quality filters — min score, exclude out-of-scope, hide low conf.
           Compose with everything above; batch actions fire on the
