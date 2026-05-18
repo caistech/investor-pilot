@@ -49,14 +49,20 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('organisation_id, active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  // Multi-org: scope to the user's active_organisation_id (where the
+  // approvals queue is being viewed), falling back to the legacy
+  // organisation_id column for single-org users. Operator flagged
+  // 2026-05-19 that the rerender endpoint returned 'No matching steps'
+  // even with a queue full of approvals — root cause was this route
+  // scoping to the legacy column when the active org had moved.
+  const orgId = (profile?.active_organisation_id || profile?.organisation_id) as string | undefined;
+  if (!orgId) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
-  const orgId = profile.organisation_id;
 
   // Pre-fetch render context once (single-tenant route — orgId is constant
   // across all steps). renderStep needs sender_name/sender_role from the
