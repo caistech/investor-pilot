@@ -57,7 +57,7 @@ export const TOOL_DEFINITIONS: Anthropic.Tool[] = [
         company_name: { type: 'string' },
         domain: { type: 'string' },
         category: { type: 'string' },
-        partner_type: { type: 'string', enum: ['referral', 'integration', 'reseller', 'combination'] },
+        partner_type: { type: 'string', enum: ['referral', 'integration', 'reseller', 'combination', 'lender', 'buyer'] },
         status: { type: 'string', enum: ['scored', 'contact_found', 'contact_partial', 'angle_defined', 'draft_ready'] },
         weighted_score: { type: 'number' },
         confidence_score: { type: 'string', enum: ['normal', 'low-confidence'] },

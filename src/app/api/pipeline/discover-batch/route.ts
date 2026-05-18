@@ -1,7 +1,11 @@
 /**
  * POST /api/pipeline/discover-batch
  *
- * The "Find investors for this product" engine.
+ * The shared discovery engine. Powers "Find Buyers" on the Products
+ * page (sales side) and "Find Investors" on the Projects page
+ * (funding side). The operator's offering profile drives the search
+ * vocabulary, scoring rubric, and partner_type defaults — the engine
+ * itself is offering-agnostic.
  *
  *   1. Reads the product + its Knowledge Base
  *   2. Generates N targeted lender search queries via Claude
@@ -38,7 +42,7 @@ import { extractCompanyFromHeadline } from '@/lib/discovery/headline';
 import { getLinkedInProfile } from '@/lib/channels/unipile';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
-import { isPublisherDomain, isJournalistOrAcademicTitle } from '@/lib/discovery/publisher-domains';
+import { isPublisherDomain } from '@/lib/discovery/publisher-domains';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -527,7 +531,17 @@ export async function POST(request: Request) {
     const batchStart = Date.now();
     const batch = uniqueCandidates.slice(i, i + SCORING_CONCURRENCY);
     const results = await Promise.all(
-      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, scoringSystemPrompt, organisation_id, product_id || null, project_id || null, { enrichWithBrave, runId, meterFor }))
+      batch.map(c => scoreAndUpsertCandidate(db, c, productContext, scoringSystemPrompt, organisation_id, product_id || null, project_id || null, {
+        enrichWithBrave,
+        runId,
+        meterFor,
+        // Offering-aware default for partner_type. Operator-configured
+        // icp_partner_type wins (so a project explicitly set to
+        // 'referral' still wins). When unset, fall through to the
+        // route's heuristic inside the scorer: project → 'lender',
+        // product → 'buyer'.
+        defaultPartnerType: offering.icp_partner_type ?? null,
+      }))
     );
     scoredResults.push(...results);
     log('scoring_batch_done', {
@@ -643,31 +657,14 @@ export async function POST(request: Request) {
             if (!result?.emails?.length) {
               return { partner_id: p.id as string, status: 'no_emails', email: null };
             }
-            // Prefer the highest-confidence email whose title isn't
-            // journalism/academia (the post-publisher-filter safety net).
-            // The publisher-domain blocklist already drops obvious media
-            // hostnames before we get here; this catches the long tail —
-            // corporate newsrooms, university PR offices, foundation
-            // domains where Hunter still returns a reporter / professor
-            // / postdoc as the top-confidence email. Promoting them
-            // turns the row into a "Journalist X at Y" prospect, which
-            // is exactly the bug we're closing.
+            // Take Hunter's highest-confidence contact. Title-based
+            // filtering belongs in the scorer's buyer_title hard-gate
+            // (the LLM applies the operator's profile against the
+            // contact's title), not in this layer — that way a product
+            // whose buyer profile DOES include journalists / academics
+            // / researchers isn't fighting hardcoded reject regexes.
             const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
-            const acceptable = sorted.find(e => !isJournalistOrAcademicTitle(e.position));
-            if (!acceptable) {
-              // All returned contacts were journalists / academics. Mark
-              // the row so the operator sees it was filtered (rather
-              // than silently disappearing into 'no_emails') and the
-              // tier-breakdown / out_of_scope counts are honest.
-              await db.from('partners').update({
-                category: 'out_of_scope',
-                audience_overlap_notes: 'Hunter only returned journalist/academic contacts at this domain — likely a media or research site, not a buyer.',
-                status: 'scored',
-                last_updated_at: new Date().toISOString(),
-              }).eq('id', p.id);
-              return { partner_id: p.id as string, status: 'journalist_skip', email: null };
-            }
-            const best = acceptable;
+            const best = sorted[0];
             await db.from('partners').update({
               contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
               contact_title: best.position || null,
@@ -696,7 +693,6 @@ export async function POST(request: Request) {
       attempted: hunterEnrichmentOutcomes.length,
       enriched: hunterEnrichmentOutcomes.filter(o => o.status === 'enriched').length,
       no_emails: hunterEnrichmentOutcomes.filter(o => o.status === 'no_emails').length,
-      journalist_skip: hunterEnrichmentOutcomes.filter(o => o.status === 'journalist_skip').length,
       errors: hunterEnrichmentOutcomes.filter(o => o.status === 'error').length,
     });
   }

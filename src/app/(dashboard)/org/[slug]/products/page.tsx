@@ -264,7 +264,11 @@ export default function ProductsPage() {
     loadProducts();
   }
 
-  // Find Investors button state
+  // Find Buyers button state — products target buyers (channel partners /
+  // direct customers / decision-makers at companies that would purchase
+  // what the product sells). Projects (the funding side) target investors;
+  // they live on a separate page and use the same engine with project-
+  // specific copy. Don't conflate the two on this page.
   const [findingFor, setFindingFor] = useState<string | null>(null);
   // Default chosen reactively from setup state: include LinkedIn only when a
   // LinkedIn channel is actually connected. Without this, the discover-batch
@@ -293,7 +297,7 @@ export default function ProductsPage() {
     });
   }
 
-  async function findInvestorsForProduct(productId: string) {
+  async function findBuyersForProduct(productId: string) {
     if (!confirm('This runs a multi-query discovery batch (~2-5 minutes). Score budget: up to 80 candidates. Continue?')) return;
     setFindingFor(productId);
     setFindResult(null);
@@ -631,9 +635,9 @@ export default function ProductsPage() {
                        Setup steps before discovery — eye flows top-to-bottom in
                        the order the operator needs to act. Step 1 (rubric) and
                        Step 2 (sequence) are both required before Step 3 (Find
-                       Investors) will run. */}
+                       Buyers) will run. */}
 
-                  {/* Step 1: ICP scoring rubric — required for Find Investors */}
+                  {/* Step 1: ICP scoring rubric — required for Find Buyers */}
                   <div className="mb-3 p-3 rounded-lg bg-amber-500/5 border border-amber-500/20" onClick={(e) => e.stopPropagation()}>
                     <div className="flex items-center gap-2 mb-1">
                       <span className="flex items-center justify-center w-5 h-5 rounded-full bg-amber-500/20 text-amber-400 text-[10px] font-bold">1</span>
@@ -642,7 +646,7 @@ export default function ProductsPage() {
                       </p>
                     </div>
                     <p className="text-dark-500 text-xs mt-0.5 mb-3 ml-7">
-                      The detailed rubric the discovery scorer uses to rank candidates 1–10 across the 5 dimensions for this product&apos;s audience. <strong className="text-amber-300">Required before Find Investors can run.</strong>
+                      The detailed rubric the discovery scorer uses to rank candidates 1–10 across the 5 dimensions for this product&apos;s audience. <strong className="text-amber-300">Required before Find Buyers can run.</strong>
                     </p>
                     <div className="ml-7">
                       <GenerateRubricButton
@@ -693,7 +697,7 @@ export default function ProductsPage() {
                     </div>
                   </div>
 
-                  {/* Step 3: Find Investors — the v3 batch discovery button.
+                  {/* Step 3: Find Buyers — the v3 batch discovery button.
                        Disabled when the rubric (Step 1) hasn't been generated yet
                        so users can't reach the same "scoring_rubric not set" dead-end. */}
                   <div className={`mb-4 p-3 rounded-lg border ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/5 border-corp-green-500/20' : 'bg-dark-900/50 border-dark-700'}`}>
@@ -701,7 +705,7 @@ export default function ProductsPage() {
                       <div className="min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[10px] font-bold ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'bg-corp-green-500/20 text-corp-green-400' : 'bg-dark-700 text-dark-500'}`}>3</span>
-                          <p className={`text-sm font-medium ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'text-corp-green-400' : 'text-dark-400'}`}>Find investors for this product</p>
+                          <p className={`text-sm font-medium ${(p as unknown as { scoring_rubric?: string | null }).scoring_rubric ? 'text-corp-green-400' : 'text-dark-400'}`}>Find buyers for this product</p>
                         </div>
                         <p className="text-dark-500 text-xs mt-0.5 ml-7">
                           {(p as unknown as { scoring_rubric?: string | null }).scoring_rubric
@@ -743,7 +747,7 @@ export default function ProductsPage() {
                         )}
                       </div>
                       <button
-                        onClick={(e) => { e.stopPropagation(); findInvestorsForProduct(p.id); }}
+                        onClick={(e) => { e.stopPropagation(); findBuyersForProduct(p.id); }}
                         disabled={findingFor !== null || !p.is_active || !(p as unknown as { scoring_rubric?: string | null }).scoring_rubric}
                         className="btn-primary text-sm flex items-center gap-1.5 shrink-0 disabled:opacity-40 disabled:cursor-not-allowed"
                         title={
@@ -757,7 +761,7 @@ export default function ProductsPage() {
                         {findingFor === p.id ? (
                           <><Loader2 className="w-4 h-4 animate-spin" /> Finding…</>
                         ) : (
-                          <><Target className="w-4 h-4" /> Find Investors</>
+                          <><Target className="w-4 h-4" /> Find Buyers</>
                         )}
                       </button>
                     </div>

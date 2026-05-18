@@ -4,7 +4,7 @@ export type PartnerStatus =
   | 'meeting_booked' | 'qualified' | 'active_partner_discussion'
   | 'disqualified' | 'closed_won' | 'closed_lost';
 
-export type PartnerType = 'referral' | 'integration' | 'reseller' | 'combination';
+export type PartnerType = 'referral' | 'integration' | 'reseller' | 'combination' | 'lender' | 'buyer';
 export type EmailStatus = 'verified' | 'probable' | 'company_level' | 'unresolved';
 export type ConfidenceScore = 'normal' | 'low-confidence';
 export type DraftStatus = 'none' | 'created' | 'approved' | 'filed';

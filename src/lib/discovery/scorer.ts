@@ -107,7 +107,19 @@ export async function scoreAndUpsertCandidate(
   organisation_id: string,
   product_id: string | null,
   project_id?: string | null,
-  options?: { enrichWithBrave?: boolean; runId?: string | null; meterFor?: MeterFor },
+  options?: {
+    enrichWithBrave?: boolean;
+    runId?: string | null;
+    meterFor?: MeterFor;
+    /**
+     * Offering-aware fallback for partner_type when the LLM returns
+     * an unrecognised label. Products target buyers; projects target
+     * lenders (the legacy default). Caller passes the offering's
+     * configured icp_partner_type when available; we use it before
+     * falling back to the offering-kind heuristic.
+     */
+    defaultPartnerType?: string | null;
+  },
 ): Promise<ScoreCandidateResult> {
   try {
     const personContext = candidate.contact_name
@@ -165,8 +177,29 @@ export async function scoreAndUpsertCandidate(
     // to out_of_scope, cap every dimension at 2 BEFORE computing the
     // weighted score. The dimension notes stay (rationale is still useful)
     // but the score reflects the rejection.
-    const isOutOfScope = typeof scores.category === 'string'
+    //
+    // ALSO: when the offering has a buyer_title and the LLM judges the
+    // contact's title doesn't match it (buyer_title_match === 'no'),
+    // force out_of_scope. The hard-gate text in the prompt asks the LLM
+    // to apply this rule itself, but in practice it gives company-fit
+    // (verticals / sector / stage) too much weight and a non-buyer
+    // contact at a vertical-matching company gets rated 8-9. Forcing
+    // the rejection here means the LLM only has to make the binary
+    // title-match judgement; the math of the dimensions can no longer
+    // outvote it.
+    const buyerTitleMismatch = typeof scores.buyer_title_match === 'string'
+      && scores.buyer_title_match.toLowerCase().trim() === 'no';
+    const categoryClaimsOutOfScope = typeof scores.category === 'string'
       && /out[_ -]?of[_ -]?scope/i.test(scores.category);
+    const isOutOfScope = categoryClaimsOutOfScope || buyerTitleMismatch;
+    if (buyerTitleMismatch && !categoryClaimsOutOfScope) {
+      // Promote the LLM's category to out_of_scope so downstream
+      // filters (Prospects "Exclude out-of-scope" toggle) see the
+      // honest verdict. Keep the LLM's notes about WHY it was a
+      // mismatch — operator finds that more useful than the original
+      // category string.
+      scores.category = 'out_of_scope';
+    }
     const capDim = (raw: number | null | undefined) => {
       const n = typeof raw === 'number' ? raw : 0;
       return isOutOfScope ? Math.min(n, 2) : n;
@@ -180,17 +213,23 @@ export async function scoreAndUpsertCandidate(
       strategic_leverage: capDim(scores.strategic_leverage_score),
     });
 
-    // Whitelist partner_type against the DB CHECK constraint (migration 008).
-    // Claude occasionally returns descriptors like "mortgage_broker" when
-    // scoring out-of-scope candidates — the prompt template uses
-    // "<lender>" as a placeholder hint, but the model sometimes substitutes
-    // its own category label. Anything outside the allowed set silently
-    // failed the upsert, losing ~45% of scored candidates. Default to
-    // 'lender' for this v3 pipeline (callers are sourcing for lender
-    // outreach); out_of_scope rows still get capped to score≤2 elsewhere.
-    const ALLOWED_PARTNER_TYPES = new Set(['referral', 'integration', 'reseller', 'combination', 'lender']);
+    // Whitelist partner_type against the DB CHECK constraint
+    // (migration 008 widened to allow 'lender'; migration 032 widens
+    // to allow 'buyer' for product-side runs). Claude occasionally
+    // returns descriptors like "mortgage_broker" or "decision_maker"
+    // when scoring out-of-scope candidates — anything outside the
+    // allowed set silently fails the upsert, losing ~45% of scored
+    // candidates if not normalised. Fallback uses the offering-aware
+    // defaultPartnerType (operator-configured icp_partner_type or the
+    // route's project→'lender' / product→'buyer' heuristic) so a bad
+    // LLM response on a Product run doesn't quietly land as 'lender'.
+    const ALLOWED_PARTNER_TYPES = new Set(['referral', 'integration', 'reseller', 'combination', 'lender', 'buyer']);
     const rawPartnerType = typeof scores.partner_type === 'string' ? scores.partner_type.toLowerCase().trim() : '';
-    const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : 'lender';
+    const fallbackPartnerType = options?.defaultPartnerType
+      && ALLOWED_PARTNER_TYPES.has(options.defaultPartnerType.toLowerCase().trim())
+      ? options.defaultPartnerType.toLowerCase().trim()
+      : project_id ? 'lender' : 'buyer';
+    const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : fallbackPartnerType;
 
     const upsertResult = await upsertPartner(db, {
       organisation_id,

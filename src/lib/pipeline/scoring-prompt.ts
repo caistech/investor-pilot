@@ -110,14 +110,13 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
   if (product.icp_buyer_title?.trim()) {
     hardGateLines.push(
       `- BUYER TITLE: The contact must plausibly hold one of these titles (or a senior equivalent / superset): ${product.icp_buyer_title.trim()}. ` +
-        `Journalists, reporters, columnists, editors, staff writers, professors, researchers, postdoctoral fellows, and PhD candidates are NEVER valid buyers for this offering unless the buyer title explicitly names them. ` +
-        `If the contact's title clearly conflicts (e.g. "Reporter at Business Insider" when buyer is "CTO / Head of Product"), mark category="out_of_scope" and cap every dimension at 1.`,
+        `Apply your judgement — if the contact's actual title clearly does not match this buyer profile, mark category="out_of_scope" and cap every dimension at 1, regardless of how well the company itself matches the other criteria.`,
     );
   }
   if (product.icp_verticals?.trim()) {
     hardGateLines.push(
       `- VERTICALS: The company must operate in (or sell into) one of: ${product.icp_verticals.trim()}. ` +
-        `Companies whose primary business is outside this list — including media publishers, academic institutions, government agencies, and content aggregators that merely *cover* the verticals — should be marked out_of_scope.`,
+        `Apply your judgement on the company's primary business — companies that merely cover or report on the verticals (rather than operating in them) are not a fit.`,
     );
   }
   if (product.icp_company_size?.trim()) {
@@ -155,6 +154,19 @@ export function buildScoringPrompt(product: ScoringPromptProduct): string {
     ? `\n\nWHAT THIS OFFERING IS:\n${offeringAnchor.join('\n')}\n`
     : '';
 
+  // When the operator has set a buyer_title, the LLM MUST evaluate
+  // whether the contact actually matches it and emit the result as a
+  // separate field. The scorer then deterministically forces
+  // out_of_scope when the LLM says no — same enforcement pattern as
+  // the existing isOutOfScope category check. Without this, the LLM
+  // routinely scores company-fit high (verticals match, etc.) and
+  // gives the buyer-title mismatch insufficient weight, so a "Partner
+  // at a VC firm" rated 9/10 despite being clearly not the configured
+  // buyer (CTO / Head of Product / Founder/CEO).
+  const buyerTitleEvalField = product.icp_buyer_title?.trim()
+    ? `,\n  "buyer_title_match": "<yes if the contact's actual title plausibly matches the buyer profile above; no if it clearly does not (e.g. contact is an investor/partner/journalist/consultant/advisor when the buyer profile is operator/CTO/founder; or vice versa). When uncertain, return no — being strict here protects the operator from chasing non-buyers.>"`
+    : '';
+
   return `${pitchLine}. Given a person/firm description from search results, score them on 5 dimensions for fit.
 ${assetGeoLine}${fundingTypeLine}${offeringAnchorSection}${hardGateSection}
 
@@ -172,7 +184,7 @@ Return ONLY a JSON object with this exact structure (no markdown, no explanation
   "strategic_leverage_notes": "<one sentence>",
   "confidence_score": "<normal or low-confidence>",
   "category": "<${categoryLine}>",
-  "partner_type": "<${partnerType}>"
+  "partner_type": "<${partnerType}>"${buyerTitleEvalField}
 }
 
 Scoring dimensions:

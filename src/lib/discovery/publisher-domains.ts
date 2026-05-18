@@ -96,6 +96,21 @@ const PUBLISHER_HOSTNAMES = new Set<string>([
   'edtechmagazine.com',
   'constructiondive.com',
   'engineeringnews.co.za',
+  'tech.eu',
+  'eu-startups.com',
+  'sifted.eu',
+  'tech.co',
+  'thetechpanda.com',
+  'tnw.eu',
+  'thenextweb.com',
+  'businessoffashion.com',
+  // Pitch deck / fundraising-advice consultancies that publish content
+  // about other companies' raises — Hunter on their domain returns
+  // consultancy staff, not the actual companies being covered.
+  'waveup.com',
+  'slidebean.com',
+  'pitch.com',
+  'visible.vc',
 ]);
 
 // Pattern-based catch for the long tail. These match a hostname's
@@ -154,24 +169,13 @@ export function isPublisherDomain(hostname: string): boolean {
   return false;
 }
 
-/**
- * Returns true if `title` (a person's job title from Hunter / LinkedIn)
- * looks like journalism / academia / research — i.e. the person is
- * unlikely to be a buyer regardless of which company employs them.
- *
- * Used as a safety net after Hunter returns a contact: even if the
- * domain wasn't in the publisher blocklist (e.g. a corporate
- * newsroom domain we don't recognise), a contact with title
- * "Senior Reporter" or "Postdoctoral Fellow" should not be promoted
- * to the buyer slot for a typical B2B SaaS / venture-studio /
- * lender-services product.
- *
- * Callers MAY override per-offering once buyer_title-aware allow lists
- * exist — e.g. a product whose buyer IS journalists (rare but real,
- * e.g. PR tooling) should bypass this check.
- */
-export function isJournalistOrAcademicTitle(title: string | null | undefined): boolean {
-  if (!title) return false;
-  const t = title.toLowerCase();
-  return /\b(journalist|reporter|correspondent|columnist|editor|editorial|staff writer|contributor|publisher|news anchor|news producer|news director|professor|associate professor|assistant professor|lecturer|researcher|research fellow|postdoc(toral)?|phd candidate|graduate student|teaching assistant|dean|department chair)\b/.test(t);
-}
+// Note: title-based filtering is INTENTIONALLY not in this file.
+// Career-based rejection (journalists / academics / etc.) belongs in
+// the operator's product profile via buyer_title + exclusions, applied
+// by the LLM scorer's hard-gate. Hardcoding it here would override
+// operator intent and require code changes every time a new profession
+// needed filtering. Domain-based filtering above IS appropriate
+// because it operates one layer earlier — it's about whether a URL's
+// hostname represents the CANDIDATE company at all (publisher domains
+// return their own staff via Hunter, not anyone at the company the
+// article is ABOUT) — a correctness issue, not a taste judgement.
