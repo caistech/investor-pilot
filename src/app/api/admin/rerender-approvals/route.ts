@@ -45,7 +45,17 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({})) as {
     step_ids?: string[];
     scope?: Scope;
+    limit?: number;
   };
+  // Default chunk size of 30 keeps the route under Vercel's 180s
+  // maxDuration: per-row render is ~6-10s (LLM + enrichment), 4-wide
+  // concurrency → ~25s per 10-row batch, ~75s for 30 rows. Operator
+  // calls the endpoint repeatedly to drain large backlogs (e.g. 358
+  // skipped rows = ~12 invocations). Setting limit:1000 disables the
+  // cap if the operator wants to live dangerously.
+  const limit = typeof body.limit === 'number' && body.limit > 0
+    ? Math.min(body.limit, 1000)
+    : 30;
 
   const { data: profile } = await db
     .from('profiles')
@@ -98,7 +108,9 @@ export async function POST(request: Request) {
     .from('sequence_steps')
     .select('id, organisation_id, partner_id, template_id, step_index, channel, outbound_message_id, status')
     .eq('organisation_id', orgId)
-    .in('status', scopeStatuses);
+    .in('status', scopeStatuses)
+    .order('updated_at', { ascending: true })
+    .limit(limit);
   if (body.step_ids && body.step_ids.length > 0) {
     stepsQuery = stepsQuery.in('id', body.step_ids);
   }
