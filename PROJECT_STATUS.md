@@ -164,10 +164,28 @@ for any reason, migrate it as part of the change"). See
 
 ## Priority for next session
 
-1. **Bounce → re-enrich auto-flow** — quarter-day
-2. **Operator-configurable compliance ruleset** — half-day
-3. **Global pause flag** (org-level) — 2-3 hours
-4. **Teams follow-ups** (if usage surfaces friction):
+1. **Product-side vocabulary fix — "buyers" not "investors"** — ~30 min.
+   Products target BUYERS (or channel partners), not investors. UI copy
+   currently leaks "investors" all over the Products page. Renderer
+   prompts are already correct (`recipientNoun = 'partner'` when
+   `offering_kind === 'product'`) so this is pure UI/comment cleanup.
+   Scope:
+   - `src/app/(dashboard)/org/[slug]/products/page.tsx` — 8 spots (lines
+     267, 296, 634, 636, 645, 696, **704** ("Find investors for this product"
+     — the visible one operator flagged), 746, 760). Rename function
+     `findInvestorsForProduct` → `findBuyersForProduct` (or
+     `findPartnersForProduct` — decide canonical noun).
+   - `src/app/api/pipeline/discover-batch/route.ts:4` — header comment
+     "The Find investors for this product engine."
+   - Also audit any related copy: button "Find Investors" → "Find Buyers"
+     / "Find Partners"; rubric-required banner; any e-mail bodies that
+     leak the wrong audience term.
+   - Decision needed first: canonical noun. Options are buyer / partner /
+     channel partner / customer. Renderer uses `partner` already.
+2. **Bounce → re-enrich auto-flow** — quarter-day
+3. **Operator-configurable compliance ruleset** — half-day
+4. **Global pause flag** (org-level) — 2-3 hours
+5. **Teams follow-ups** (if usage surfaces friction):
    - /approvals UI surface for steps stuck on disconnected channels
    - Channels filter "show only mine" (today shows all org channels)
    - Step reassignment without waiting for channel reconnect
