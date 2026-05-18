@@ -10,6 +10,8 @@ import SourceManager from '@/components/products/source-manager';
 import { GenerateRubricButton } from '@/components/products/generate-rubric-button';
 import { GenerateSequenceButton } from '@/components/settings/generate-sequence-button';
 import { PoolStatChip } from '@/components/pool/pool-stat-chip';
+import ProjectInterviewWizard from '@/components/projects/interview-wizard';
+import type { SynthesizedProjectProfile } from '@/lib/projects/interview-synthesizer';
 
 /**
  * Detail-field labels that adapt to the project's funding_type. An equity
@@ -71,6 +73,19 @@ const EMPTY_FORM: Omit<Project, 'id' | 'organisation_id' | 'created_at' | 'updat
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [showForm, setShowForm] = useState(false);
+  // Funding-side parallel to the Product Interview entry point. Operator
+  // answers 8 benefit-framed questions; Claude synthesizes the structured
+  // project profile and we drop it into the existing manual form for
+  // review/edit before save. Same anti-mis-positioning intent as the
+  // product side — sponsor + structure + asset class are forced into
+  // separate, well-framed buckets instead of bleeding into each other.
+  const [showInterview, setShowInterview] = useState(false);
+  // True while the operator is reviewing a synthesized profile in the full
+  // edit form (before the first save). Bypasses the KB-first gate (which
+  // expects draftProjectId / SourceManager) and routes straight into the
+  // edit form, but keeps editingId null so handleSave still takes the
+  // insert path. Cleared after save / cancel.
+  const [synthesizedDraft, setSynthesizedDraft] = useState(false);
   const [loading, setLoading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -151,6 +166,7 @@ export default function ProjectsPage() {
       setShowForm(false);
       setEditingId(null);
       setForm(EMPTY_FORM);
+      setSynthesizedDraft(false);
       loadProjects();
     }
     setLoading(false);
@@ -194,6 +210,7 @@ export default function ProjectsPage() {
     });
     setEditingId(project.id);
     setShowForm(true);
+    setSynthesizedDraft(false);
   }
 
   async function handleDelete(id: string) {
@@ -216,6 +233,7 @@ export default function ProjectsPage() {
     setDraftFundingType('');
     setDraftDescription('');
     setDraftSponsor('');
+    setSynthesizedDraft(false);
   }
 
   async function createDraftProject() {
@@ -364,12 +382,74 @@ export default function ProjectsPage() {
           <h1>Projects</h1>
           <p className="text-dark-400 mt-1">Investable projects in your portfolio. Each one drives its own lender discovery and outreach campaign.</p>
         </div>
-        <button onClick={() => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); }} className="btn-primary flex items-center gap-2">
-          <Plus className="w-4 h-4" /> Add Project
-        </button>
+        <div className="flex items-center gap-2 flex-wrap">
+          <button
+            onClick={() => { setShowInterview(true); setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); setDraftProjectId(null); }}
+            className="btn-primary flex items-center gap-2"
+            title="Answer 8 short questions about what you're raising; the system synthesises the project profile for review and edit before save. Recommended for new projects — produces cleaner sponsor + structure + ICP framing than typing the full form."
+          >
+            <Sparkles className="w-4 h-4" /> Use AI Interview
+          </button>
+          <button
+            onClick={() => { setForm(EMPTY_FORM); setEditingId(null); setShowForm(true); setShowInterview(false); setSynthesizedDraft(false); }}
+            className="btn-secondary flex items-center gap-2"
+            title="Type all project fields directly — useful if you've already drafted the copy elsewhere or want to keep the KB-first workflow."
+          >
+            <Plus className="w-4 h-4" /> Add manually
+          </button>
+        </div>
       </div>
 
-      {showForm && !editingId && (
+      {showInterview && (
+        <div className="mb-8">
+          <ProjectInterviewWizard
+            onSynthesized={(profile: SynthesizedProjectProfile) => {
+              // Populate the existing manual form so the operator can review
+              // and edit before save. funding_type comes back as a hint slug;
+              // operator confirms in the dropdown. partner_types may map to
+              // an enum the form uses ('investor' / 'lender' / 'lp' /
+              // 'strategic') — we pass it through and the form auto-syncs to
+              // funding_type via partnerTypeForFundingType() once that's
+              // picked.
+              const fundingTypeHint = (profile.funding_type_hint || '').trim();
+              const isValidFundingType = !!fundingTypeHint && fundingTypeHint !== 'other';
+              setForm({
+                sponsor: profile.sponsor,
+                name: profile.name,
+                description: profile.description,
+                project_type: null,
+                funding_type: (isValidFundingType ? fundingTypeHint : null) as Project['funding_type'],
+                funding_target: profile.funding_target,
+                geography: profile.geography,
+                asset_class: profile.asset_class,
+                pitch_deck_url: '',
+                one_pager_url: '',
+                compliance_mode: 'standard',
+                core_mechanism: profile.core_mechanism,
+                customer_outcomes: profile.customer_outcomes,
+                icp_company_size: profile.icp_company_size,
+                icp_stage: profile.icp_stage,
+                icp_verticals: profile.icp_verticals,
+                icp_buyer_title: profile.icp_buyer_title,
+                icp_user_title: profile.icp_user_title,
+                icp_stack_tools: profile.icp_stack_tools,
+                traction_arr: profile.traction_arr,
+                traction_customers: profile.traction_customers,
+                partner_types: profile.partner_types || 'lender',
+                exclusions: profile.exclusions,
+                is_active: true,
+              });
+              setEditingId(null);
+              setSynthesizedDraft(true); // skip KB-first gate, render the full edit form for review
+              setShowInterview(false);
+              setShowForm(true);
+            }}
+            onCancel={() => setShowInterview(false)}
+          />
+        </div>
+      )}
+
+      {showForm && !editingId && !synthesizedDraft && (
         <div className="card mb-8">
           <h3 className="mb-4">New Project</h3>
 
@@ -516,11 +596,13 @@ export default function ProjectsPage() {
         </div>
       )}
 
-      {showForm && editingId && (
+      {showForm && (editingId || synthesizedDraft) && (
         <form onSubmit={handleSave} className="card mb-8">
-          <h3 className="mb-4">Edit Project</h3>
+          <h3 className="mb-4">{synthesizedDraft ? 'Review synthesised project' : 'Edit Project'}</h3>
           <div className="mb-6 p-3 rounded-lg bg-blue-500/10 border border-blue-500/30 text-sm text-dark-200">
-            Manually edit any field below. Or close and click <span className="text-corp-green-400 font-medium">Auto-fill from KB</span> in the project&apos;s Knowledge Base section to regenerate fields from the source documents.
+            {synthesizedDraft
+              ? <>Review the synthesised fields below — every field is editable. The project is <b>not saved yet</b>; click Save to commit. The compliance scrubber stripped any forbidden vocabulary (&ldquo;tokenisation&rdquo;, &ldquo;guaranteed yield&rdquo;, etc.) from the synthesis; if you typed those in the interview they&apos;ll appear as <span className="text-amber-400">[redacted]</span> for you to rewrite.</>
+              : <>Manually edit any field below. Or close and click <span className="text-corp-green-400 font-medium">Auto-fill from KB</span> in the project&apos;s Knowledge Base section to regenerate fields from the source documents.</>}
           </div>
 
           {/* === ESSENTIALS — the 5 fields that drive everything downstream.
