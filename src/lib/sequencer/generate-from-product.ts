@@ -138,21 +138,51 @@ VERTICAL ADAPTATION
 
 The product may have a flagship proof in one vertical (a named platform delivered, a named customer, a marquee result). DO NOT write the template body as if every recipient is in that vertical. Lead with a vertical-agnostic observation appropriate to the ICP partner_type, and reference the flagship only when it earns its place. The downstream per-prospect renderer will adapt the proof to the actual recipient's vertical anyway — your job here is to give it a flexible scaffold, not a vertical-locked one.
 
-CALIBRATION — what a strong cold first-email looks like
+CALIBRATION — two template bodies in two different product situations
 
-This is the bar. Note the length (~150 words), the casual sender intro, the single CTA at the end, no LinkedIn URL inline interrupting the opener, no buzzwords:
+These illustrate the SHAPE — length, lead, placeholder placement, signature form. The literal phrases are illustrative and you must NOT copy them into the template you write. The template body you produce here will be re-used across hundreds of recipients; if it contains identifiable lifted phrases ("still half-manual and quietly costing", "Either way, worth a look", "production AI tools for operator-led businesses"), every recipient in every org running this template will see the same words and feel the template. That is the failure mode this prompt exists to prevent.
 
-Subject: A faster way to fix one slow process at {firm}
+EXAMPLE A — product whose ICP buyer SHARES the flagship-proof vertical (same surface area).
+The proof can carry weight. Lead with a recipient-grounded credit signal, then the proof in one tight clause, then the recipient-framed ask. ~120 words.
+
+Subject: One slow handoff at {firm}?
 
 Hi {first_name},
-I'll keep this short. I'm {sender_name} from {offering_name} — we build production AI tools for operator-led businesses, and {dominant_proof_vertical} is where we've done our sharpest work.
 {credit_signal_lead}
-Most {ICP_vertical} operators I talk to have at least one process — scheduling, quoting, handoffs, compliance — that's still half-manual and quietly costing real money. {value_offer_lead}
-If something like that comes to mind at {firm}, this walks you through describing it in a few minutes:
+
+We've shipped end-to-end platforms in the space — recent build cut a 14-week schedule to 5 weeks at fixed price. {value_offer_lead}
+
+If a comparable workflow at {firm} is still half-shipped, this 4-min intake describes what we'd build — no call, no commitment:
 {one_pager_url}
-Either way, worth a look.
+
+Worth a look either way.
+
 — {sender_name}
 {sender_linkedin_url}
+
+EXAMPLE B — product whose ICP includes verticals DIFFERENT from the flagship proof.
+The flagship is not the lead. It's either OMITTED entirely (often the right call) or referenced as a one-line credibility marker AFTER the vertical-level observation has earned the read. The template must not vertical-lock the body — the per-prospect renderer downstream will fill in vertical-specific detail from {credit_signal_lead}. ~110 words.
+
+Subject: One slow process at {firm}?
+
+Hi {first_name},
+{credit_signal_lead}
+
+The tools to ship that kind of fix have crossed the line from "needs a dev team" to "ship in a month". {value_offer_lead}
+
+This 4-min intake walks through what we'd actually build:
+{one_pager_url}
+
+Worth a look either way.
+
+— {sender_name}
+{sender_linkedin_url}
+
+CONTRAST — what these two examples teach
+- Example A names the flagship-style proof in one tight clause (same vertical = it transfers). Example B never mentions the flagship surface (different vertical = forcing it signals copy-paste).
+- Both lead with {credit_signal_lead} on its own paragraph — the per-prospect renderer fills this with recipient-specific evidence. The template body must NOT pre-supply a vertical-locked observation; that locks the body to one ICP and breaks reuse.
+- Both bury sender intro inside the value beat or signature; neither leads with "I'm {sender_name}, {sender_role} at {offering_name}".
+- Both end with the same single-CTA shape but the phrasing varies. Yours must vary again.
 
 WEAK example — what to avoid:
 
@@ -299,21 +329,51 @@ The template body must adapt the lead beat to the dominant allocator persona in 
 - Strategic / corporate VC: lead with commercial synergy + financial alignment
 Don't force one persona's framing onto another. The downstream per-prospect renderer will further adapt to the specific allocator's stated focus.
 
-CALIBRATION — what a strong cold first-email looks like (investor side)
+CALIBRATION — two template bodies for two different allocator personas
 
-This is the bar. Note the length (~150 words), the casual relationship-naming, the single CTA at the end, no LinkedIn URL inline interrupting the opener, structure stated plainly:
+These illustrate the SHAPE you're aiming for. The literal phrases are illustrative and you must NOT copy them into the template you write. The template body will be re-used across hundreds of allocators in different funds; identifiable lifted phrases will appear identically across all of them and break the read.
 
-Subject: {firm} ↔ {offering_name} — fit check?
+EXAMPLE A — VC partner / equity allocator (traction-led lead).
+The IC screens on growth shape, lead status, and round dynamics. Lead with the credit signal (which carries traction context), let the value offer carry the structure beat.
+
+Subject: {firm} ↔ {offering_name} — quick read?
 
 Hi {first_name},
-I'll keep this short. I'm {sender_name} working alongside {founder_name_or_sponsor} on {offering_name} — {one_line_what_the_raise_is}.
 {credit_signal_lead}
-{value_offer_lead}
-If it sits in the {asset_class} slice of your mandate, the deck is a 5-min read:
+
+Working alongside {founder_name_or_sponsor} on {offering_name} — happy to share the numbers that matter to your stage screen. {value_offer_lead}
+
+If the {asset_class} slice is still active this quarter, deck's a 5-min read:
 {pitch_deck_url}
-No reply needed if not a fit — happy to circle back when something more aligned comes through.
+
+No reply needed if it's not a fit — happy to surface something more aligned later.
+
 — {sender_name}
 {sender_linkedin_url}
+
+EXAMPLE B — Private-credit / debt allocator (structure-led lead).
+The IC screens on coverage, structure, and anchor offtake. Lead with the credit signal (which carries the deal context), let the value offer foreground the structure terms.
+
+Subject: {firm} ↔ {offering_name} — senior secured, {asset_class}
+
+Hi {first_name},
+{credit_signal_lead}
+
+Working alongside {founder_name_or_sponsor} on the facility. {value_offer_lead}
+
+Term sheet and coverage tables are in the deck — 5-min read:
+{pitch_deck_url}
+
+No reply needed if not in scope — happy to surface something more aligned later.
+
+— {sender_name}
+{sender_linkedin_url}
+
+CONTRAST — what these two examples teach
+- A leads with growth / round dynamics; B leads with deal structure. Lead with the metric the allocator's IC actually screens on.
+- Both name the relationship plainly ("Working alongside {founder_name_or_sponsor} on…") rather than hiding it behind a formal title-stack.
+- Both end with "No reply needed if not a fit" — that exact phrase is illustrative; vary the wording in your output.
+- Both use {credit_signal_lead} and {value_offer_lead} on their own beats. The downstream renderer fills these with allocator-specific evidence; the template must not pre-supply allocator-vertical text inside those slots.
 
 WEAK example — what to avoid:
 

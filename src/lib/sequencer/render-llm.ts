@@ -200,28 +200,53 @@ NEVER
 - Write "your firm" as literal text. If you don't know the firm name, reshape the sentence to avoid naming it.
 - For Funding mode: compliance-forbidden vocabulary — "tokenisation", "crypto", "RWA", "guaranteed", "risk-free".
 
-CALIBRATION — what a strong cold email looks like
+CALIBRATION — two cold emails in two different recipient situations
 
-This is the bar. Note the length, the lead, the absence of a formal sender intro, the single CTA at the end:
+These illustrate the SHAPE you're aiming for — length, where the sender intro sits, where the proof sits (or doesn't), where the CTA sits, the tone of the close. The literal phrases are illustrative and will be different in your output. If your output contains sentences lifted from these examples, you have failed: those exact phrases will then appear across hundreds of unrelated outputs and the recipient will feel the template.
 
-Subject: A faster way to fix one slow process at [Firm]
+EXAMPLE A — recipient is IN the same vertical as the sender's flagship proof.
+The proof has earned its place. Lead with a firm-specific observation (something public the recipient has done / said / shipped), then the proof in one sentence, then a recipient-grounded ask. ~120 words.
+
+Subject: One slow handoff at [Firm]?
 
 Hi [Name],
-I'll keep this short. I'm Dennis from Corporate AI Solutions — we build production AI tools for operator-led businesses, and modular construction is where we've done our sharpest work.
-We recently delivered a platform for an Australian modular builder, MMC Build — Stages 0 through 5 in 5 weeks against a 14-week schedule. Fixed price, no in-house developers needed.
-Most modular operators I talk to have at least one process — scheduling, quoting, factory-to-site handoff, compliance — that's still half-manual and quietly costing real money. If something like that comes to mind at [Firm], this AI interviewer walks you through describing it in a few minutes. No call, no commitment:
+Saw [Firm] just announced [public signal — e.g. a partnership / certification / opening]. The factory-to-site handoff layer is usually where that kind of growth bites first.
+Quick context — I'm [Sender] at [Sender Org]. We shipped an end-to-end platform for an Australian modular operator: Stages 0-5 in 5 weeks vs the 14-week baseline, fixed price.
+If a comparable handoff at [Firm] is still half-shipped, this 4-min intake describes what we'd actually build — no call, no commitment:
 [INTAKE URL]
-Either way, worth a look.
-Dennis McMahon
-Corporate AI Solutions
 
-Note what this message does NOT do: no LinkedIn URL inline, no "Director at" formal title, no multiple paragraphs of pitch, no "happy to set up a call", no asking for specific days, no "fixed-price 4-week AI Build" buzzwords stacked on each other. One specific proof, one industry-level insight, one URL.
+Worth a look either way.
+
+[Sender]
+linkedin.com/in/[sender]
+
+EXAMPLE B — recipient is in a DIFFERENT vertical from the sender's flagship proof.
+The flagship is NOT the lead. Often the right call is to omit the flagship entirely and let the vertical-level observation + intake URL do the work. When the flagship IS mentioned, it's a one-line credibility marker AFTER the recipient-vertical observation has earned the read — never the bridge sentence. ~110 words.
+
+Subject: One slow process at [Firm]?
+
+Hi [Name],
+Dispatch scheduling, route optimisation, and compliance logging are usually the three that quietly eat the most fleet-side time — and the tools to fix one of them have crossed the line from "needs a dev team" to "ship in a month".
+Quick context — I'm [Sender] at [Sender Org]. We're a small Aus build shop; recent platforms have shipped in 5-week sprints against typical 14-week schedules.
+This 4-min intake describes what we'd build for a fleet specifically — no call, no commitment:
+[INTAKE URL]
+
+Worth a look either way.
+
+[Sender]
+linkedin.com/in/[sender]
+
+CONTRAST — what these two examples teach
+- Example A's opener cites the recipient firm specifically; Example B's opener is vertical-level because we have no firm-specific signal. Both lead with the recipient, not the sender.
+- Example A names the flagship proof (same vertical = relevant). Example B alludes to "5-week sprints" without naming the modular flagship (different vertical = forcing it would signal copy-paste).
+- Both bury the sender intro inside one sentence ("Quick context — I'm…"). Neither leads with "Dennis McMahon here, Director at…" — that pattern is what kills the read.
+- Both end with the same single low-commitment CTA shape, but the phrasing varies. Your version should vary again.
 
 WEAK example — what to avoid:
 
 "Hi Kevin — Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl). We build fixed-price AI tools for operator-led businesses in 4 weeks. Built MMC Build, our flagship modular construction platform (compliance engine, design optimisation, cost estimation). Happy to run a free 2-week pilot on one of your projects. 4-week intake walks through how a build would work: [URL] — Dennis"
 
-Why it's weak: formal intro + LinkedIn URL eats the first sentence, "fixed-price AI tools" is buzzword soup, the proof is pitched not earned, the offer ("free pilot") feels generic, the message reads as a templated outreach instead of one human writing to another.
+Why it's weak: formal intro + LinkedIn URL parenthetical eats the first sentence, "fixed-price AI tools" is buzzword soup, the proof is pitched not earned, the offer ("free pilot") feels generic, and the message reads as templated outreach instead of one human writing to another.
 
 OUTPUT — return ONLY this JSON, no fences, no prose:
 {
