@@ -279,7 +279,7 @@ export async function scoreAndUpsertCandidate(
     // actionable. Same translation pattern used in the sequence generator
     // (see [[clarify-over-fail]] memory — never surface raw aborts).
     const message = /aborted|timeout/i.test(raw)
-      ? `Scoring took >10s for this candidate — usually an OpenRouter congestion spike. Click "Find Investors" again to retry the failed ones (already-scored candidates skip automatically).`
+      ? `Scoring took >10s for this candidate — usually an OpenRouter congestion spike. Click the discover button again to retry the failed ones (already-scored candidates skip automatically).`
       : raw;
     return {
       company_name: candidate.name,

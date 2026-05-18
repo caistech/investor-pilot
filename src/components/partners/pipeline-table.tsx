@@ -825,7 +825,7 @@ export function PipelineTable({
             value={runFilter}
             onChange={(e) => { setRunFilter(e.target.value); setSelected(new Set()); }}
             className="bg-dark-800 border border-dark-700 rounded-lg px-3 py-2 text-sm text-dark-300 focus:border-corp-green-500 focus:outline-none"
-            title="Filter by discovery run — shows only prospects first surfaced by the chosen Find Investors run"
+            title="Filter by discovery run — shows only prospects first surfaced by the chosen discovery run"
           >
             <option value="all">All runs</option>
             {runsForFilter.map(r => (

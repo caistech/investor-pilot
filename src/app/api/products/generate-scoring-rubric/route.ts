@@ -107,6 +107,6 @@ export async function POST(request: Request) {
     icp_partner_type: result.icp_partner_type,
     icp_reject_categories: result.icp_reject_categories,
     icp_special_cases: result.icp_special_cases,
-    next_step: 'Click "Find Investors" on this product to run a discovery batch using the new rubric.',
+    next_step: 'Click "Find Buyers" on this product to run a discovery batch using the new rubric.',
   });
 }

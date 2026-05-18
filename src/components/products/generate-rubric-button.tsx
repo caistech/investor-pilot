@@ -68,7 +68,7 @@ export function GenerateRubricButton({
         setError(data.error || data.reason || `HTTP ${res.status}`);
         return;
       }
-      setSuccess(`Scoring rubric saved (${data.icp_categories.length} categories, ${data.icp_reject_categories.length} reject categories). You can run Find Investors now.`);
+      setSuccess(`Scoring rubric saved (${data.icp_categories.length} categories, ${data.icp_reject_categories.length} reject categories). You can run ${isProject ? 'Find Investors' : 'Find Buyers'} now.`);
       router.refresh();
       onSuccess?.();
     } catch (err) {

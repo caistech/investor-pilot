@@ -183,7 +183,7 @@ export function PoolSummaryView({ kind, ownerName, subline, summary, partnersHre
             <li className="text-dark-500">
               {kind === 'project'
                 ? 'Run a Find Investors discovery to populate the pool.'
-                : 'Run a discovery to populate the pool.'}
+                : 'Run a Find Buyers discovery to populate the pool.'}
             </li>
           ) : (
             <>
