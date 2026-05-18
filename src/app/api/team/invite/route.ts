@@ -1,31 +1,32 @@
 /**
  * POST /api/team/invite
  *
- * Owner / admin invites a new team member by email. Uses Supabase Auth's
- * inviteUserByEmail under the hood so the invitee gets a branded email
- * (via the org-configured Resend SMTP — sender
- * noreply@updates.corporateaisolutions.com per the global rule), clicks
- * the link, sets a password, and lands in the dashboard already joined
- * to the inviter's org with role=member.
+ * Owner / admin creates a pending invitation in org_invitations and emails
+ * the invitee a /invite/accept?token=<token> link branded for the
+ * inviter's org. The Supabase Auth inviteUserByEmail path (used pre-029)
+ * couldn't invite existing auth users — this token-based flow works for
+ * both fresh + existing accounts.
  *
- * The organisation_id + role are stashed in user_metadata so the
- * /auth/callback handler (which runs on first sign-in) knows to JOIN
- * them to the existing org rather than spin up a fresh one.
+ * Body: { email: string, role?: 'admin' | 'member' }
+ * Returns: { ok: true, invitation_id: string, expires_at: string }
  */
 
 import { NextResponse } from 'next/server';
+import crypto from 'crypto';
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { createClient as createServiceClient } from '@supabase/supabase-js';
-
-const supabaseAdmin = createServiceClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } },
-);
+import { sendEmail } from '@/lib/email/resend';
 
 export async function POST(request: Request) {
-  const { user, db, error } = await authenticateAndGetDb();
+  const { user, db, orgId, role: callerRole, error } = await authenticateAndGetDb();
   if (error) return error;
+
+  if (!orgId) {
+    return NextResponse.json({ error: 'No active organisation' }, { status: 400 });
+  }
+
+  if (callerRole !== 'owner' && callerRole !== 'admin') {
+    return NextResponse.json({ error: 'Only owners and admins can invite team members' }, { status: 403 });
+  }
 
   const { email, role: requestedRole } = (await request.json()) as {
     email?: string;
@@ -36,48 +37,111 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'valid email required' }, { status: 400 });
   }
 
-  const { data: profile } = await db
+  // Owners can grant admin; admins can only invite as member.
+  const inviteRole = callerRole === 'owner' && requestedRole === 'admin' ? 'admin' : 'member';
+
+  const normalisedEmail = email.trim().toLowerCase();
+
+  // Reject duplicates: if a pending (un-accepted, un-revoked, un-expired)
+  // invitation already exists for this email + org, surface it rather
+  // than creating a second token. Operator can revoke + reissue if they
+  // actually want a new token.
+  const { data: existing } = await db!
+    .from('org_invitations')
+    .select('id, token, expires_at')
+    .eq('organisation_id', orgId)
+    .eq('email', normalisedEmail)
+    .is('accepted_at', null)
+    .is('revoked_at', null)
+    .gt('expires_at', new Date().toISOString())
+    .maybeSingle();
+
+  if (existing) {
+    return NextResponse.json({
+      ok: true,
+      invitation_id: existing.id,
+      expires_at: existing.expires_at,
+      already_pending: true,
+    });
+  }
+
+  const token = crypto.randomBytes(24).toString('hex');
+  const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: invitation, error: insertError } = await db!
+    .from('org_invitations')
+    .insert({
+      token,
+      email: normalisedEmail,
+      organisation_id: orgId,
+      role: inviteRole,
+      invited_by: user!.id,
+      expires_at: expiresAt,
+    })
+    .select('id, expires_at')
+    .single();
+
+  if (insertError) {
+    return NextResponse.json({ error: insertError.message }, { status: 500 });
+  }
+
+  // Fetch org + inviter name for the email body.
+  const { data: org } = await db!
+    .from('organisations')
+    .select('name')
+    .eq('id', orgId)
+    .single();
+  const { data: inviterProfile } = await db!
     .from('profiles')
-    .select('organisation_id, role')
+    .select('full_name, email')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
-    return NextResponse.json({ error: 'No organisation' }, { status: 400 });
-  }
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://investor-pilot-pi.vercel.app';
+  const acceptUrl = `${baseUrl}/invite/accept?token=${token}`;
+  const inviterName = inviterProfile?.full_name || inviterProfile?.email || 'Your colleague';
+  const orgName = org?.name || 'an organisation';
 
-  if (profile.role !== 'owner' && profile.role !== 'admin') {
-    return NextResponse.json({ error: 'Only owners and admins can invite team members' }, { status: 403 });
-  }
+  const subject = `${inviterName} invited you to ${orgName} on InvestorPilot`;
+  const body = `Hi,
 
-  // Owners can grant admin; admins can only invite as member.
-  const role = profile.role === 'owner' && requestedRole === 'admin' ? 'admin' : 'member';
+${inviterName} has invited you to join ${orgName} on InvestorPilot as a ${inviteRole}.
 
-  const redirectTo = `${process.env.NEXT_PUBLIC_APP_URL || 'https://investor-pilot-pi.vercel.app'}/auth/callback`;
+Click here to accept the invitation:
+${acceptUrl}
 
-  const { data, error: inviteError } = await supabaseAdmin.auth.admin.inviteUserByEmail(email, {
-    data: {
-      organisation_id: profile.organisation_id,
-      role,
-      invited_by: user!.id,
-    },
-    redirectTo,
+This link expires in 7 days. If you don't have an InvestorPilot account yet, the link will guide you through signup.
+
+If you weren't expecting this invitation, you can safely ignore this email.
+
+— InvestorPilot
+https://investor-pilot-pi.vercel.app`;
+
+  const { error: sendError } = await sendEmail({
+    to: normalisedEmail,
+    subject,
+    body,
   });
 
-  if (inviteError) {
-    // Treat "already registered" as a soft case — surface to caller.
-    return NextResponse.json({ error: inviteError.message }, { status: 400 });
+  if (sendError) {
+    // Don't fail the request — invitation row is in DB, operator can
+    // resend or copy the link manually from /settings/team if needed.
+    console.error('[team/invite] Email send failed:', sendError);
   }
 
-  // Audit trail.
-  await supabaseAdmin.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+  await db!.from('audit_events').insert({
+    organisation_id: orgId,
     actor: `user:${user!.id}`,
     action: 'team.invited',
-    resource_type: 'auth_user',
-    resource_id: data.user?.id || null,
-    payload: { email, role },
+    resource_type: 'org_invitation',
+    resource_id: invitation.id,
+    payload: { email: normalisedEmail, role: inviteRole },
   });
 
-  return NextResponse.json({ ok: true, invited_user_id: data.user?.id, email, role });
+  return NextResponse.json({
+    ok: true,
+    invitation_id: invitation.id,
+    expires_at: invitation.expires_at,
+    email_sent: !sendError,
+  });
 }

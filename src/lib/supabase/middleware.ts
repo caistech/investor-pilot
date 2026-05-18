@@ -70,10 +70,19 @@ export async function updateSession(request: NextRequest) {
   // Webhooks come from third-party servers (Resend, Unipile) with no
   // Supabase auth cookie; they validate themselves via svix signature
   // (Resend) or shared-secret header (Unipile) inside the route handler.
+  // /api/team/invite/<token> GET is public (the /invite/accept page fetches
+  // invitation metadata before the recipient is signed in). The route
+  // handler itself rejects POST/DELETE without auth. POST is also
+  // protected by the user-email match check inside the handler.
+  const isPublicInviteGet =
+    request.method === 'GET' &&
+    /^\/api\/team\/invite\/[^\/]+$/.test(path);
+
   if (
     path.startsWith('/api') &&
     !path.startsWith('/api/auth') &&
-    !path.startsWith('/api/webhooks')
+    !path.startsWith('/api/webhooks') &&
+    !isPublicInviteGet
   ) {
     if (!user) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });

@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { Users, Mail, UserPlus, Link2, Trash2, ArrowLeft, ShieldCheck, Loader2, AlertCircle } from 'lucide-react';
+import { useParams } from 'next/navigation';
+import { Users, Mail, UserPlus, Link2, Trash2, ArrowLeft, ShieldCheck, Loader2, AlertCircle, Clock, LogOut } from 'lucide-react';
 
 interface Member {
   id: string;
@@ -14,8 +15,23 @@ interface Member {
   is_self: boolean;
 }
 
+interface PendingInvitation {
+  id: string;
+  token: string;
+  email: string;
+  role: 'owner' | 'admin' | 'member';
+  invited_by: string | null;
+  created_at: string;
+  expires_at: string;
+}
+
 export default function TeamSettingsPage() {
+  const params = useParams<{ slug: string }>();
+  const slug = params?.slug;
+  const settingsHref = slug ? `/org/${slug}/settings` : '/settings';
+
   const [members, setMembers] = useState<Member[]>([]);
+  const [invitations, setInvitations] = useState<PendingInvitation[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [inviteEmail, setInviteEmail] = useState('');
@@ -32,12 +48,20 @@ export default function TeamSettingsPage() {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch('/api/team/members');
-      if (!res.ok) throw new Error((await res.json()).error || 'Failed to load team');
-      const json = (await res.json()) as { members: Member[] };
-      setMembers(json.members);
-      const self = json.members.find((m) => m.is_self);
+      const [membersRes, invitationsRes] = await Promise.all([
+        fetch('/api/team/members'),
+        fetch('/api/team/invitations'),
+      ]);
+      if (!membersRes.ok) throw new Error((await membersRes.json()).error || 'Failed to load team');
+      const membersJson = (await membersRes.json()) as { members: Member[] };
+      setMembers(membersJson.members);
+      const self = membersJson.members.find((m) => m.is_self);
       setCurrentRole(self?.role ?? null);
+
+      if (invitationsRes.ok) {
+        const invitationsJson = (await invitationsRes.json()) as { invitations: PendingInvitation[] };
+        setInvitations(invitationsJson.invitations);
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -58,7 +82,13 @@ export default function TeamSettingsPage() {
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || 'Invite failed');
-      setMessage(`Invite sent to ${inviteEmail}. They'll get an email from noreply@updates.corporateaisolutions.com with a link to set their password and join the team.`);
+      if (json.already_pending) {
+        setMessage(`${inviteEmail} already has a pending invitation. They can still use the link in their first email — or revoke it below to send a fresh one.`);
+      } else if (json.email_sent === false) {
+        setMessage(`Invitation created for ${inviteEmail}, but the email didn't send. Copy the accept link from the Pending invitations list below.`);
+      } else {
+        setMessage(`Invite sent to ${inviteEmail}. They'll get an email with a link to join the team.`);
+      }
       setInviteEmail('');
       void load();
     } catch (e) {
@@ -85,7 +115,7 @@ export default function TeamSettingsPage() {
   }
 
   async function handleRemove(memberId: string, memberLabel: string) {
-    if (!confirm(`Remove ${memberLabel} from the team? Their LinkedIn / email channels will be revoked so the sequencer stops sending via them. Their auth account stays — you can re-invite them later.`)) {
+    if (!confirm(`Remove ${memberLabel} from the team? Their LinkedIn / email channels in this org will be revoked so the sequencer stops sending via them. They keep their account and their access to any other orgs they belong to.`)) {
       return;
     }
     setError(null);
@@ -99,12 +129,38 @@ export default function TeamSettingsPage() {
     }
   }
 
+  async function handleLeaveOrg(selfId: string) {
+    if (!confirm('Leave this organisation? You’ll lose access to its data; the inviter can add you back later. Your other orgs are unaffected.')) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/members/${selfId}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Leave failed');
+      window.location.href = '/dashboard';
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
+  async function handleRevoke(token: string, email: string) {
+    if (!confirm(`Revoke the pending invitation for ${email}? Their accept link will stop working.`)) return;
+    setError(null);
+    try {
+      const res = await fetch(`/api/team/invite/${token}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error || 'Revoke failed');
+      void load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }
+
   const canManage = currentRole === 'owner' || currentRole === 'admin';
   const canChangeRoles = currentRole === 'owner';
 
   return (
     <div>
-      <Link href="/settings" className="flex items-center gap-2 text-dark-400 hover:text-white mb-6 text-sm">
+      <Link href={settingsHref} className="flex items-center gap-2 text-dark-400 hover:text-white mb-6 text-sm">
         <ArrowLeft className="w-4 h-4" /> Back to settings
       </Link>
 
@@ -133,7 +189,7 @@ export default function TeamSettingsPage() {
             <UserPlus className="w-5 h-5 text-corp-green-400" /> Invite a teammate
           </h3>
           <p className="text-dark-400 text-sm mb-4">
-            They&apos;ll receive a branded email from <span className="text-dark-300">noreply@updates.corporateaisolutions.com</span> with a link to set their password and land in this dashboard.
+            They&apos;ll receive an email with a link to join this team. Works for existing InvestorPilot accounts as well as brand-new ones.
           </p>
           <form onSubmit={handleInvite} className="flex flex-wrap gap-3 items-end">
             <div className="flex-1 min-w-[240px]">
@@ -164,6 +220,35 @@ export default function TeamSettingsPage() {
               {inviting ? <><Loader2 className="w-4 h-4 animate-spin inline mr-2" /> Sending…</> : 'Send invite'}
             </button>
           </form>
+        </div>
+      )}
+
+      {invitations.length > 0 && (
+        <div className="card mb-8">
+          <h3 className="mb-3 flex items-center gap-2">
+            <Clock className="w-5 h-5 text-amber-400" /> Pending invitations
+          </h3>
+          <div className="space-y-2">
+            {invitations.map((inv) => (
+              <div key={inv.id} className="flex items-center gap-3 p-3 bg-dark-800 rounded-lg">
+                <Mail className="w-4 h-4 text-dark-500" />
+                <div className="flex-1 min-w-0">
+                  <div className="font-medium truncate">{inv.email}</div>
+                  <div className="text-xs text-dark-500">
+                    Invited as <span className="uppercase tracking-wide">{inv.role}</span> · expires {new Date(inv.expires_at).toLocaleDateString()}
+                  </div>
+                </div>
+                {canManage && (
+                  <button
+                    onClick={() => handleRevoke(inv.token, inv.email)}
+                    className="text-red-400 hover:text-red-300 text-xs px-2 py-1 border border-red-500/30 rounded"
+                  >
+                    Revoke
+                  </button>
+                )}
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
@@ -229,6 +314,16 @@ export default function TeamSettingsPage() {
                       <Trash2 className="w-4 h-4" />
                     </button>
                   )}
+
+                  {m.is_self && m.role !== 'owner' && (
+                    <button
+                      onClick={() => handleLeaveOrg(m.id)}
+                      className="text-amber-400 hover:text-amber-300 inline-flex items-center gap-1 text-xs px-2 py-1 border border-amber-500/30 rounded"
+                      title="Leave this organisation"
+                    >
+                      <LogOut className="w-3 h-3" /> Leave
+                    </button>
+                  )}
                 </div>
               );
             })}
@@ -242,7 +337,7 @@ export default function TeamSettingsPage() {
           <li>Templates, products, projects, knowledge base, and prospects are <strong>shared</strong> across the org — every member sees the same data.</li>
           <li>Each member connects their <strong>own LinkedIn + email</strong> on the Channels page. The sequencer picks the right member&apos;s account when sending steps they created.</li>
           <li>If a member&apos;s channel disconnects, their steps wait (no fallback to another member&apos;s account) so the recipient always sees the expected sender.</li>
-          <li>Admins can invite others as members. Only owners can promote to admin/owner or remove members.</li>
+          <li>Admins can invite others as members. Only owners can promote to admin/owner or remove members. Members can leave the org themselves.</li>
         </ul>
       </div>
     </div>
