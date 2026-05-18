@@ -1,30 +1,28 @@
 import { createServerClient } from '@supabase/ssr';
+import type { SupabaseClient } from '@supabase/supabase-js';
 import { NextResponse, type NextRequest } from 'next/server';
 
-// Middleware runs in the Edge runtime by default; next/cache's
-// `unstable_cache` is not supported there and triggers
-// MIDDLEWARE_INVOCATION_FAILED at runtime. The slug→id lookup is one
-// cheap PostgREST call per /org/[slug]/* request — acceptable cost vs
-// the cache. If profiling shows the overhead matters, switch to a
-// Vercel Edge KV / Upstash cache (Edge-compatible), not unstable_cache.
+// Slug → organisation_id lookup. Uses the authenticated user's
+// supabase client (not the anon key) because RLS on the organisations
+// table restricts SELECT to members. The previous implementation
+// fetched with the raw anon key + wrapped the result in
+// next/cache's unstable_cache; both were broken — unstable_cache
+// isn't supported in Edge-runtime middleware (causes
+// MIDDLEWARE_INVOCATION_FAILED on cold instances), and the anon-key
+// fetch returns [] under the current RLS policies so the lookup
+// silently returned null for every authenticated user → "Org not
+// found" 404 on /org/[slug]/* navigation. The user-scoped client
+// passes RLS for their own memberships, which is what we want here.
 async function slugLookup(
+  supabase: SupabaseClient,
   slug: string,
-  anonKey: string,
-  supabaseUrl: string,
 ): Promise<string | null> {
-  const res = await fetch(
-    `${supabaseUrl}/rest/v1/organisations?slug=eq.${encodeURIComponent(slug)}&select=id&limit=1`,
-    {
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${anonKey}`,
-      },
-      cache: 'no-store',
-    },
-  );
-  if (!res.ok) return null;
-  const rows = (await res.json()) as Array<{ id: string }>;
-  return rows[0]?.id ?? null;
+  const { data } = await supabase
+    .from('organisations')
+    .select('id')
+    .eq('slug', slug)
+    .maybeSingle();
+  return (data?.id as string) ?? null;
 }
 
 export async function updateSession(request: NextRequest) {
@@ -147,11 +145,7 @@ export async function updateSession(request: NextRequest) {
   const orgMatch = path.match(/^\/org\/([^\/]+)(\/|$)/);
   if (orgMatch && user) {
     const slug = orgMatch[1];
-    const orgId = await slugLookup(
-      slug,
-      process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-      process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    );
+    const orgId = await slugLookup(supabase, slug);
 
     if (!orgId) {
       return new NextResponse('Org not found', { status: 404 });
