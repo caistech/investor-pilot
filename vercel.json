@@ -3,6 +3,10 @@
     {
       "path": "/api/cron/sequencer",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/drain-send-queue",
+      "schedule": "*/15 * * * *"
     }
   ],
   "functions": {

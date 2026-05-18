@@ -727,6 +727,40 @@ export function PipelineTable({
     }
   }
 
+  async function bulkDelete() {
+    if (selectedPartners.length === 0) return;
+    const n = selectedPartners.length;
+    const sample = selectedPartners.slice(0, 3).map(p => `${p.contact_name || p.company_name}`).join(', ');
+    const more = n > 3 ? ` and ${n - 3} more` : '';
+    const confirmMsg = `PERMANENTLY DELETE ${n} prospect${n === 1 ? '' : 's'}?\n\n` +
+      `${sample}${more}\n\n` +
+      `This removes the partner row + any associated sequence_steps + outbound_messages (FK cascade). No recovery. Type-check the selection before confirming.`;
+    if (!confirm(confirmMsg)) return;
+
+    setLoading('delete');
+    setNextCta(null);
+    setMessage(`Deleting ${n} prospect${n === 1 ? '' : 's'}…`);
+    try {
+      const res = await fetch('/api/partners/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setMessage(`Error: ${data.error || 'delete failed'}`);
+        return;
+      }
+      setMessage(`Deleted ${data.deleted ?? n} prospect${(data.deleted ?? n) === 1 ? '' : 's'}. Refresh to see the table update.`);
+      setSelected(new Set());
+      router.refresh();
+    } catch (err) {
+      setMessage(`Error: ${err instanceof Error ? err.message : String(err)}`);
+    } finally {
+      setLoading(null);
+    }
+  }
+
   async function batchAssignSequences() {
     if (selectedPartners.length === 0) return;
     const firstDegreeCount = selectedPartners.filter(p => p.network_distance === '1st').length;
@@ -1147,6 +1181,15 @@ export function PipelineTable({
               >
                 {loading === 'reset' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Restart plan'}
                 <span className="text-xs text-dark-500 ml-1">(if wrong template assigned)</span>
+              </button>
+              <button
+                onClick={bulkDelete}
+                disabled={loading !== null}
+                className="text-red-400 hover:text-red-300 underline underline-offset-2 disabled:opacity-50"
+                title="Hard-delete the selected prospects. Removes the partner rows + any associated sequence_steps + outbound_messages (FK cascade). No recovery — confirm carefully."
+              >
+                {loading === 'delete' ? <Loader2 className="w-3 h-3 animate-spin inline" /> : 'Delete prospects'}
+                <span className="text-xs text-dark-500 ml-1">(permanent — clears dead contacts)</span>
               </button>
             </div>
           </div>
