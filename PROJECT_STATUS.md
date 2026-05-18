@@ -1,6 +1,6 @@
 # InvestorPilot — Project Status
 
-Last updated: 2026-05-18 AEST (end of day — includes teams iteration)
+Last updated: 2026-05-18 AEST (evening continuation — localisation verified end-to-end; 7-bug cascade fixed; Teams pending accept click)
 
 ## Current State
 
@@ -102,25 +102,65 @@ live email delivery.
 
 ## Verify first thing next session
 
-1. **Auto-localisation end-to-end** — geography_hint fix shipped 2026-05-18
-   but not yet verified on a live Vietnamese prospect. Render one
-   Vietnam-category prospect (Tra Hoang, Duc Luu, Ngoc Nam Nguyen),
-   check Vercel logs for `[render] localisation check for X:
-   geography_hint=… → target_language=Vietnamese` and `translation to
-   Vietnamese succeeded`. Confirm VIETNAMESE badge in approvals queue
-   header and that clicking "English version" toggle works.
-2. **Teams smoke test** — code + routes + Supabase email templates all
-   verified, but no real human invite has been accepted yet. At
-   `/settings/team`, invite a test email (alt address), confirm the
-   email arrives branded "InvestorPilot", set password, land joined
-   to the org as member, connect a LinkedIn via /channels, run
-   render-now and confirm the sequencer uses the new member's
-   account (not the owner's).
+1. ~~Auto-localisation end-to-end~~ **DONE 2026-05-18 evening.** Tra Hoang
+   (cron-triggered render) and Ngoc Nam Nguyen (UI Regenerate) both
+   produced Vietnamese drafts with `evidence_refs.target_language='Vietnamese'`
+   and proper diacritics. Required an orphan-context fix
+   (`05c6e67`) — `loadOfferingContext` was returning null for partners
+   with no project/product link, killing the localisation pipeline.
+2. **Teams smoke test — BLOCKED on operator accept click.** Invitation
+   row created (`mcmdennis@gmail.com` invited to `61d43eaf` by
+   `dennis@factory2key.com.au`). Branded "InvestorPilot" email from
+   `noreply@updates.corporateaisolutions.com` sent successfully (the
+   bare-domain `RESEND_FROM_EMAIL` was silently rejecting before — now
+   fixed). Operator signed in as mcmdennis but did NOT click the green
+   "Accept and join" button. To resume, open this URL signed in as
+   mcmdennis (token valid until 2026-05-25):
+   `https://investor-pilot-pi.vercel.app/invite/accept?token=401be86cce7e6cbaec6940fef5dc38b2068fce6e57b3f8af`
+   Click the green button → land at `/org/global-buildtech-australia-mnwnuyq6/dashboard` →
+   switch back to dennis@factory2key.com.au and refresh /settings/team
+   to confirm membership row + invite-gone-from-pending.
 3. **Resend webhook configuration** — operator action: in Resend
    dashboard, add endpoint `https://investor-pilot-pi.vercel.app/api/webhooks/resend`,
    enable events (`email.bounced`, `email.complained`,
    `email.delivery_delayed`, `email.delivered`), copy signing secret
-   into Vercel env `RESEND_WEBHOOK_SECRET` for all envs.
+   into Vercel env `RESEND_WEBHOOK_SECRET` for all envs. Now actually
+   reachable since the middleware webhook allowlist shipped earlier.
+
+## Bug-fix cascade from 2026-05-18 evening session
+
+Bugs surfaced (most pre-existing, some introduced earlier the same day)
+while verifying item 1 above. All fixed and pushed to `main`:
+
+- `05c6e67` — orphan-localisation pass-through in `loadOfferingContext`
+- `1ca4bb3` — `useSearchParams` Suspense boundary on /invite/accept
+  (production deploys had been failing for ~1h since Lane D)
+- `4b90971` — middleware allowlist for `/api/cron/*` (cron silently
+  401-ing for days)
+- `38d5aed` — Regenerate API + Approvals client carry
+  target_language/outreach_tier/original_* so badge refreshes inline
+- `24e80b5` — middleware no longer uses `next/cache`'s
+  `unstable_cache` (not Edge-runtime compatible → MIDDLEWARE_INVOCATION_FAILED)
+- `857d303` — middleware slug→id lookup uses authenticated supabase
+  client (anon hit RLS, always returned null → "Org not found")
+- `1d224a3` — settings page + 5 settings routes migrated off the
+  ambiguous `organisations(*)` relational shorthand and off legacy
+  `profile.organisation_id` reads/writes
+
+Vercel env-var corrections in same session: `CRON_SECRET` was stored
+as empty `""` (re-set to real value); `RESEND_FROM_EMAIL` was on the
+bare domain `corporateaisolutions.com` which is NOT Resend-verified
+(re-set to `noreply@updates.corporateaisolutions.com`).
+
+## Multi-org legacy column audit pending
+
+53 files still read `profile.organisation_id` (legacy column) instead
+of `active_organisation_id`. Latent — symptom only emerges when a
+user switches between orgs (currently every user has
+`active_organisation_id = organisation_id`, so no divergence). Settings
+surface is migrated; the rest is opportunistic ("if you touch the file
+for any reason, migrate it as part of the change"). See
+`~/.claude/projects/.../memory/project_multi_org_legacy_column_audit.md`.
 
 ## Priority for next session
 
