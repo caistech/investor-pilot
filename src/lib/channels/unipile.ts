@@ -27,6 +27,7 @@ import {
   type ListAccountsResult,
   type CreateHostedAuthLinkResult,
 } from '@caistech/unipile-channels';
+import { createServiceClient } from '@/lib/supabase/server';
 
 export type {
   LinkedInConnectInput,
@@ -52,19 +53,71 @@ if (!process.env.UNIPILE_API_KEY && process.env.NODE_ENV === 'production') {
   console.warn('[unipile] UNIPILE_API_KEY not set — channel sends will fail');
 }
 
-let cachedClient: UnipileClient | null = null;
+// BYOK: per-org Unipile credentials live in organisations.unipile_api_key.
+// resolveUnipileCredentials(orgId) returns the org's key when set (agency
+// tier), otherwise falls back to the platform-wide env var. Clients are
+// cached per apiKey so we don't reinstantiate on every request, but the
+// cache is keyed on the resolved key (not the org id), so the platform
+// shared key is one cached client and each BYOK org is its own.
+const clientCache = new Map<string, UnipileClient>();
+
+export async function resolveUnipileCredentials(orgId?: string): Promise<{
+  apiKey: string | null;
+  baseUrl: string | undefined;
+  source: 'org' | 'env' | 'none';
+}> {
+  if (orgId) {
+    const admin = createServiceClient();
+    const { data: org } = await admin
+      .from('organisations')
+      .select('unipile_api_key')
+      .eq('id', orgId)
+      .maybeSingle();
+    if (org?.unipile_api_key) {
+      return {
+        apiKey: org.unipile_api_key,
+        baseUrl: process.env.UNIPILE_BASE_URL,
+        source: 'org',
+      };
+    }
+  }
+  const envKey = process.env.UNIPILE_API_KEY ?? null;
+  return {
+    apiKey: envKey,
+    baseUrl: process.env.UNIPILE_BASE_URL,
+    source: envKey ? 'env' : 'none',
+  };
+}
+
+function clientFor(apiKey: string, baseUrl: string | undefined): UnipileClient {
+  const cacheKey = `${apiKey}|${baseUrl ?? ''}`;
+  const cached = clientCache.get(cacheKey);
+  if (cached) return cached;
+  const client = createUnipileClient({ apiKey, baseUrl });
+  clientCache.set(cacheKey, client);
+  return client;
+}
 
 function getClient(): UnipileClient {
-  if (cachedClient) return cachedClient;
   const apiKey = process.env.UNIPILE_API_KEY;
   if (!apiKey) {
     throw new Error('UNIPILE_API_KEY env var is not set');
   }
-  cachedClient = createUnipileClient({
-    apiKey,
-    baseUrl: process.env.UNIPILE_BASE_URL,
-  });
-  return cachedClient;
+  return clientFor(apiKey, process.env.UNIPILE_BASE_URL);
+}
+
+/**
+ * Org-scoped Unipile client. Used by routes that have an org context
+ * (most do, via authenticateAndGetDb). When the org has its own key set,
+ * this returns a client wired to that key; otherwise falls back to the
+ * platform shared key. Throws if neither is set.
+ */
+export async function getClientForOrg(orgId: string): Promise<UnipileClient> {
+  const { apiKey, baseUrl, source } = await resolveUnipileCredentials(orgId);
+  if (!apiKey) {
+    throw new Error(`No Unipile credentials available — set per-org key in /settings/integrations (source=${source})`);
+  }
+  return clientFor(apiKey, baseUrl);
 }
 
 // =============================================================================
@@ -109,18 +162,23 @@ export async function createHostedAuthLink(opts: {
   user_id?: string;
   return_url: string;
 }): Promise<CreateHostedAuthLinkResult> {
-  // Preserve the precise env-error messages that the connect UI expects.
-  if (!process.env.UNIPILE_API_KEY) {
-    return { ok: false, error: 'UNIPILE_API_KEY env var is not set on the server' };
+  if (!process.env.NEXT_PUBLIC_APP_URL) {
+    return { ok: false, error: 'NEXT_PUBLIC_APP_URL env var is not set — needed for webhook notify URL' };
   }
-  if (!process.env.UNIPILE_BASE_URL) {
+
+  // BYOK: resolve per-org Unipile credentials. If the org has its own key
+  // (set via /settings/integrations), the hosted auth link is generated in
+  // their tenant — the new account lands directly in their Unipile
+  // workspace and they bear the cost / risk in isolation.
+  const { apiKey, baseUrl, source } = await resolveUnipileCredentials(opts.organisation_id);
+  if (!apiKey) {
+    return { ok: false, error: 'No Unipile credentials available — set your org\'s key in /settings/integrations' };
+  }
+  if (!baseUrl) {
     return {
       ok: false,
       error: 'UNIPILE_BASE_URL env var is not set. Each Unipile account has its own DSN (Data Source Name) URL — find yours in the Unipile dashboard (typically https://apiX.unipile.com:13XXX) and set UNIPILE_BASE_URL to that value in Vercel and locally.',
     };
-  }
-  if (!process.env.NEXT_PUBLIC_APP_URL) {
-    return { ok: false, error: 'NEXT_PUBLIC_APP_URL env var is not set — needed for webhook notify URL' };
   }
 
   // Encode org_id:user_id in the Unipile `name` field so the webhook can
@@ -130,7 +188,9 @@ export async function createHostedAuthLink(opts: {
     ? `${opts.organisation_id}:${opts.user_id}`
     : opts.organisation_id;
 
-  return getClient().createHostedAuthLink({
+  const client = clientFor(apiKey, baseUrl);
+  void source;
+  return client.createHostedAuthLink({
     provider: opts.provider,
     name,
     return_url: opts.return_url,
