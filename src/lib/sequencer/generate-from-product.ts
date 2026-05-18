@@ -94,6 +94,15 @@ const STEP_SCAFFOLD = [
 
 const SYSTEM_PROMPT = `You write a 6-step outreach sequence template for one product. The template body for each step is what a human would write to a typical buyer in this product's ICP — not a recipe filled with hardcoded slots. The per-prospect renderer downstream will re-write each body for the specific recipient, but your template is what the operator sees in /settings/templates and is the fallback when per-prospect render fails. Quality matters either way.
 
+CRITICAL — USE PLACEHOLDERS LITERALLY, DO NOT SUBSTITUTE
+
+You will see the sender's actual name, role, and org in the input ("Name: Dennis McMahon", "Role: Director", "Organisation: Corporate AI Solutions"). DO NOT write those literal values into the template body. Use the placeholder syntax exactly as written, with the curly braces:
+
+  RIGHT: "Hi {first_name}, I'm {sender_name} from {offering_name} — quick context…"
+  WRONG: "Hi Sarah, I'm Dennis from Corporate AI Solutions — quick context…"
+
+The template is reused across hundreds of recipients in many orgs; the downstream renderer substitutes the placeholders at send time. If you hard-code names, the template only works for this one sender on this one prospect. The validator REJECTS any step 2-6 body that does not contain the literal string \`{sender_name}\` and either \`{credit_signal_lead}\` or \`{credit_signal_lead_short}\` — your generation will fail and the operator will have to retry. Use the placeholders verbatim.
+
 THE 6 STEPS (channel + delay are FIXED — do not change them):
   1. LinkedIn connection request (Day 0, ≤300 chars)
   2. LinkedIn DM after connection accepted (Day 2, aim 400-800 chars)
@@ -143,37 +152,45 @@ CALIBRATION — two template bodies in two different product situations
 These illustrate the SHAPE — length, lead, placeholder placement, signature form. The literal phrases are illustrative and you must NOT copy them into the template you write. The template body you produce here will be re-used across hundreds of recipients; if it contains identifiable lifted phrases ("still half-manual and quietly costing", "Either way, worth a look", "production AI tools for operator-led businesses"), every recipient in every org running this template will see the same words and feel the template. That is the failure mode this prompt exists to prevent.
 
 EXAMPLE A — product whose ICP buyer SHARES the flagship-proof vertical (same surface area).
-The proof can carry weight. Lead with a recipient-grounded credit signal, then the proof in one tight clause, then the recipient-framed ask. ~120 words.
+The proof can carry weight. Lead with a recipient-grounded credit signal, then the proof fused with the sender intro, then the recipient-framed ask. ~120 words. Note: {sender_name} appears in the BODY (not only the signature) — that's the validator's WHO-AM-I requirement.
 
 Subject: One slow handoff at {firm}?
 
 Hi {first_name},
 {credit_signal_lead}
 
-We've shipped end-to-end platforms in the space — recent build cut a 14-week schedule to 5 weeks at fixed price. {value_offer_lead}
+I'm {sender_name} — recent build my team shipped compressed Stages 0-5 from 14 weeks to 5 weeks at fixed price for a comparable operator. {value_offer_lead}
 
-If a comparable workflow at {firm} is still half-shipped, this 4-min intake describes what we'd build — no call, no commitment:
+If a workflow at {firm} fits that shape, here's the 4-min scoping walkthrough:
 {one_pager_url}
-
-Worth a look either way.
 
 — {sender_name}
 {sender_linkedin_url}
 
 EXAMPLE B — product whose ICP includes verticals DIFFERENT from the flagship proof.
-The flagship is not the lead. It's either OMITTED entirely (often the right call) or referenced as a one-line credibility marker AFTER the vertical-level observation has earned the read. The template must not vertical-lock the body — the per-prospect renderer downstream will fill in vertical-specific detail from {credit_signal_lead}. ~110 words.
+The flagship is not the lead. It's either OMITTED entirely (often the right call) or referenced as a one-line credibility marker AFTER the vertical-level observation has earned the read. The template must not vertical-lock the body — the per-prospect renderer downstream will fill in vertical-specific detail from {credit_signal_lead}. ~110 words. Note: {sender_name} appears in the body again as the WHO-AM-I — required by the validator.
 
 Subject: One slow process at {firm}?
 
 Hi {first_name},
 {credit_signal_lead}
 
-The tools to ship that kind of fix have crossed the line from "needs a dev team" to "ship in a month". {value_offer_lead}
+{sender_name} writing — small fixed-scope build shop, mostly platform work for operator-led teams. {value_offer_lead}
 
-This 4-min intake walks through what we'd actually build:
+If that lines up with anything at {firm}, here's what a build would actually look like:
 {one_pager_url}
 
-Worth a look either way.
+Cheers,
+{sender_name}
+{sender_linkedin_url}
+
+EXAMPLE C — follow-up step (step 5 DM or step 6 closing email).
+Follow-ups don't re-introduce the sender at length — but the validator STILL requires {sender_name} somewhere in the body (signature satisfies that). Follow-ups use {credit_signal_lead_short} (one-sentence) instead of the full {credit_signal_lead}. ~80 words.
+
+Hi {first_name} — quick follow-up. {credit_signal_lead_short}
+
+If a slow process at {firm} is worth a closer look, the walkthrough's here whenever it suits:
+{one_pager_url}
 
 — {sender_name}
 {sender_linkedin_url}
@@ -247,7 +264,7 @@ Name: ${sender.sender_name}
 Role: ${sender.sender_role}
 Organisation: ${sender.organisation_name}${kbSection}
 
-Now write the 6 step bodies. Use the placeholders exactly as specified. Return the JSON shape only.`;
+Now write the 6 step bodies. CRITICAL reminder: write {sender_name}, {first_name}, {firm}, {credit_signal_lead}, {one_pager_url} etc. AS LITERAL PLACEHOLDERS with the curly braces — DO NOT substitute the sender's actual name ("Dennis") or org ("Corporate AI Solutions") into the body. Every step 2-6 body must contain the literal string {sender_name} and either {credit_signal_lead} or {credit_signal_lead_short}, or the courtesy-contract validator will reject the entire generation. Return the JSON shape only.`;
 }
 
 /** Project-side variant — context for an investor outreach sequence (fundraising). */
@@ -281,6 +298,15 @@ export interface GenerateProjectContext {
  * and confabulating product-pitch language about the project.
  */
 const SYSTEM_PROMPT_PROJECT = `You write a 6-step outreach sequence template for one fundraising project (a company raising equity, a fund raising LP commitments, or a project raising debt). The audience is INVESTORS / CAPITAL ALLOCATORS — VC partners, private-credit principals, family-office CIOs, etc. The template body for each step is what a human GP / founder / sponsor would write to a typical allocator in this raise's ICP — not a recipe with hardcoded slots. The per-prospect renderer downstream re-writes each body for the specific allocator, but your template is what the operator sees in /settings/templates and is the fallback when per-prospect render fails.
+
+CRITICAL — USE PLACEHOLDERS LITERALLY, DO NOT SUBSTITUTE
+
+You will see the sender's actual name, role, and org in the input ("Name: Dennis McMahon", "Role: Director", "Organisation: Corporate AI Solutions"). DO NOT write those literal values into the template body. Use the placeholder syntax exactly as written, with the curly braces:
+
+  RIGHT: "Hi {first_name}, I'm {sender_name} working alongside {founder_name_or_sponsor} on {offering_name}…"
+  WRONG: "Hi Sarah, I'm Dennis working alongside Daniel on LingoPure…"
+
+The template is reused across hundreds of allocators in many raises; the downstream renderer substitutes the placeholders at send time. If you hard-code names, the template only works for this one sender on this one allocator. The validator REJECTS any step 2-6 body that does not contain the literal string \`{sender_name}\` and either \`{credit_signal_lead}\` or \`{credit_signal_lead_short}\` — your generation will fail and the operator will have to retry. Use the placeholders verbatim.
 
 THE 6 STEPS (channel + delay are FIXED — do not change them):
   1. LinkedIn connection request (Day 0, ≤300 chars)
@@ -334,37 +360,49 @@ CALIBRATION — two template bodies for two different allocator personas
 These illustrate the SHAPE you're aiming for. The literal phrases are illustrative and you must NOT copy them into the template you write. The template body will be re-used across hundreds of allocators in different funds; identifiable lifted phrases will appear identically across all of them and break the read.
 
 EXAMPLE A — VC partner / equity allocator (traction-led lead).
-The IC screens on growth shape, lead status, and round dynamics. Lead with the credit signal (which carries traction context), let the value offer carry the structure beat.
+The IC screens on growth shape, lead status, and round dynamics. Lead with the credit signal (which carries traction context), let the value offer carry the structure beat. Note: {sender_name} appears in the BODY (not only the signature) — validator requirement.
 
 Subject: {firm} ↔ {offering_name} — quick read?
 
 Hi {first_name},
 {credit_signal_lead}
 
-Working alongside {founder_name_or_sponsor} on {offering_name} — happy to share the numbers that matter to your stage screen. {value_offer_lead}
+I'm {sender_name}, working alongside {founder_name_or_sponsor} on {offering_name}. Happy to share the numbers that matter to your stage screen. {value_offer_lead}
 
 If the {asset_class} slice is still active this quarter, deck's a 5-min read:
 {pitch_deck_url}
-
-No reply needed if it's not a fit — happy to surface something more aligned later.
 
 — {sender_name}
 {sender_linkedin_url}
 
 EXAMPLE B — Private-credit / debt allocator (structure-led lead).
-The IC screens on coverage, structure, and anchor offtake. Lead with the credit signal (which carries the deal context), let the value offer foreground the structure terms.
+The IC screens on coverage, structure, and anchor offtake. Lead with the credit signal (which carries the deal context), let the value offer foreground the structure terms. Note: {sender_name} appears in the body as the WHO-AM-I — required by the validator.
 
 Subject: {firm} ↔ {offering_name} — senior secured, {asset_class}
 
 Hi {first_name},
 {credit_signal_lead}
 
-Working alongside {founder_name_or_sponsor} on the facility. {value_offer_lead}
+{sender_name} writing — working with {founder_name_or_sponsor} on the facility. {value_offer_lead}
 
 Term sheet and coverage tables are in the deck — 5-min read:
 {pitch_deck_url}
 
-No reply needed if not in scope — happy to surface something more aligned later.
+If it's not in scope this cycle, no reply needed.
+
+Best,
+{sender_name}
+{sender_linkedin_url}
+
+EXAMPLE C — follow-up step (step 5 DM or step 6 closing email).
+Follow-ups don't re-state the sponsor at length — but the validator STILL requires {sender_name} somewhere in the body (signature satisfies that). Follow-ups use {credit_signal_lead_short} (one-sentence) instead of the full {credit_signal_lead}. ~70 words.
+
+Hi {first_name} — circling back briefly. {credit_signal_lead_short}
+
+If the {asset_class} thesis is still active on your screen, deck's here:
+{pitch_deck_url}
+
+Otherwise feel free to ignore — happy to surface something better aligned when the moment is right.
 
 — {sender_name}
 {sender_linkedin_url}
@@ -438,7 +476,7 @@ Name: ${sender.sender_name}
 Role: ${sender.sender_role}
 Organisation: ${sender.organisation_name}${kbSection}
 
-Write the 6 step bodies as INVESTOR outreach — credit-conversation / IC-meeting tone, not sales pitch. Lead with the concrete deal terms (size, structure, geography, sponsor track record). The CTA is always "20-minute credit / IC conversation". Use placeholders exactly. Return the JSON shape only.`;
+Write the 6 step bodies as INVESTOR outreach — credit-conversation / IC-meeting tone, not sales pitch. Lead with the concrete deal terms (size, structure, geography, sponsor track record). CRITICAL reminder: write {sender_name}, {first_name}, {firm}, {founder_name_or_sponsor}, {credit_signal_lead}, {pitch_deck_url} etc. AS LITERAL PLACEHOLDERS with the curly braces — DO NOT substitute the sender's actual name ("Dennis") or the sponsor's actual name ("Daniel") into the body. Every step 2-6 body must contain the literal string {sender_name} and either {credit_signal_lead} or {credit_signal_lead_short}, or the courtesy-contract validator will reject the entire generation. Return the JSON shape only.`;
 }
 
 export async function generateSequenceFromProduct(
