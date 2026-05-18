@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { CheckCircle2, XCircle, AlertTriangle, Flag, Edit3, Send, Mail, Inbox, Save, RotateCw, Languages, Trash2 } from 'lucide-react';
 import type { ApprovalItem } from './page';
 
@@ -8,10 +8,74 @@ interface Props {
   items: ApprovalItem[];
 }
 
+/**
+ * Tier classification — mirrors the same logic in pipeline-table.tsx so
+ * /approvals and /prospects expose identical categories. The operator
+ * picked the four categories explicitly on 2026-05-19 so they can review
+ * the queue one tier at a time: warm 1st-degree drafts read differently
+ * than cold Brave-sourced ones and rolling them together hides quality
+ * differences. 'unknown' catches legacy partner rows that pre-date the
+ * source/network_distance columns (migration 009).
+ */
+type TierKey = 'all' | 'L1' | 'L2' | 'LI_cold' | 'brave' | 'manual' | 'unknown';
+
+function tierFor(item: Pick<ApprovalItem, 'source' | 'network_distance'>): Exclude<TierKey, 'all'> {
+  const isLinkedIn = item.source === 'linkedin' || item.source === 'sales_nav';
+  if (isLinkedIn && item.network_distance === '1st') return 'L1';
+  if (isLinkedIn && item.network_distance === '2nd') return 'L2';
+  if (isLinkedIn) return 'LI_cold';
+  if (item.source === 'brave') return 'brave';
+  if (item.source === 'manual') return 'manual';
+  return 'unknown';
+}
+
+const TIER_LABELS: Record<Exclude<TierKey, 'all'>, string> = {
+  L1: 'L1 — 1st-degree',
+  L2: 'L2 — 2nd-degree',
+  LI_cold: 'LI cold',
+  brave: 'Brave (web)',
+  manual: 'Manual',
+  unknown: 'Unsourced',
+};
+const TIER_TITLES: Record<Exclude<TierKey, 'all'>, string> = {
+  L1: 'LinkedIn 1st-degree connection — warm Tier-1 outreach (direct ask, no hedging)',
+  L2: 'LinkedIn 2nd-degree — lukewarm, borrows credibility via mutual signal',
+  LI_cold: 'LinkedIn 3rd-degree or no graph data — cold polite outreach',
+  brave: 'Discovered via Brave web search — coldest tier, tightest courtesy',
+  manual: 'Manually added by the operator (CSV / direct entry)',
+  unknown: 'Legacy partner row without source/network_distance — manually classify or re-enrich',
+};
+
 export default function ApprovalsClient({ items: initialItems }: Props) {
   const [items, setItems] = useState(initialItems);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tierFilter, setTierFilter] = useState<TierKey>('all');
+
+  // Count by tier — exposed on the filter pills so the operator sees the
+  // distribution before clicking. Recomputed on every items change so it
+  // stays accurate after approvals/skips remove rows.
+  const tierCounts = useMemo(() => {
+    const counts: Record<Exclude<TierKey, 'all'>, number> = {
+      L1: 0, L2: 0, LI_cold: 0, brave: 0, manual: 0, unknown: 0,
+    };
+    for (const it of items) counts[tierFor(it)] += 1;
+    return counts;
+  }, [items]);
+
+  // Only render pills for tiers that have at least one item. Showing
+  // empty pills clutters the header and tempts the operator to click a
+  // pill that immediately empties the list — confusing without explanation.
+  const visibleTierKeys = useMemo(
+    () => (Object.keys(tierCounts) as Array<Exclude<TierKey, 'all'>>)
+      .filter(k => tierCounts[k] > 0),
+    [tierCounts],
+  );
+
+  const filteredItems = useMemo(
+    () => tierFilter === 'all' ? items : items.filter(it => tierFor(it) === tierFilter),
+    [items, tierFilter],
+  );
 
   async function act(stepId: string, action: 'approve' | 'skip' | 'flag', payload?: Record<string, unknown>) {
     setBusyId(stepId);
@@ -155,11 +219,15 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-8 gap-4 flex-wrap">
+      <div className="flex items-center justify-between mb-4 gap-4 flex-wrap">
         <div>
           <h1>Approval queue</h1>
           <p className="text-dark-400 mt-1">
-            {items.length === 0 ? 'Nothing pending.' : `${items.length} item${items.length === 1 ? '' : 's'} awaiting your approval.`}
+            {items.length === 0
+              ? 'Nothing pending.'
+              : tierFilter === 'all'
+                ? `${items.length} item${items.length === 1 ? '' : 's'} awaiting your approval.`
+                : `${filteredItems.length} of ${items.length} shown · filter: ${TIER_LABELS[tierFilter as Exclude<TierKey, 'all'>]}`}
           </p>
         </div>
         {items.length > 0 && (
@@ -175,6 +243,39 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
           </button>
         )}
       </div>
+
+      {items.length > 0 && visibleTierKeys.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 mb-6">
+          <span className="text-xs uppercase tracking-wide text-dark-500 mr-1">Filter:</span>
+          <button
+            type="button"
+            onClick={() => setTierFilter('all')}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+              tierFilter === 'all'
+                ? 'bg-corp-green-500 text-dark-900'
+                : 'bg-dark-800 text-dark-300 hover:bg-dark-700'
+            }`}
+            title="Show all drafts regardless of source/tier"
+          >
+            All <span className="opacity-70">· {items.length}</span>
+          </button>
+          {visibleTierKeys.map((tier) => (
+            <button
+              key={tier}
+              type="button"
+              onClick={() => setTierFilter(tier)}
+              className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${
+                tierFilter === tier
+                  ? 'bg-corp-green-500 text-dark-900'
+                  : 'bg-dark-800 text-dark-300 hover:bg-dark-700'
+              }`}
+              title={TIER_TITLES[tier]}
+            >
+              {TIER_LABELS[tier]} <span className="opacity-70">· {tierCounts[tier]}</span>
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <div className="card border-red-500/50 bg-red-500/10 mb-6">
@@ -193,9 +294,26 @@ export default function ApprovalsClient({ items: initialItems }: Props) {
             When the sequencer queues a message, it&apos;ll appear here for review before send.
           </p>
         </div>
+      ) : filteredItems.length === 0 ? (
+        <div className="card text-center py-12">
+          <Inbox className="w-10 h-10 text-dark-500 mx-auto mb-3" />
+          <p className="text-dark-400">
+            No drafts in the <b>{TIER_LABELS[tierFilter as Exclude<TierKey, 'all'>]}</b> tier.
+          </p>
+          <p className="text-dark-500 text-sm mt-1">
+            {items.length} draft{items.length === 1 ? '' : 's'} {items.length === 1 ? 'is' : 'are'} queued in other tiers.{' '}
+            <button
+              type="button"
+              onClick={() => setTierFilter('all')}
+              className="text-corp-green-400 hover:underline"
+            >
+              Clear the filter
+            </button> to see them.
+          </p>
+        </div>
       ) : (
         <div className="grid gap-4">
-          {items.map((item) => (
+          {filteredItems.map((item) => (
             <ApprovalCard
               key={item.step_id}
               item={item}

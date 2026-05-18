@@ -34,6 +34,16 @@ export interface ApprovalItem {
    * on the card.
    */
   step_status: 'queued_for_approval' | 'compliance_blocked';
+  /**
+   * Discovery source and LinkedIn graph distance on the underlying partner.
+   * Drive the tier filter pills (L1 / L2 / LI cold / Brave). Mirrors the
+   * existing /prospects pipeline-table tiering so operators see the same
+   * categories on both pages. Either field may be null on legacy rows
+   * (pre-009 partners or manually-added contacts); the filter treats
+   * null source as 'unknown' rather than hiding the row.
+   */
+  source: 'linkedin' | 'sales_nav' | 'brave' | 'manual' | null;
+  network_distance: '1st' | '2nd' | 'cold' | null;
 }
 
 export default async function ApprovalsPage() {
@@ -58,7 +68,7 @@ export default async function ApprovalsPage() {
         status,
         partner_id,
         outbound_message_id,
-        partners ( id, company_name, weighted_score ),
+        partners ( id, company_name, weighted_score, source, network_distance ),
         outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score, evidence_refs )
       `)
       .eq('organisation_id', profile.organisation_id)
@@ -99,6 +109,8 @@ export default async function ApprovalsPage() {
           ? evidenceRefs.outreach_tier
           : null,
         step_status: s.status === 'compliance_blocked' ? 'compliance_blocked' : 'queued_for_approval',
+        source: (partner?.source as ApprovalItem['source']) ?? null,
+        network_distance: (partner?.network_distance as ApprovalItem['network_distance']) ?? null,
       };
     });
   }
