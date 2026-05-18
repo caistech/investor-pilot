@@ -164,7 +164,20 @@ for any reason, migrate it as part of the change"). See
 
 ## Priority for next session
 
-1. **Product-side vocabulary fix — "buyers" not "investors"** — ~30 min.
+1. **Discovery pipeline: stop scoring article authors instead of subject
+   companies** — ~½ day. Operator-reported: ran Discover for "lender"
+   under the Corporate AI Solutions product (buyer = CTO / Founder),
+   got 19 prospects scored 8+, top 3 were journalists at Business
+   Insider / SmartCompany / Yale SOM. The discovery pipeline pulls
+   Brave article URLs about the ICP topic, then calls Hunter.io on the
+   publisher's domain — which returns the article's AUTHOR rather
+   than anyone at the company the article is about. `buyer_title`
+   from the profile is sent to the LLM scorer as soft context but
+   never enforced. Three-layer fix scoped in
+   `~/.claude/projects/.../memory/project_discovery_article_author_bug.md`:
+   domain-class filter pre-Hunter, title-reject regex post-Hunter,
+   hard-gate the scorer prompt with buyer_title as REJECT criterion.
+2. **Product-side vocabulary fix — "buyers" not "investors"** — ~30 min.
    Products target BUYERS (or channel partners), not investors. UI copy
    currently leaks "investors" all over the Products page. Renderer
    prompts are already correct (`recipientNoun = 'partner'` when
