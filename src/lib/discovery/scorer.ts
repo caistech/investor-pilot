@@ -293,22 +293,27 @@ export async function scoreAndUpsertCandidate(
       : project_id ? 'lender' : 'buyer';
     const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : fallbackPartnerType;
 
-    // DISCARD branch for Brave candidates: drop ALL out_of_scope rows,
-    // regardless of whether Hunter found an email. The original rule
-    // kept Hunter-found out_of_scope rows on the theory that "sometimes
-    // Hunter surfaces a real decision-maker at a low-ranked company".
-    // In practice, Brave-sourced out_of_scope candidates are article
-    // pages on publisher domains (ibisworld, rib-software, prospeo,
-    // dnb, listcorp). Hunter at those domains returns the publishers'
-    // own staff (analysts, journalists), not deciders at the article's
-    // subject company. Cost of the leak (clutter, accidental outreach
-    // to article authors) outweighed any real-decider exception.
-    // Operator flagged 2026-05-19: "if out_of_scope, NEVER persist."
+    // DISCARD branch for Brave candidates. Cleaner rule per operator
+    // 2026-05-19: "for Brave non-LI contacts we need company + name +
+    // email. If Hunter doesn't find one of those, delete immediately —
+    // they're of no value to us." Two discard triggers:
+    //   1. out_of_scope: LLM judged not-a-fit (wrong title / category /
+    //      size / vertical / exclusion). Never persist these.
+    //   2. no usable email from Hunter: for Brave rows the path to
+    //      outreach is via email — no email = no path, regardless of
+    //      how well the company itself scored. Better to drop than
+    //      clutter the Prospects table with rows the operator can't act on.
+    // The previous rule kept in-scope Brave rows with no email "in case
+    // the operator finds a contact manually". In practice that never
+    // happened and the rows piled up. The new contract is sharper:
+    // Prospects only contains (a) LinkedIn rows with a verified LI
+    // URL, or (b) Brave rows with company + name + email.
     //
-    // In-scope candidates with no email still get persisted (operator
-    // may attach a contact manually). LinkedIn-sourced rows are not
-    // gated here — they bypass Brave-only discovery rules.
-    if (candidate.source === 'brave' && isOutOfScope) {
+    // LinkedIn-sourced rows are NEVER gated here — for LinkedIn
+    // contacts, email is nice-to-have, the LinkedIn URL itself is
+    // the reachability proof. They bypass this branch entirely.
+    const hunterHasEmail = !!(hunterContact && hunterContact.contact_email);
+    if (candidate.source === 'brave' && (isOutOfScope || !hunterHasEmail)) {
       return {
         company_name: candidate.name,
         domain: candidate.domain,
