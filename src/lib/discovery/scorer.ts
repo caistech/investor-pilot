@@ -15,6 +15,7 @@ import { braveWebSearch, type MeterFor } from '@/lib/agent/brave-tools';
 import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { meterTokens } from '@/lib/usage/events';
+import { selectCanonicalCompanyName } from '@/lib/discovery/clean-company-name';
 
 /**
  * Hunter call for a Brave candidate's domain. Wrapped with timeout +
@@ -292,20 +293,22 @@ export async function scoreAndUpsertCandidate(
       : project_id ? 'lender' : 'buyer';
     const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : fallbackPartnerType;
 
-    // DISCARD branch for Brave candidates. If the scorer says out_of_scope
-    // AND Hunter found no email, the row is dead weight — we'd persist a
-    // company shell with no contact, no in-scope value, and no realistic
-    // path to outreach. Skip the upsert entirely; the candidate is dropped.
-    // Operator flagged 2026-05-19: 'why waste my space with Brave output
-    // I can't contact?'
+    // DISCARD branch for Brave candidates: drop ALL out_of_scope rows,
+    // regardless of whether Hunter found an email. The original rule
+    // kept Hunter-found out_of_scope rows on the theory that "sometimes
+    // Hunter surfaces a real decision-maker at a low-ranked company".
+    // In practice, Brave-sourced out_of_scope candidates are article
+    // pages on publisher domains (ibisworld, rib-software, prospeo,
+    // dnb, listcorp). Hunter at those domains returns the publishers'
+    // own staff (analysts, journalists), not deciders at the article's
+    // subject company. Cost of the leak (clutter, accidental outreach
+    // to article authors) outweighed any real-decider exception.
+    // Operator flagged 2026-05-19: "if out_of_scope, NEVER persist."
     //
-    // Note: in-scope candidates with no email still get persisted — the
-    // operator may want to manually find a contact (LinkedIn enrichment,
-    // company website crawl, etc.). And out-of-scope candidates WITH a
-    // valid email get persisted too — sometimes Hunter surfaces a real
-    // decision-maker at a company the scorer ranked low, and the operator
-    // can override with their own judgement.
-    if (candidate.source === 'brave' && isOutOfScope && !hunterContact) {
+    // In-scope candidates with no email still get persisted (operator
+    // may attach a contact manually). LinkedIn-sourced rows are not
+    // gated here — they bypass Brave-only discovery rules.
+    if (candidate.source === 'brave' && isOutOfScope) {
       return {
         company_name: candidate.name,
         domain: candidate.domain,
@@ -339,11 +342,22 @@ export async function scoreAndUpsertCandidate(
           ? 'contact_found'
           : 'scored';
 
+    // Canonical company name. For Brave-sourced rows, the scraped
+    // candidate.name is often an article heading or SEO page title
+    // ("Renovation Builders Sydney", "Top 10 Construction Companies")
+    // rather than the actual firm. Use the email domain to override
+    // when the scraped name shares no token with the domain root.
+    // Operator flagged 2026-05-19: emails went out addressed to
+    // article titles ("Hi Margie at The Golden Group") instead of
+    // recipients' actual firms ("Hi Margie at Golden Logistics").
+    const canonical = selectCanonicalCompanyName(candidate.name, candidate.domain);
+    const canonicalCompanyName = canonical.canonical || candidate.name;
+
     const upsertResult = await upsertPartner(db, {
       organisation_id,
       product_id,
       project_id,
-      company_name: candidate.name,
+      company_name: canonicalCompanyName,
       domain: candidate.domain,
       category: scores.category || null,
       partner_type: partnerType,

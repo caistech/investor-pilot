@@ -157,3 +157,107 @@ export function cleanCompanyName(raw: string | null | undefined): CleanedName {
 export function looksLikeJunkCompanyName(name: string | null | undefined): boolean {
   return cleanCompanyName(name).still_junk;
 }
+
+/**
+ * Derive a company name from a domain root. "goldenlogistics.com.au" →
+ * "Golden Logistics". Splits at known business-suffix words when the
+ * domain root is a single merged token, otherwise just title-cases the
+ * root. Strips common TLDs and the leading www.
+ *
+ * Not perfect — domains without a recognised suffix word stay merged
+ * (e.g. "vaughans" → "Vaughans"). The output is always better than an
+ * article-title-shaped partner_name, even if occasionally clumsy.
+ */
+const BUSINESS_SUFFIX_WORDS = [
+  'logistics', 'transport', 'transports', 'construction', 'contracting',
+  'services', 'service', 'group', 'partners', 'capital', 'industries',
+  'industrial', 'solutions', 'systems', 'consulting', 'software', 'tech',
+  'media', 'health', 'energy', 'finance', 'financial', 'legal', 'medical',
+  'property', 'properties', 'realty', 'estate', 'investments', 'global',
+  'international', 'australia', 'australian', 'holdings', 'enterprises',
+  'corp', 'corporation', 'inc', 'pty', 'ltd', 'limited', 'co',
+];
+
+export function companyNameFromDomain(domain: string | null | undefined): string | null {
+  if (!domain) return null;
+  let work = domain.toString().trim().toLowerCase();
+  work = work.replace(/^https?:\/\//, '').replace(/^www\./, '').split('/')[0];
+  work = work.replace(/\.(com\.au|com|net|net\.au|org|org\.au|io|co|co\.uk|co\.nz|uk|us|de|fr|nz|au)$/i, '');
+  if (!work) return null;
+
+  let parts: string[];
+  if (/[-_.]/.test(work)) {
+    parts = work.split(/[-_.]+/).filter(Boolean);
+  } else {
+    let split = work;
+    for (const suffix of BUSINESS_SUFFIX_WORDS) {
+      if (split.length > suffix.length && split.endsWith(suffix)) {
+        split = split.slice(0, -suffix.length) + ' ' + suffix;
+        break;
+      }
+    }
+    parts = split.split(/\s+/).filter(Boolean);
+  }
+
+  return parts
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1))
+    .join(' ');
+}
+
+/**
+ * Pick the canonical company_name when we have both a scraped name and
+ * a domain. Used by the discover pipeline to stop article titles being
+ * persisted as partner_name when the actual company is identifiable
+ * from the domain (which Hunter just contacted).
+ *
+ * Algorithm:
+ *   1. Clean the scraped name. If junk-shaped, use domain-derived.
+ *   2. Tokenise the cleaned scraped name (lowercase words ≥3 chars).
+ *   3. If ANY token appears as a substring of the domain root, the
+ *      scraped name and domain refer to the same company — keep
+ *      the cleaned scraped name (richer than autoformat).
+ *   4. Otherwise the scraped name was an article title that happens
+ *      to live on the company's domain — prefer the domain-derived
+ *      name so the rendered email addresses the right firm.
+ *
+ * Operator flagged 2026-05-19: drafts addressed to "Renovation
+ * Builders Sydney" landed in Mina's inbox at everestcontracting.com.au
+ * — same domain, different brand identity. Recipient sees a foreign
+ * firm name on their own page and reads as poorly-targeted.
+ */
+export function selectCanonicalCompanyName(scrapedName: string | null | undefined, domain: string | null | undefined): {
+  canonical: string | null;
+  source: 'scraped' | 'domain' | 'none';
+} {
+  const fromDomain = companyNameFromDomain(domain);
+  const cleaned = cleanCompanyName(scrapedName);
+
+  if (cleaned.still_junk || !cleaned.cleaned) {
+    return fromDomain
+      ? { canonical: fromDomain, source: 'domain' }
+      : { canonical: cleaned.cleaned, source: cleaned.cleaned ? 'scraped' : 'none' };
+  }
+
+  const domainRoot = (domain || '')
+    .toLowerCase()
+    .replace(/^https?:\/\//, '')
+    .replace(/^www\./, '')
+    .split('/')[0]
+    .replace(/\.(com\.au|com|net|net\.au|org|org\.au|io|co|co\.uk|co\.nz|uk|us|de|fr|nz|au)$/i, '')
+    .replace(/[-_.]/g, '');
+
+  if (!domainRoot) return { canonical: cleaned.cleaned, source: 'scraped' };
+
+  const tokens = cleaned.cleaned
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(t => t.length >= 3);
+
+  const hasOverlap = tokens.some(t => domainRoot.includes(t));
+  if (hasOverlap) return { canonical: cleaned.cleaned, source: 'scraped' };
+
+  return fromDomain
+    ? { canonical: fromDomain, source: 'domain' }
+    : { canonical: cleaned.cleaned, source: 'scraped' };
+}

@@ -1280,6 +1280,29 @@ function augmentMinimalSignature(
   if (!flags.hasLinkedInLine && context.sender_linkedin_url) {
     additions.push(`LinkedIn: ${context.sender_linkedin_url}`);
   }
+  // Append the operator's signature_block (phone, website, quote,
+  // company email) — these are the trust-and-context lines the
+  // operator typed into /settings/sender. Previously this function
+  // only handled role+LinkedIn, so when the LLM closed with a bare
+  // "— Sender" the operator's full signature was silently dropped.
+  // Operator flagged 2026-05-19. Same dedupe pattern as
+  // injectSignatureBlock — skip lines already in the body's last 300
+  // chars so we don't double-print the role or LinkedIn URL.
+  if (context.signature_block) {
+    const lastChunk = body.slice(-300).toLowerCase();
+    const existingAdditions = new Set(additions.map(l => l.trim().toLowerCase()));
+    const senderNameLower = context.sender_name.toLowerCase();
+    const sigLines = context.signature_block.split('\n').map(l => l.trim()).filter(Boolean);
+    for (const sigLine of sigLines) {
+      const lower = sigLine.toLowerCase();
+      if (lastChunk.includes(lower)) continue;
+      if (existingAdditions.has(lower)) continue;
+      // Skip the sender name itself — already in the "— Sender" line.
+      if (lower === senderNameLower) continue;
+      additions.push(sigLine);
+      existingAdditions.add(lower);
+    }
+  }
   if (additions.length === 0) return body;
 
   // Find the LAST occurrence of the sender name — that's the closer,
