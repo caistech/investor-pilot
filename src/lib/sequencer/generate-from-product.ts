@@ -88,7 +88,7 @@ const STEP_SCAFFOLD = [
   { step_index: 2, channel: 'linkedin_dm'      as const, delay_days: 2, template_key: 'auto_dm_first',    max_chars: 2000, has_subject: false, description: 'First DM after connection accepted; concrete product specifics' },
   { step_index: 3, channel: 'email'            as const, delay_days: 3, template_key: 'auto_email_first', max_chars: 2500, has_subject: true,  description: 'Email first-touch (parallel path when contact has work email)' },
   { step_index: 4, channel: 'email'            as const, delay_days: 7, template_key: 'auto_email_fu1',   max_chars: 1200, has_subject: true,  description: 'Email follow-up 1 — short, references prior, low-friction CTA' },
-  { step_index: 5, channel: 'linkedin_dm'      as const, delay_days: 9, template_key: 'auto_dm_fu',       max_chars: 600,  has_subject: false, description: 'DM follow-up — last LinkedIn touch before closing the loop' },
+  { step_index: 5, channel: 'linkedin_dm'      as const, delay_days: 9, template_key: 'auto_dm_fu',       max_chars: 800,  has_subject: false, description: 'DM follow-up — last LinkedIn touch before closing the loop' },
   { step_index: 6, channel: 'email'            as const, delay_days: 14,template_key: 'auto_email_fu2',   max_chars: 800,  has_subject: true,  description: 'Closing-loop email — graceful exit, door-open' },
 ] as const;
 

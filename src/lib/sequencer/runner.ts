@@ -115,7 +115,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
   const results: Array<{
     step_id: string;
     partner_id: string;
-    outcome: 'queued' | 'compliance_blocked' | 'failed' | 'skipped_no_channel';
+    outcome: 'queued' | 'compliance_blocked' | 'render_refused' | 'failed' | 'skipped_no_channel';
     reason?: string;
   }> = [];
 
@@ -303,7 +303,15 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       const rendered = await renderStep(tplStep.template_key, renderPartner, context, stepTemplate);
 
       if (!rendered.ok) {
-        await markStep(db, step.id, 'compliance_blocked');
+        // Migration 035 split: 'render_refused' covers renderer.ok === false
+        // (no message ever written — missing offering URL, junk company
+        // name, no credit signal, OpenRouter 402, etc.) separately from
+        // the post-render compliance regex hit at line ~324 below which
+        // keeps 'compliance_blocked'. Until 2026-05-19 both paths
+        // collided on 'compliance_blocked', producing misleading "X
+        // blocked by compliance" headlines when the actual blocker was
+        // OpenRouter credit exhaustion or partner-data junk.
+        await markStep(db, step.id, 'render_refused');
         await db.from('audit_events').insert({
           organisation_id: step.organisation_id,
           actor: 'system:sequencer',
@@ -312,7 +320,7 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
           resource_id: step.id,
           payload: { blocker: rendered.blocker, reason: rendered.reason, template_key: tplStep.template_key },
         });
-        results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'compliance_blocked', reason: rendered.reason });
+        results.push({ step_id: step.id, partner_id: step.partner_id, outcome: 'render_refused', reason: rendered.reason });
         return;
       }
 

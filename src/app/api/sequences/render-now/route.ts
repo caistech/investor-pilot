@@ -47,6 +47,7 @@ const MAX_PARTNERS_PER_REQUEST = 8;
 const ALREADY_RENDERED = new Set([
   'queued_for_approval',
   'compliance_blocked',
+  'render_refused',
   'sent',
   'replied',
   'failed',
@@ -244,7 +245,14 @@ export async function POST(request: Request) {
   // not actionable. The operator needs to know the 3 are blocked too.
   const counts = {
     queued: 0,
+    // Real compliance-regex hits (renderer succeeded, regex matched a
+    // forbidden term in the rendered text).
     blocked: 0,
+    // Render-time refusals (renderer.ok === false) — see migration 035.
+    // These are NOT compliance violations; they're upstream guards
+    // refusing to produce a draft (missing intake URL, junk company
+    // name, no credit signal, OpenRouter 402, etc).
+    render_refused: 0,
     failed: 0,
     skipped_no_channel: 0,
     sent_or_replied: 0,
@@ -259,6 +267,7 @@ export async function POST(request: Request) {
     switch (post.status) {
       case 'queued_for_approval': counts.queued += 1; break;
       case 'compliance_blocked':  counts.blocked += 1; break;
+      case 'render_refused':      counts.render_refused += 1; break;
       case 'failed':              counts.failed += 1; break;
       case 'sent':
       case 'replied':             counts.sent_or_replied += 1; break;
@@ -273,41 +282,65 @@ export async function POST(request: Request) {
     }
   }
 
-  // Pull the actual block reasons for blocked steps from audit_events so
-  // the operator sees WHY a partner went silent (the most common reason
-  // is "No discovery evidence on partner" — they need to re-enrich, not
-  // edit the message). Without this, the UI just said "blocked by
-  // compliance" which sent operators hunting for forbidden terms that
-  // weren't the actual cause.
-  const blockedStepIds = (postSteps || [])
-    .filter((s) => s.status === 'compliance_blocked')
+  // Pull the actual refusal reasons for render_refused steps from
+  // audit_events so the operator sees WHY a partner went silent. The
+  // most common causes have different remediations: OpenRouter 402 →
+  // operator tops up; missing_offering_url → operator fills in
+  // /settings/products one_pager_url; junk company_name → operator
+  // edits or deletes the partner; no_credit_signal → re-enrich evidence.
+  // Without this breakdown the UI conflated everything under "blocked
+  // by compliance" — sent operators hunting for forbidden terms that
+  // weren't the actual cause (operator flagged 2026-05-19).
+  const refusedStepIds = (postSteps || [])
+    .filter((s) => s.status === 'render_refused')
     .map((s) => s.id as string);
 
+  type BlockerKind = 'openrouter_402' | 'missing_offering_url' | 'junk_company_name' | 'no_credit_signal' | 'char_overshoot' | 'other';
+  const refusalKindCount: Record<BlockerKind, number> = {
+    openrouter_402: 0,
+    missing_offering_url: 0,
+    junk_company_name: 0,
+    no_credit_signal: 0,
+    char_overshoot: 0,
+    other: 0,
+  };
+  const refusalSampleReason: Partial<Record<BlockerKind, string>> = {};
+
+  // Per-partner refusal reason — feeds the per-partner outcome cards
+  // below. Populated from the same audit lookup as the aggregate counts.
   const blockReasonsByPartner = new Map<string, string>();
-  if (blockedStepIds.length > 0) {
+  const stepToPartner = new Map((postSteps || []).map((s) => [s.id as string, s.partner_id as string]));
+
+  if (refusedStepIds.length > 0) {
     const { data: auditRows } = await db
       .from('audit_events')
       .select('resource_id, payload, created_at')
       .eq('organisation_id', profile.organisation_id)
       .eq('action', 'sequence.render_blocked')
-      .in('resource_id', blockedStepIds)
+      .in('resource_id', refusedStepIds)
       .order('created_at', { ascending: false });
-    const stepToPartner = new Map((postSteps || []).map((s) => [s.id as string, s.partner_id as string]));
+    const seenStep = new Set<string>();
     for (const row of auditRows || []) {
-      const partnerId = stepToPartner.get(row.resource_id as string);
-      if (!partnerId) continue;
-      if (blockReasonsByPartner.has(partnerId)) continue; // first reason wins
+      const stepId = row.resource_id as string;
+      if (seenStep.has(stepId)) continue; // first audit per step wins
+      seenStep.add(stepId);
       const payload = (row.payload as { reason?: string; blocker?: string } | null) ?? {};
-      const reason = payload.reason || payload.blocker || 'compliance';
-      blockReasonsByPartner.set(partnerId, reason);
+      const reason = payload.reason || payload.blocker || '';
+      let kind: BlockerKind = 'other';
+      if (/402|insufficient credits|openrouter/i.test(reason)) kind = 'openrouter_402';
+      else if (payload.blocker === 'missing_offering_url' || /no intake URL configured/i.test(reason)) kind = 'missing_offering_url';
+      else if (/looks like a scraped page title|junk company/i.test(reason)) kind = 'junk_company_name';
+      else if (payload.blocker === 'no_credit_signal') kind = 'no_credit_signal';
+      else if (/exceeds max \d+ chars/i.test(reason)) kind = 'char_overshoot';
+      refusalKindCount[kind] += 1;
+      if (!refusalSampleReason[kind]) refusalSampleReason[kind] = reason;
+
+      const partnerId = stepToPartner.get(stepId);
+      if (partnerId && !blockReasonsByPartner.has(partnerId)) {
+        blockReasonsByPartner.set(partnerId, reason);
+      }
     }
   }
-
-  // Distinguish "no evidence" blocks from compliance-flag blocks because
-  // the remediation is different: no-evidence → re-enrich, compliance
-  // flag → edit the body.
-  const noEvidenceCount = Array.from(blockReasonsByPartner.values()).filter((r) => /no discovery evidence|no_credit_signal/i.test(r)).length;
-  const complianceFlagCount = counts.blocked - noEvidenceCount;
 
   // Pull failure reasons from the runner result so the hint can name
   // the actual error instead of "open prospect detail". Failures aren't
@@ -329,12 +362,29 @@ export async function POST(request: Request) {
   const parts: string[] = [];
   if (counts.queued > 0) parts.push(`${counts.queued} ready for review in Approvals.`);
   if (counts.blocked > 0) {
-    if (noEvidenceCount > 0 && complianceFlagCount === 0) {
-      parts.push(`${counts.blocked} blocked: partner has no Brave/LinkedIn evidence yet — click "Re-enrich evidence" to fix.`);
-    } else if (noEvidenceCount === 0 && complianceFlagCount > 0) {
-      parts.push(`${counts.blocked} blocked by compliance regex — open prospect detail to see the flagged terms.`);
-    } else {
-      parts.push(`${counts.blocked} blocked (${noEvidenceCount} no-evidence, ${complianceFlagCount} compliance) — re-enrich the no-evidence ones first.`);
+    parts.push(`${counts.blocked} blocked by compliance regex — open prospect detail to see the flagged terms.`);
+  }
+  if (counts.render_refused > 0) {
+    // Most operator-actionable refusal classes get their own line with
+    // the specific remediation. The "other" bucket collects anything we
+    // haven't categorised.
+    if (refusalKindCount.openrouter_402 > 0) {
+      parts.push(`${refusalKindCount.openrouter_402} couldn't render — OpenRouter is out of credits. Top up at https://openrouter.ai/settings/credits, then retry.`);
+    }
+    if (refusalKindCount.missing_offering_url > 0) {
+      parts.push(`${refusalKindCount.missing_offering_url} couldn't render — the offering has no intake URL configured. Open /settings/products (or /settings/projects) and fill in the one_pager_url.`);
+    }
+    if (refusalKindCount.junk_company_name > 0) {
+      parts.push(`${refusalKindCount.junk_company_name} couldn't render — partner company_name looks like a scraped page title. Edit or delete those partners from /prospects.`);
+    }
+    if (refusalKindCount.no_credit_signal > 0) {
+      parts.push(`${refusalKindCount.no_credit_signal} couldn't render — no discovery evidence on partner. Click "Re-enrich evidence" on those rows.`);
+    }
+    if (refusalKindCount.char_overshoot > 0) {
+      parts.push(`${refusalKindCount.char_overshoot} couldn't render — LLM-rendered body exceeded the template's max char limit. Bump the step's max_chars in /settings/templates or regenerate the sequence.`);
+    }
+    if (refusalKindCount.other > 0) {
+      parts.push(`${refusalKindCount.other} couldn't render for other reasons — open prospect detail for the per-step error trail.`);
     }
   }
   if (counts.failed > 0) {
@@ -361,7 +411,7 @@ export async function POST(request: Request) {
   const failureReasonsByPartner = new Map<string, string>();
   if (runnerResult && typeof runnerResult === 'object' && Array.isArray((runnerResult as { results?: unknown }).results)) {
     for (const r of (runnerResult as { results: Array<{ partner_id: string; outcome: string; reason?: string }> }).results) {
-      if (r.reason && (r.outcome === 'failed' || r.outcome === 'compliance_blocked')) {
+      if (r.reason && (r.outcome === 'failed' || r.outcome === 'compliance_blocked' || r.outcome === 'render_refused')) {
         failureReasonsByPartner.set(r.partner_id, r.reason);
       }
     }
