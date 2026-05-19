@@ -12,47 +12,28 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import { upsertPartner, computeWeightedScore } from '@/lib/db/partners';
 import { braveWebSearch, type MeterFor } from '@/lib/agent/brave-tools';
-import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
+import { findContactByDomain, type FoundContact } from '@/lib/agent/email-finder';
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { meterTokens } from '@/lib/usage/events';
 import { selectCanonicalCompanyName } from '@/lib/discovery/clean-company-name';
 
 /**
- * Hunter call for a Brave candidate's domain. Wrapped with timeout +
- * try/catch so Hunter failures (rate limit, no result) never block
- * scoring. Returns the best-confidence email payload or null.
+ * Resolve a contact (name + email) for a Brave-sourced candidate's domain.
+ * Delegates to the email-finder cascade (Hunter → Apollo); the cascade is
+ * the single place that owns provider order, timeouts, and the role-account
+ * fall-through logic. See `src/lib/agent/email-finder.ts`.
  */
-async function lookupHunterContactForBrave(
+async function lookupContactForBrave(
   domain: string,
   meterFor?: MeterFor,
-): Promise<{
-  contact_name: string | null;
-  contact_title: string | null;
-  contact_email: string;
-  contact_linkedin: string | null;
-  email_confidence: number;
-} | null> {
-  try {
-    const result = await Promise.race([
-      hunterDomainSearch(domain, meterFor),
-      new Promise<null>((_, reject) =>
-        setTimeout(() => reject(new Error('hunter timeout')), 8_000),
-      ),
-    ]);
-    if (!result?.emails?.length) return null;
-    const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
-    const best = sorted[0];
-    if (!best?.value) return null;
-    return {
-      contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
-      contact_title: best.position || null,
-      contact_email: best.value,
-      contact_linkedin: best.linkedin || null,
-      email_confidence: best.confidence,
-    };
-  } catch {
-    return null;
-  }
+  icpTitles?: string[],
+  icpSeniorities?: string[],
+): Promise<FoundContact | null> {
+  return findContactByDomain(domain, {
+    titles: icpTitles,
+    seniorities: icpSeniorities,
+    meterFor,
+  });
 }
 
 // SCORING_PROMPT was hardcoded here (and duplicated in discover/route.ts) prior
@@ -159,6 +140,18 @@ export async function scoreAndUpsertCandidate(
      * falling back to the offering-kind heuristic.
      */
     defaultPartnerType?: string | null;
+    /**
+     * ICP titles to bias the email-finder cascade (Apollo's People Search
+     * uses these). Sourced from product/project icp_buyer_title. Falls
+     * through to a no-title-filter Apollo search when unset.
+     */
+    icpTitles?: string[];
+    /**
+     * ICP seniorities for the email-finder cascade. Apollo accepts:
+     * owner, founder, c_suite, partner, vp, head, director, manager,
+     * senior, entry, intern.
+     */
+    icpSeniorities?: string[];
   },
 ): Promise<ScoreCandidateResult> {
   try {
@@ -195,9 +188,14 @@ export async function scoreAndUpsertCandidate(
     //      title, email, LinkedIn) goes onto the upsert when found, so
     //      the row lands as 'contact_found' instead of 'scored' and skips
     //      the separate post-scoring Hunter pass.
-    const hunterPromise: Promise<Awaited<ReturnType<typeof lookupHunterContactForBrave>>> =
+    const hunterPromise: Promise<Awaited<ReturnType<typeof lookupContactForBrave>>> =
       candidate.source === 'brave' && candidate.domain
-        ? lookupHunterContactForBrave(candidate.domain, options?.meterFor)
+        ? lookupContactForBrave(
+            candidate.domain,
+            options?.meterFor,
+            options?.icpTitles,
+            options?.icpSeniorities,
+          )
         : Promise.resolve(null);
 
     const [response, hunterContact] = await Promise.all([
@@ -391,7 +389,11 @@ export async function scoreAndUpsertCandidate(
       contact_email: finalContactEmail,
       email_confidence: finalEmailConfidence,
       email_status: finalEmailStatus,
-      contact_source: hunterContact ? 'hunter_at_discovery' : undefined,
+      contact_source: hunterContact
+        ? hunterContact.source === 'apollo'
+          ? 'apollo_at_discovery'
+          : 'hunter_at_discovery'
+        : undefined,
       network_distance: candidate.network_distance,
       first_seen_in_run_id: options?.runId || null,
     });

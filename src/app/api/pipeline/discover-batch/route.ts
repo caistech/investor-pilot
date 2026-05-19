@@ -99,7 +99,7 @@ const SEARCH_TIMEOUT_MS = 15_000;               // per-search timeout — Unipil
 // 2026-05-19 — Hunter now runs inline per Brave candidate inside
 // scoreAndUpsertCandidate, alongside the LLM scorer. There's no separate
 // post-scoring loop to cap. Per-candidate Hunter timeout (8s) lives
-// inside lookupHunterContactForBrave in src/lib/discovery/scorer.ts.
+// inside the email-finder cascade in src/lib/agent/email-finder.ts.
 
 // Tier → Unipile network_distance integer-array filter, or undefined to omit.
 // '1st' / '2nd' filter to specific degrees. 'cold' omits the filter entirely
@@ -638,6 +638,14 @@ export async function POST(request: Request) {
         // route's heuristic inside the scorer: project → 'lender',
         // product → 'buyer'.
         defaultPartnerType: offering.icp_partner_type ?? null,
+        // ICP buyer titles bias the email-finder cascade. The offering's
+        // icp_buyer_title is a single string (e.g. "Head of Credit,
+        // Director of Capital Markets"); split on commas so Apollo can
+        // match any of them. No-op when blank — Apollo falls back to a
+        // no-title-filter search.
+        icpTitles: offering.icp_buyer_title
+          ? offering.icp_buyer_title.split(',').map(t => t.trim()).filter(Boolean)
+          : undefined,
       }))
     );
     scoredResults.push(...results);
@@ -718,8 +726,9 @@ export async function POST(request: Request) {
 
   // Hunter enrichment is now INLINE in scoreAndUpsertCandidate (parallel
   // with the LLM scorer). The separate post-scoring Hunter pass that
-  // used to live here is gone — see src/lib/discovery/scorer.ts
-  // lookupHunterContactForBrave + the parallel Promise.all wrapper.
+  // used to live here is gone — see the email-finder cascade in
+  // src/lib/agent/email-finder.ts + the parallel Promise.all wrapper
+  // in scoreAndUpsertCandidate.
   //
   // Benefits:
   //   - Every Brave candidate gets Hunter (was capped at top-30 by score).

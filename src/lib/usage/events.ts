@@ -15,6 +15,8 @@ import { createServiceClient } from '@/lib/supabase/server';
 export type UsageEventType =
   | 'brave_query'
   | 'hunter_lookup'
+  | 'apollo_search'
+  | 'apollo_enrichment'
   | 'unipile_account_active'
   | 'llm_tokens';
 
@@ -39,6 +41,8 @@ export interface CapCheckResult {
 export interface MonthlyUsage {
   brave_queries: { used: number; limit: number };
   hunter_lookups: { used: number; limit: number };
+  apollo_searches: { used: number; limit: number };
+  apollo_enrichments: { used: number; limit: number };
   unipile_accounts: { used: number; limit: number };
   llm_tokens: { used: number; limit: number };
   plan_tier: string;
@@ -48,6 +52,8 @@ export interface MonthlyUsage {
 const CAP_COLUMN_BY_EVENT: Record<UsageEventType, keyof UsageCapsRow> = {
   brave_query: 'cap_brave_queries_per_month',
   hunter_lookup: 'cap_hunter_lookups_per_month',
+  apollo_search: 'cap_apollo_searches_per_month',
+  apollo_enrichment: 'cap_apollo_enrichments_per_month',
   unipile_account_active: 'cap_unipile_accounts',
   llm_tokens: 'cap_llm_tokens_per_month',
 };
@@ -57,6 +63,8 @@ interface UsageCapsRow {
   plan_tier: string;
   cap_brave_queries_per_month: number;
   cap_hunter_lookups_per_month: number;
+  cap_apollo_searches_per_month: number;
+  cap_apollo_enrichments_per_month: number;
   cap_unipile_accounts: number;
   cap_llm_tokens_per_month: number;
   hard_block: boolean;
@@ -111,6 +119,8 @@ export async function checkCap(
     plan_tier: 'trial',
     cap_brave_queries_per_month: 200,
     cap_hunter_lookups_per_month: 200,
+    cap_apollo_searches_per_month: 1000,
+    cap_apollo_enrichments_per_month: 185,
     cap_unipile_accounts: 2,
     cap_llm_tokens_per_month: 2_000_000,
     hard_block: true,
@@ -178,14 +188,18 @@ export async function getMonthlyUsage(organisation_id: string): Promise<MonthlyU
     plan_tier: 'trial',
     cap_brave_queries_per_month: 200,
     cap_hunter_lookups_per_month: 200,
+    cap_apollo_searches_per_month: 1000,
+    cap_apollo_enrichments_per_month: 185,
     cap_unipile_accounts: 2,
     cap_llm_tokens_per_month: 2_000_000,
     hard_block: true,
   };
 
-  const [brave, hunter, unipile, llm] = await Promise.all([
+  const [brave, hunter, apolloSearch, apolloEnrich, unipile, llm] = await Promise.all([
     sumUsage(organisation_id, 'brave_query'),
     sumUsage(organisation_id, 'hunter_lookup'),
+    sumUsage(organisation_id, 'apollo_search'),
+    sumUsage(organisation_id, 'apollo_enrichment'),
     sumUsage(organisation_id, 'unipile_account_active'),
     sumUsage(organisation_id, 'llm_tokens'),
   ]);
@@ -196,6 +210,8 @@ export async function getMonthlyUsage(organisation_id: string): Promise<MonthlyU
   return {
     brave_queries: { used: brave, limit: capsRow.cap_brave_queries_per_month },
     hunter_lookups: { used: hunter, limit: capsRow.cap_hunter_lookups_per_month },
+    apollo_searches: { used: apolloSearch, limit: capsRow.cap_apollo_searches_per_month },
+    apollo_enrichments: { used: apolloEnrich, limit: capsRow.cap_apollo_enrichments_per_month },
     unipile_accounts: { used: unipile, limit: capsRow.cap_unipile_accounts },
     llm_tokens: { used: llm, limit: capsRow.cap_llm_tokens_per_month },
     plan_tier: capsRow.plan_tier,
