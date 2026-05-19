@@ -1,3 +1,4 @@
+// @explanatory-header-exempt — nested workflow page; entry-point header lives on the parent surface
 import { createClient } from '@/lib/supabase/server';
 import ApprovalsClient from './approvals-client';
 import { SetupGate } from '@/components/layout/setup-gate';

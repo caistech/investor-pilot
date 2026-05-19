@@ -1,3 +1,4 @@
+// @explanatory-header-exempt — nested workflow page; entry-point header lives on the parent surface
 'use client';
 
 import { useState, useEffect, useRef, useCallback } from 'react';
