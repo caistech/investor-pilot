@@ -293,27 +293,32 @@ export async function scoreAndUpsertCandidate(
       : project_id ? 'lender' : 'buyer';
     const partnerType = ALLOWED_PARTNER_TYPES.has(rawPartnerType) ? rawPartnerType : fallbackPartnerType;
 
-    // DISCARD branch for Brave candidates. Cleaner rule per operator
-    // 2026-05-19: "for Brave non-LI contacts we need company + name +
-    // email. If Hunter doesn't find one of those, delete immediately —
-    // they're of no value to us." Two discard triggers:
-    //   1. out_of_scope: LLM judged not-a-fit (wrong title / category /
-    //      size / vertical / exclusion). Never persist these.
+    // DISCARD branch for Brave candidates. Operator rule 2026-05-19:
+    // "for Brave non-LI contacts we need company + name + email. If
+    // we haven't got all three, delete immediately — they're of no
+    // value to us." Three discard triggers, in priority order:
+    //   1. out_of_scope: LLM judged not-a-fit (wrong title / category
+    //      / size / vertical / exclusion). Never persist these.
     //   2. no usable email from Hunter: for Brave rows the path to
-    //      outreach is via email — no email = no path, regardless of
-    //      how well the company itself scored. Better to drop than
-    //      clutter the Prospects table with rows the operator can't act on.
-    // The previous rule kept in-scope Brave rows with no email "in case
-    // the operator finds a contact manually". In practice that never
-    // happened and the rows piled up. The new contract is sharper:
-    // Prospects only contains (a) LinkedIn rows with a verified LI
-    // URL, or (b) Brave rows with company + name + email.
+    //      outreach is via email — no email = no path.
+    //   3. no contact name from Hunter: Hunter sometimes returns a
+    //      generic role-account address (admin@, info@, hello@) with
+    //      no real person attached. Without a name we can't address
+    //      the recipient ("Hi admin," reads as obvious automation).
+    //      The renderer would refuse later anyway with 'missing the
+    //      contact's name'; we drop at discovery so the row never
+    //      clutters the Prospects table.
+    //
+    // The new contract is sharp: Prospects contains either (a)
+    // LinkedIn rows with a verified LI URL, or (b) Brave rows with
+    // ALL THREE of company + name + email. Nothing else.
     //
     // LinkedIn-sourced rows are NEVER gated here — for LinkedIn
     // contacts, email is nice-to-have, the LinkedIn URL itself is
     // the reachability proof. They bypass this branch entirely.
     const hunterHasEmail = !!(hunterContact && hunterContact.contact_email);
-    if (candidate.source === 'brave' && (isOutOfScope || !hunterHasEmail)) {
+    const hunterHasName = !!(hunterContact && typeof hunterContact.contact_name === 'string' && hunterContact.contact_name.trim().length > 0);
+    if (candidate.source === 'brave' && (isOutOfScope || !hunterHasEmail || !hunterHasName)) {
       return {
         company_name: candidate.name,
         domain: candidate.domain,
