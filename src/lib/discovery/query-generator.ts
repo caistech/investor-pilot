@@ -195,6 +195,16 @@ export async function generateLenderQueries(input: {
   // queries × broader prompt = actual breadth.
   count?: number;
   meterFor?: MeterFor;
+  /**
+   * Prior queries already used for this offering — kept so the LLM
+   * doesn't keep generating the same 5-8 phrasings click after click.
+   * Operator flagged 2026-05-19: each Find Buyers click was returning
+   * the same Brave top-results because we kept asking the same questions.
+   * Passed in as a flat array of strings; LLM is instructed in the
+   * prompt to generate DIFFERENT variations (geography slices, title
+   * synonyms, vertical sub-slices) that don't overlap with this list.
+   */
+  priorQueries?: string[];
 }): Promise<QueryGenerationResult | QueryGenerationError> {
   const total = Math.min(Math.max(input.count || 6, 4), 15);
   const linkedinCount = Math.max(1, Math.floor(total * 0.5));
@@ -240,9 +250,13 @@ ICP company size: ${input.product.icp_company_size || '(none)'}
 ICP verticals: ${input.product.icp_verticals || '(none)'}
 ICP stage: ${input.product.icp_stage || '(none)'}
 Exclusions: ${input.product.exclusions || '(none)'}${projectBlock}
-${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from offering fields alone)\n\n'}Return exactly ${linkedinCount} linkedin_queries and ${braveCount} brave_queries as JSON per the schema.
+${kbBlocks ? `KNOWLEDGE BASE (verbatim excerpts):\n\n${kbBlocks}\n\n` : 'KNOWLEDGE BASE: (empty — generate from offering fields alone)\n\n'}${
+  (input.priorQueries?.length ?? 0) > 0
+    ? `RECENTLY USED QUERIES (do NOT repeat these — generate DIFFERENT slices of the same ICP, varying geography / title synonyms / vertical sub-categories / company-size bands):\n${input.priorQueries!.slice(-30).map(q => `- ${q}`).join('\n')}\n\n`
+    : ''
+}Return exactly ${linkedinCount} linkedin_queries and ${braveCount} brave_queries as JSON per the schema.
 
-Detect direction (SELLING/buyer-hunting vs SEEKING/investor-hunting) from the fields above before writing any query. State the direction + one-line reason in product_summary. Then generate queries shaped by the offering's actual buyer titles / verticals / size / stage / geography — do not import vocabulary from any other offering. If exclusions list a segment, never produce a query that targets it.`;
+Detect direction (SELLING/buyer-hunting vs SEEKING/investor-hunting) from the fields above before writing any query. State the direction + one-line reason in product_summary. Then generate queries shaped by the offering's actual buyer titles / verticals / size / stage / geography — do not import vocabulary from any other offering. If exclusions list a segment, never produce a query that targets it. If RECENTLY USED QUERIES is non-empty, your output MUST be substantively different — cover different geographies, title phrasings, vertical sub-slices, or company size bands than the listed prior queries. Repeating a prior query verbatim or with trivial word reordering wastes the operator's Brave budget and surfaces the same results we already have.`;
 
   try {
     const response = await client.messages.create({

@@ -220,7 +220,7 @@ export async function POST(request: Request) {
     }
     const { data: project } = await db
       .from('projects')
-      .select('id, name, description, sponsor, project_type, funding_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, investment_thesis, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases')
+      .select('id, name, description, sponsor, project_type, funding_type, funding_target, geography, asset_class, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, investment_thesis, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases, query_history')
       .eq('id', project_id)
       .single();
     if (!project) {
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
     }
     const { data: product } = await db
       .from('products')
-      .select('id, name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, product_pitch, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases, asset_class, geography')
+      .select('id, name, one_sentence_description, core_mechanism, customer_outcomes, icp_company_size, icp_verticals, icp_buyer_title, icp_stage, exclusions, product_pitch, scoring_rubric, icp_categories, icp_partner_type, icp_reject_categories, icp_special_cases, asset_class, geography, query_history')
       .eq('id', product_id)
       .single();
     if (!product) {
@@ -397,6 +397,16 @@ export async function POST(request: Request) {
     })),
     count: query_count || DEFAULT_QUERY_COUNT,
     meterFor,
+    // Prior queries from this offering's query_history (last ~30). LLM
+    // is instructed in the prompt to generate DIFFERENT slices, not
+    // repeat these. Stops "same 5-8 queries every click → same Brave
+    // top results → 2 net-new prospects" pattern. Migration 036 added
+    // the column; offering shape carries it through to here.
+    priorQueries: Array.isArray((offering as unknown as { query_history?: Array<{ query: string }> }).query_history)
+      ? ((offering as unknown as { query_history: Array<{ query: string }> }).query_history)
+          .map(h => h?.query)
+          .filter((q): q is string => typeof q === 'string')
+      : [],
   });
 
   if (!queryGen.ok) {
@@ -425,15 +435,33 @@ export async function POST(request: Request) {
 
   // `tiers` was resolved above (so we could record it on the discovery_runs row).
 
+  // Compute per-query Brave offset from the offering's query_history.
+  // Each prior run of the same exact query has used its own offset; the
+  // next offset is the count of prior runs (so first run = 0, second
+  // run = 1 i.e. page 2, third = 2 i.e. page 3, capped at 9 by Brave).
+  // Even if the LLM generated a query that matches a prior one (which
+  // the rotation prompt should prevent but isn't guaranteed), the
+  // offset shift means we still pull DIFFERENT results.
+  const priorHistory: Array<{ query?: string; offset?: number }> =
+    Array.isArray((offering as unknown as { query_history?: unknown }).query_history)
+      ? ((offering as unknown as { query_history: Array<{ query?: string; offset?: number }> }).query_history)
+      : [];
+  const offsetByQuery = new Map<string, number>();
+  for (const entry of priorHistory) {
+    if (typeof entry?.query !== 'string') continue;
+    const next = (offsetByQuery.get(entry.query) ?? -1) + 1;
+    offsetByQuery.set(entry.query, next);
+  }
   // Two distinct query sets — LinkedIn gets person-targeting queries, Brave
   // gets company/deal/news queries. Same engine search shapes that match each
   // platform's actual indexing strengths.
-  const jobs: Array<{ query: string; source: DiscoverSource; tier: NetworkTier }> = [];
+  const jobs: Array<{ query: string; source: DiscoverSource; tier: NetworkTier; offset?: number }> = [];
   for (const source of sources) {
     if (source === 'brave') {
       // Brave has no network concept — always tag results as 'cold'.
       for (const q of queryGen.brave_queries) {
-        jobs.push({ query: q.query, source, tier: 'cold' });
+        const offset = offsetByQuery.get(q.query) ?? 0;
+        jobs.push({ query: q.query, source, tier: 'cold', offset });
       }
     } else {
       // LinkedIn / Sales Nav: one search per tier the operator wants to cover.
@@ -499,11 +527,50 @@ export async function POST(request: Request) {
     }
   }
 
-  const uniqueCandidates = Array.from(seen.values()).slice(0, MAX_TOTAL_CANDIDATES);
+  const dedupedInRun = Array.from(seen.values());
+
+  // Pre-score dedup against existing partners. Operator flagged
+  // 2026-05-19: Brave keeps returning Vaughans / ADCO / Cahill Transport
+  // on subsequent clicks because they're still the top results for
+  // those queries — we then re-score them, re-Hunter them, and upsert
+  // UPDATES the existing row rather than INSERTS. Pure wasted budget.
+  // Drop them here before scoring runs.
+  let preScoreDedupDropped = 0;
+  let uniqueCandidates = dedupedInRun;
+  {
+    const candidateDomains = dedupedInRun
+      .map(c => (c.domain || '').toLowerCase().replace(/^www\./, ''))
+      .filter(Boolean);
+    if (candidateDomains.length > 0) {
+      const { data: existingPartners } = await db
+        .from('partners')
+        .select('domain')
+        .eq('organisation_id', organisation_id)
+        .in('domain', Array.from(new Set(candidateDomains)));
+      const existingDomainSet = new Set(
+        (existingPartners || [])
+          .map(p => typeof p.domain === 'string' ? p.domain.toLowerCase().replace(/^www\./, '') : '')
+          .filter(Boolean)
+      );
+      if (existingDomainSet.size > 0) {
+        uniqueCandidates = dedupedInRun.filter(c => {
+          const d = (c.domain || '').toLowerCase().replace(/^www\./, '');
+          if (existingDomainSet.has(d)) {
+            preScoreDedupDropped += 1;
+            return false;
+          }
+          return true;
+        });
+      }
+    }
+  }
+  uniqueCandidates = uniqueCandidates.slice(0, MAX_TOTAL_CANDIDATES);
 
   log('searches_done', {
     candidates_found: allCandidates.length,
-    candidates_unique: uniqueCandidates.length,
+    candidates_unique_in_run: dedupedInRun.length,
+    candidates_dropped_already_in_db: preScoreDedupDropped,
+    candidates_to_score: uniqueCandidates.length,
     search_errors: errors.length,
   });
 
@@ -686,6 +753,38 @@ export async function POST(request: Request) {
     scoring_errors: scoringErrorSamples,
   });
 
+  // Persist updated query_history on the offering so the NEXT click
+  // rotates queries (don't repeat) and paginates Brave (offset shifts).
+  // One entry per Brave query that fired this run, carrying the offset
+  // we used. LinkedIn queries are also recorded but they don't use
+  // offset — kept for the "what have we asked" memory only.
+  try {
+    const newHistoryEntries: Array<{ query: string; source: 'brave' | 'linkedin'; offset: number; used_at: string }> = [];
+    const usedAt = new Date().toISOString();
+    for (const j of jobs) {
+      if (j.source === 'brave' || j.source === 'linkedin' || j.source === 'sales_nav') {
+        newHistoryEntries.push({
+          query: j.query,
+          source: j.source === 'brave' ? 'brave' : 'linkedin',
+          offset: j.offset || 0,
+          used_at: usedAt,
+        });
+      }
+    }
+    if (newHistoryEntries.length > 0) {
+      // Keep the last 60 entries so memory stays bounded — discovery
+      // rotation only needs recent queries to avoid, not the whole history.
+      const merged = [...priorHistory, ...newHistoryEntries].slice(-60);
+      const table = kbSourceQuery.table === 'project' ? 'projects' : 'products';
+      const id = kbSourceQuery.table === 'project' ? project_id : product_id;
+      await db.from(table).update({ query_history: merged }).eq('id', id).eq('organisation_id', organisation_id);
+    }
+  } catch (err) {
+    console.error('[discover-batch] Failed to persist query_history:', err);
+    // Non-fatal — the discovery succeeded, query history just won't
+    // update for this run. Next click will see the same prior state.
+  }
+
   return NextResponse.json({
     ok: true,
     run_id: runId,
@@ -771,7 +870,7 @@ function withTimeout<T>(
 }
 
 async function fetchCandidates(
-  job: { query: string; source: DiscoverSource; tier: NetworkTier },
+  job: { query: string; source: DiscoverSource; tier: NetworkTier; offset?: number },
   linkedinAccountId: string | null,
   meterFor: { organisation_id: string; route: string },
 ): Promise<
@@ -812,7 +911,12 @@ async function fetchCandidates(
   // listed as a top prospect. See src/lib/discovery/publisher-domains.ts
   // for the curated list + the reasoning.
   try {
-    const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY, undefined, meterFor);
+    // Brave offset is derived from this offering's query_history — each
+    // time a query is re-run, it shifts to page 2/3/4 of Brave's results.
+    // Operator flagged 2026-05-19: same queries every click returned same
+    // top results, so prior runs poisoned the well. Pagination probes
+    // deeper into Brave's index instead.
+    const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY, undefined, meterFor, job.offset || 0);
     let droppedPublisher = 0;
     let droppedJunk = 0;
     const filtered = searchResults.filter(r => {

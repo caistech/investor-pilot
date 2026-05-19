@@ -24,15 +24,21 @@ export async function braveWebSearch(
   count = 10,
   signal?: AbortSignal,
   meterFor?: MeterFor,
+  offset = 0,
 ): Promise<BraveSearchResult[]> {
   const apiKey = process.env.BRAVE_SEARCH_API_KEY || process.env.BRAVE_API_KEY;
   if (!apiKey) throw new Error('BRAVE_SEARCH_API_KEY not configured');
+
+  // Brave's offset is 0-9 (representing pages 1-10 with count=20). Clamp
+  // so a stale large offset doesn't 422 the request.
+  const clampedOffset = Math.max(0, Math.min(9, Math.floor(offset)));
 
   const results = await remoteBraveWebSearch(query, apiKey, {
     count,
     country: 'AU',
     signal,
-  });
+    offset: clampedOffset,
+  } as Parameters<typeof remoteBraveWebSearch>[2] & { offset: number });
 
   // Fire-and-forget metering — one event per actual API call. We log even
   // when the result is empty because Brave still bills for the query.
@@ -40,6 +46,7 @@ export async function braveWebSearch(
     void logEvent(meterFor.organisation_id, 'brave_query', 1, {
       route: meterFor.route,
       query: query.slice(0, 200),
+      offset: clampedOffset,
     });
   }
 
