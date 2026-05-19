@@ -65,6 +65,16 @@ jobs:
           fi
           echo "Preview URL: $PORTFOLIO_GATE_PREVIEW_URL"
 
+      # TEMPORARY (2026-05-19 — portfolio migration in progress):
+      # static audits emit warnings but DO NOT block the gate. Revert to
+      # blocking by removing the `|| ...` wrapper once the R3 explanatory-header
+      # + R14 sample-artefact backfill is done across the portfolio.
+      - name: Static audits (R3 / R9 / R11 / R14 / R15 — warning-only)
+        run: |
+          npx --no-install portfolio-gate-audit-all \
+            --base-url "$PORTFOLIO_GATE_PREVIEW_URL" \
+            || echo "::warning::Portfolio Standard audits found violations — see step output. Migration in progress; not blocking deploy. Revert this step to blocking once R3 + R14 backfill is complete."
+
       - name: Route smoke test (Portfolio Standard R13)
         run: |
           npx --no-install portfolio-gate-smoke-routes \
