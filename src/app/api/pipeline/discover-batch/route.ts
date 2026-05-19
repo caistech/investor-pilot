@@ -46,6 +46,7 @@ import { getLinkedInProfile } from '@/lib/channels/unipile';
 // lives in @/lib/agent/hunter-tools for other callers (refresh-enrichment).
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 import { isPublisherDomain } from '@/lib/discovery/publisher-domains';
+import { looksLikeJunkBraveResult } from '@/lib/discovery/junk-result-filter';
 
 export const maxDuration = 300; // 5 min, Vercel Pro limit
 
@@ -812,17 +813,39 @@ async function fetchCandidates(
   // for the curated list + the reasoning.
   try {
     const searchResults = await braveWebSearch(job.query, BRAVE_CANDIDATES_PER_QUERY, undefined, meterFor);
+    let droppedPublisher = 0;
+    let droppedJunk = 0;
     const filtered = searchResults.filter(r => {
+      // Publisher-domain check: WSJ / IBISWorld / similar journalism
+      // sites. Hunter at those returns reporters, not the article's
+      // subject company.
       try {
         const host = new URL(r.url).hostname;
-        return !isPublisherDomain(host);
+        if (isPublisherDomain(host)) {
+          droppedPublisher += 1;
+          return false;
+        }
       } catch {
+        droppedJunk += 1;
         return false;
       }
+      // Junk-result check: listicles, ranking articles, question
+      // pages, generic-page hits ("Company History", "About Us"),
+      // editorial URL paths (/blog/, /case-studies/). Dropping these
+      // pre-score saves the LLM + Hunter budget for actual companies.
+      // Operator flagged 2026-05-19: 'scrabbling for 10 and 20 of
+      // thousands of businesses that should match my ICP' — the
+      // budget waste on guaranteed-junk results was the bottleneck,
+      // not the candidate cap.
+      if (looksLikeJunkBraveResult(r.title, r.url)) {
+        droppedJunk += 1;
+        return false;
+      }
+      return true;
     });
-    const dropped = searchResults.length - filtered.length;
-    if (dropped > 0) {
-      console.log(`[discover-batch] Brave query "${job.query}": dropped ${dropped} publisher-domain results (kept ${filtered.length}/${searchResults.length})`);
+    const totalDropped = droppedPublisher + droppedJunk;
+    if (totalDropped > 0) {
+      console.log(`[discover-batch] Brave query "${job.query}": dropped ${totalDropped} (publisher: ${droppedPublisher}, junk: ${droppedJunk}) — kept ${filtered.length}/${searchResults.length}`);
     }
     const candidates = filtered.map(r => {
       const url = new URL(r.url);
