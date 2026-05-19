@@ -1,0 +1,38 @@
+{
+  "type": "session",
+  "date": "2026-05-19",
+  "window": "session-pm",
+  "metrics": {
+    "commits": 5,
+    "session_commits": ["81d255a", "476b2fd", "e2da285", "c627285", "be4ad18"],
+    "bugs_fixed_distinct": 11,
+    "ops_scripts_run": 3,
+    "files_changed": 6
+  },
+  "wins": [
+    "out_of_scope refused at plan time (assign-batch hard gate)",
+    "out_of_scope dropped at discover unconditionally (no persistence)",
+    "static thin_evidence_generic template bypasses LLM when no real signal",
+    "canonical company name from email domain via selectCanonicalCompanyName",
+    "AI mandatory in sender intro (banned vague 'tech shop' / 'build shop')",
+    "signature_block appended even when LLM closes with bare sender name",
+    "reset route now resets stale partner.status badges",
+    "Brave-sourced partners go email-only (LinkedIn URLs from Hunter are guesses)",
+    "229 in-flight bad drafts purged, 89 out_of_scope partners deleted, 12 dead LinkedIn steps stripped"
+  ],
+  "gaps_for_next_session": [
+    "Discovery still scores article authors then discards — gate before scoring saves tokens + reduces timeout risk",
+    "53-file legacy column audit pending (organisation_id → active_organisation_id)",
+    "Irishpost / Specworks renames are still probably non-decider contacts — scoring needs role vs role-title discrimination",
+    "Verify next-firing email step actually uses new prompt (AI + signature_block)",
+    "Some renamed rows may need re-scoring under corrected company name"
+  ],
+  "learnings_logged": [
+    "feedback_honest_generic_over_faked_specifics.md — when evidence thin, bypass LLM and emit static honest copy"
+  ],
+  "improvements_for_next_run": [
+    "Recognize stacked symptoms earlier — propose full fix in turn 2, not iterate through 4 AskUserQuestions",
+    "Bundle cleanup scripts with route fixes in same commit so stale state never lingers",
+    "Check memory files for known-deferred bugs (project_discovery_article_author_bug.md) before treating as new"
+  ]
+}

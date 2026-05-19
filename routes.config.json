@@ -1,0 +1,36 @@
+{
+  "baseUrl": "https://investor-pilot.vercel.app",
+  "routes": [
+    {
+      "path": "/"
+    },
+    {
+      "path": "/pricing"
+    },
+    {
+      "path": "/about"
+    },
+    {
+      "path": "/contact"
+    },
+    {
+      "path": "/login"
+    },
+    {
+      "path": "/signup"
+    },
+    {
+      "path": "/forgot-password"
+    },
+    {
+      "path": "/privacy"
+    },
+    {
+      "path": "/terms"
+    },
+    {
+      "path": "/api/health",
+      "expectedStatus": 200
+    }
+  ]
+}

@@ -1,0 +1,445 @@
+{
+  "repoPath": "C:\\Users\\denni\\PycharmProjects\\investorpilot",
+  "timestamp": "2026-05-19T16:14:36.928Z",
+  "inspection": {
+    "repoPath": "C:\\Users\\denni\\PycharmProjects\\investorpilot",
+    "timestamp": "2026-05-19T16:14:36.919Z",
+    "packageName": "investor-pilot",
+    "framework": "next",
+    "gaps": [
+      {
+        "rule": "R13",
+        "migrationId": "install-portfolio-gate",
+        "message": "@caistech/portfolio-gate is not installed",
+        "severity": "fail",
+        "detail": "install via npm i -D @caistech/portfolio-gate (CI gate, smoke tests, errorResponse helper)"
+      },
+      {
+        "rule": "R13",
+        "migrationId": "scaffold-gate-workflow",
+        "message": ".github/workflows/gate.yml is missing",
+        "severity": "fail",
+        "file": ".github/workflows/gate.yml",
+        "detail": "GitHub Action that runs typecheck + lint + build + route + auth smoke"
+      },
+      {
+        "rule": "R13",
+        "migrationId": "scaffold-routes-config",
+        "message": "routes.config.json (or .ts) is missing",
+        "severity": "fail",
+        "file": "routes.config.json",
+        "detail": "per-product route list consumed by portfolio-gate-smoke-routes"
+      },
+      {
+        "rule": "R1",
+        "migrationId": "scaffold-auth-config",
+        "message": "auth.config.json (or .ts) is missing",
+        "severity": "fail",
+        "file": "auth.config.json",
+        "detail": "per-product auth path map consumed by portfolio-gate-smoke-auth"
+      },
+      {
+        "rule": "R1",
+        "migrationId": "upgrade-corporate-components",
+        "message": "@caistech/corporate-components is not installed",
+        "severity": "warn",
+        "detail": "install ^0.2.0 to get <AuthForm/> + <CorporateHeader vendor={false}/>"
+      },
+      {
+        "rule": "R1",
+        "migrationId": "swap-auth-pages-to-authform",
+        "message": "raw <input type=\"password\"> — should use <AuthForm/>",
+        "severity": "fail",
+        "file": "src/app/(dashboard)/org/[slug]/settings/integrations/page.tsx",
+        "line": 144,
+        "detail": "type=\"password\""
+      },
+      {
+        "rule": "R6",
+        "migrationId": "add-resend-from-email-example",
+        "message": ".env.example is missing — RESEND_FROM_EMAIL placeholder absent",
+        "severity": "warn",
+        "file": ".env.example",
+        "detail": "create with RESEND_FROM_EMAIL=noreply@updates.corporateaisolutions.com"
+      },
+      {
+        "rule": "R9",
+        "migrationId": "rls-using-true-note",
+        "message": "RLS policy uses USING (true) — needs human review",
+        "severity": "fail",
+        "file": "supabase/migrations/003_agent_memory.sql",
+        "line": 37,
+        "detail": "USING (true) WITH CHECK (true);"
+      },
+      {
+        "rule": "R9",
+        "migrationId": "rls-using-true-note",
+        "message": "RLS policy uses USING (true) — needs human review",
+        "severity": "fail",
+        "file": "supabase/migrations/003_agent_memory.sql",
+        "line": 41,
+        "detail": "USING (true) WITH CHECK (true);"
+      },
+      {
+        "rule": "R9",
+        "migrationId": "rls-using-true-note",
+        "message": "RLS policy uses USING (true) — needs human review",
+        "severity": "fail",
+        "file": "supabase/migrations/004_outreach_log.sql",
+        "line": 37,
+        "detail": "USING (true) WITH CHECK (true);"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-mobile (suggest env var NEXT_PUBLIC_VENDOR_PHONE)",
+        "severity": "fail",
+        "file": "project.md",
+        "line": 853,
+        "detail": "+61 402 612 471"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "project.md",
+        "line": 853,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "project.md",
+        "line": 1026,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-handle (suggest env var NEXT_PUBLIC_VENDOR_HANDLE)",
+        "severity": "fail",
+        "file": "PROJECT_STATUS.md",
+        "line": 112,
+        "detail": "mcmdennis"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-handle (suggest env var NEXT_PUBLIC_VENDOR_HANDLE)",
+        "severity": "fail",
+        "file": "PROJECT_STATUS.md",
+        "line": 116,
+        "detail": "mcmdennis"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-handle (suggest env var NEXT_PUBLIC_VENDOR_HANDLE)",
+        "severity": "fail",
+        "file": "PROJECT_STATUS.md",
+        "line": 118,
+        "detail": "mcmdennis"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-handle (suggest env var NEXT_PUBLIC_VENDOR_HANDLE)",
+        "severity": "fail",
+        "file": "src/app/api/admin/provision-elevenlabs-agent/route.ts",
+        "line": 38,
+        "detail": "mcmdennis"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/contact/page.tsx",
+        "line": 27,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/contact/page.tsx",
+        "line": 28,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-mobile (suggest env var NEXT_PUBLIC_VENDOR_PHONE)",
+        "severity": "fail",
+        "file": "src/app/contact/page.tsx",
+        "line": 38,
+        "detail": "+61 402 612 471"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/privacy/page.tsx",
+        "line": 89,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/privacy/page.tsx",
+        "line": 90,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/privacy/page.tsx",
+        "line": 109,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/terms/page.tsx",
+        "line": 139,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-scrub",
+        "message": "vendor identity leak: operator-email (suggest env var NEXT_PUBLIC_VENDOR_EMAIL)",
+        "severity": "fail",
+        "file": "src/app/terms/page.tsx",
+        "line": 140,
+        "detail": "dennis@corporateaisolutions"
+      },
+      {
+        "rule": "R11",
+        "migrationId": "vendor-identity-env-defaults",
+        "message": ".env.example needs vendor placeholder defaults",
+        "severity": "warn",
+        "file": ".env.example",
+        "detail": "add NEXT_PUBLIC_VENDOR_NAME, NEXT_PUBLIC_VENDOR_EMAIL, NEXT_PUBLIC_VENDOR_PHONE, NEXT_PUBLIC_VENDOR_CALENDLY placeholders"
+      }
+    ],
+    "compliance": {
+      "rulesChecked": 11,
+      "rulesPassed": 7,
+      "percentage": 64,
+      "perRule": [
+        {
+          "rule": "R1",
+          "passed": false,
+          "gapsCount": 3,
+          "description": "Auth pages use <AuthForm/> (no raw <input type=\"password\">)"
+        },
+        {
+          "rule": "R3",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "Every page has an explanatory header (WHAT / DO / MATTERS)"
+        },
+        {
+          "rule": "R6",
+          "passed": true,
+          "gapsCount": 1,
+          "description": "RESEND_FROM_EMAIL is set in .env.example with verified subdomain"
+        },
+        {
+          "rule": "R9",
+          "passed": false,
+          "gapsCount": 3,
+          "description": "No RLS policy uses USING (true) on data-bearing tables"
+        },
+        {
+          "rule": "R11",
+          "passed": false,
+          "gapsCount": 16,
+          "description": "No hardcoded vendor identity (handle, mobile, Calendly, email)"
+        },
+        {
+          "rule": "R13",
+          "passed": false,
+          "gapsCount": 3,
+          "description": "CI gate is wired (@caistech/portfolio-gate + gate.yml + routes.config.*)"
+        },
+        {
+          "rule": "R2",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "UI is responsive (mobile + laptop) — placeholder until v0.2"
+        },
+        {
+          "rule": "R10",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "API routes use errorResponse() helper — placeholder until v0.2"
+        },
+        {
+          "rule": "R12",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "Public-API endpoints opt-in — placeholder until v0.2"
+        },
+        {
+          "rule": "R14",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "Public sample artefact reachable without signup — placeholder until v0.2"
+        },
+        {
+          "rule": "R15",
+          "passed": true,
+          "gapsCount": 0,
+          "description": "TrustPanel present on REGULATED-tier products — placeholder until v0.2"
+        }
+      ]
+    }
+  },
+  "steps": [
+    {
+      "kind": "patch",
+      "id": "install-portfolio-gate",
+      "rule": "R13",
+      "title": "Update package.json — add @caistech/portfolio-gate ^0.2.0 (devDependencies) + add / upgrade @caistech/corporate-components to ^0.2.0 (dependencies)",
+      "description": "Single package.json rewrite. add @caistech/portfolio-gate ^0.2.0 (devDependencies). add / upgrade @caistech/corporate-components to ^0.2.0 (dependencies).\n\nPortfolio-gate (R13) brings the CI smoke tests, errorResponse helper, and static audits. Corporate-components (R1) ships <AuthForm/> in 0.2.0 — required for the R1 swap migration.",
+      "files": [
+        {
+          "path": "package.json",
+          "content": "{\n  \"name\": \"investor-pilot\",\n  \"version\": \"0.1.0\",\n  \"private\": true,\n  \"scripts\": {\n    \"dev\": \"next dev\",\n    \"build\": \"next build\",\n    \"start\": \"next start\",\n    \"lint\": \"next lint\",\n    \"test\": \"vitest run\",\n    \"test:watch\": \"vitest\"\n  },\n  \"dependencies\": {\n    \"@anthropic-ai/sdk\": \"^0.86.1\",\n    \"@caistech/ai-client\": \"^0.1.0\",\n    \"@caistech/apollo-people\": \"^0.1.0\",\n    \"@caistech/brave-search\": \"^0.1.0\",\n    \"@caistech/corporate-components\": \"^0.2.0\",\n    \"@caistech/email-finder\": \"^0.1.0\",\n    \"@caistech/hunter-email\": \"^0.1.0\",\n    \"@caistech/unipile-channels\": \"^0.1.0\",\n    \"@supabase/ssr\": \"^0.10.0\",\n    \"@supabase/supabase-js\": \"^2.102.1\",\n    \"date-fns\": \"^4.1.0\",\n    \"lucide-react\": \"^1.7.0\",\n    \"mammoth\": \"^1.12.0\",\n    \"next\": \"14.2.35\",\n    \"pdf-parse\": \"^2.4.5\",\n    \"react\": \"^18\",\n    \"react-dom\": \"^18\",\n    \"resend\": \"^6.10.0\",\n    \"svix\": \"^1.93.0\",\n    \"unpdf\": \"^1.6.2\",\n    \"xlsx\": \"^0.18.5\"\n  },\n  \"devDependencies\": {\n    \"@caistech/portfolio-gate\": \"^0.2.0\",\n    \"@testing-library/jest-dom\": \"^6.9.1\",\n    \"@testing-library/react\": \"^16.3.2\",\n    \"@types/node\": \"^20\",\n    \"@types/react\": \"^18\",\n    \"@types/react-dom\": \"^18\",\n    \"@vitejs/plugin-react\": \"^6.0.1\",\n    \"eslint\": \"^8\",\n    \"eslint-config-next\": \"14.2.35\",\n    \"jsdom\": \"^29.0.2\",\n    \"postcss\": \"^8\",\n    \"tailwindcss\": \"^3.4.1\",\n    \"typescript\": \"^5\",\n    \"vitest\": \"^4.1.4\"\n  }\n}\n"
+        }
+      ],
+      "followUpCommand": "npm install"
+    },
+    {
+      "kind": "patch",
+      "id": "scaffold-routes-config",
+      "rule": "R13",
+      "title": "Scaffold routes.config.json",
+      "description": "Default top-level route list (homepage, /pricing, /about, /contact, /login, /signup, /forgot-password, /privacy, /terms, /api/health). Edit to match your product's actual routes before running the smoke test.",
+      "files": [
+        {
+          "path": "routes.config.json",
+          "content": "{\n  \"baseUrl\": \"https://investor-pilot.vercel.app\",\n  \"routes\": [\n    {\n      \"path\": \"/\"\n    },\n    {\n      \"path\": \"/pricing\"\n    },\n    {\n      \"path\": \"/about\"\n    },\n    {\n      \"path\": \"/contact\"\n    },\n    {\n      \"path\": \"/login\"\n    },\n    {\n      \"path\": \"/signup\"\n    },\n    {\n      \"path\": \"/forgot-password\"\n    },\n    {\n      \"path\": \"/privacy\"\n    },\n    {\n      \"path\": \"/terms\"\n    },\n    {\n      \"path\": \"/api/health\",\n      \"expectedStatus\": 200\n    }\n  ]\n}\n",
+          "ifMissing": true
+        }
+      ]
+    },
+    {
+      "kind": "patch",
+      "id": "scaffold-auth-config",
+      "rule": "R1",
+      "title": "Scaffold auth.config.json",
+      "description": "Per-product auth path map used by portfolio-gate-smoke-auth. The four legs are wired against the conventional paths (/login, /signup, /forgot-password, /api/auth/*) — edit if your product diverges.",
+      "files": [
+        {
+          "path": "auth.config.json",
+          "content": "{\n  \"baseUrl\": \"__OVERRIDE_FROM_CI__\",\n  \"loginPath\": \"/login\",\n  \"signupPath\": \"/signup\",\n  \"forgotPasswordPath\": \"/forgot-password\",\n  \"magicLinkPath\": \"/login\",\n  \"loginActionPath\": \"/api/auth/login\",\n  \"signupActionPath\": \"/api/auth/signup\",\n  \"forgotPasswordActionPath\": \"/api/auth/forgot\",\n  \"magicLinkActionPath\": \"/api/auth/magic-link\"\n}\n",
+          "ifMissing": true
+        }
+      ]
+    },
+    {
+      "kind": "patch",
+      "id": "scaffold-gate-workflow",
+      "rule": "R13",
+      "title": "Scaffold .github/workflows/gate.yml",
+      "description": "GitHub Action template — runs typecheck + lint + build + route + auth smoke tests on PR + push to main. Requires GITHUB_PACKAGES_TOKEN secret and PORTFOLIO_GATE_PREVIEW_URL repo variable.",
+      "files": [
+        {
+          "path": ".github/workflows/gate.yml",
+          "content": "# Portfolio Standard gate — generated by @caistech/portfolio-migrator\n#\n# Runs typecheck + lint + build, then route + auth smoke tests against the\n# preview deploy URL. Fails the action (and blocks Vercel promotion) on any\n# non-zero exit.\n#\n# Closes Portfolio Standard:\n#   R1  — Auth four-leg pattern (auth smoke step)\n#   R10 — No verbatim Postgres errors (errorResponse helper, enforced at code level)\n#   R13 — Route smoke test on every deploy (route smoke step)\n\nname: portfolio-gate\n\non:\n  pull_request:\n    branches: [main, master]\n  push:\n    branches: [main, master]\n\njobs:\n  gate:\n    runs-on: ubuntu-latest\n    timeout-minutes: 15\n\n    env:\n      PORTFOLIO_GATE_PREVIEW_URL: ${{ vars.PORTFOLIO_GATE_PREVIEW_URL }}\n\n    steps:\n      - name: Checkout\n        uses: actions/checkout@v4\n\n      - name: Setup Node\n        uses: actions/setup-node@v4\n        with:\n          node-version: lts/*\n          cache: npm\n\n      - name: Install dependencies\n        run: |\n          if [ -f pnpm-lock.yaml ]; then\n            corepack enable\n            pnpm install --frozen-lockfile\n          elif [ -f package-lock.json ]; then\n            npm ci\n          else\n            npm install\n          fi\n        env:\n          GITHUB_PACKAGES_TOKEN: ${{ secrets.GITHUB_PACKAGES_TOKEN }}\n\n      - name: Typecheck\n        run: npm run typecheck --if-present\n\n      - name: Lint\n        run: npm run lint --if-present\n\n      - name: Build\n        run: npm run build --if-present\n\n      - name: Verify preview URL is set\n        run: |\n          if [ -z \"$PORTFOLIO_GATE_PREVIEW_URL\" ]; then\n            echo \"::error::PORTFOLIO_GATE_PREVIEW_URL is not set. Wire it via repo vars or a preview-deploy step.\"\n            exit 1\n          fi\n          echo \"Preview URL: $PORTFOLIO_GATE_PREVIEW_URL\"\n\n      - name: Route smoke test (Portfolio Standard R13)\n        run: |\n          npx --no-install portfolio-gate-smoke-routes \\\n            --config routes.config.json \\\n            --base-url \"$PORTFOLIO_GATE_PREVIEW_URL\"\n\n      - name: Auth smoke test (Portfolio Standard R1/R4)\n        run: |\n          npx --no-install portfolio-gate-smoke-auth \\\n            --config auth.config.json \\\n            --base-url \"$PORTFOLIO_GATE_PREVIEW_URL\"\n",
+          "ifMissing": true
+        }
+      ]
+    },
+    {
+      "kind": "note",
+      "id": "vendor-identity-scrub",
+      "rule": "R11",
+      "title": "Scrub vendor identity references",
+      "description": "Replace literal references to operator handle / mobile / Calendly / email with process.env.NEXT_PUBLIC_VENDOR_* references. Marked NOTE because the exact substitution depends on the call site — string template vs JSX text vs prop value all need slightly different syntax. Review each before applying.",
+      "body": "8 occurrences of vendor identity strings were detected. Replace each with a process.env reference and add the placeholder to .env.example.\n\n| File | Find | Replace with |\n|---|---|---|\n| `project.md` | `+61 402 612 471` | `${process.env.NEXT_PUBLIC_VENDOR_PHONE ?? ''}` |\n| `project.md` | `dennis@corporateaisolutions` | `${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}` |\n| `PROJECT_STATUS.md` | `mcmdennis` | `${process.env.NEXT_PUBLIC_VENDOR_HANDLE ?? ''}` |\n| `src/app/api/admin/provision-elevenlabs-agent/route.ts` | `mcmdennis` | `${process.env.NEXT_PUBLIC_VENDOR_HANDLE ?? ''}` |\n| `src/app/contact/page.tsx` | `dennis@corporateaisolutions` | `${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}` |\n| `src/app/contact/page.tsx` | `+61 402 612 471` | `${process.env.NEXT_PUBLIC_VENDOR_PHONE ?? ''}` |\n| `src/app/privacy/page.tsx` | `dennis@corporateaisolutions` | `${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}` |\n| `src/app/terms/page.tsx` | `dennis@corporateaisolutions` | `${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}` |\n\nThese are NOT auto-applied because the exact substitution depends on the call site:\n- Inside a string template: `\\${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}`\n- Inside JSX text: `{process.env.NEXT_PUBLIC_VENDOR_EMAIL}`\n- Inside a prop value: `vendorEmail={process.env.NEXT_PUBLIC_VENDOR_EMAIL}`\n\nApply by hand, verify with `npx portfolio-gate-audit-vendor-leak`, then commit.",
+      "suggestedFiles": [
+        {
+          "path": "project.md",
+          "content": "// Suggested replacement for line:\n// +61 402 612 471\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_PHONE ?? ''}\n"
+        },
+        {
+          "path": "project.md",
+          "content": "// Suggested replacement for line:\n// dennis@corporateaisolutions\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}\n"
+        },
+        {
+          "path": "PROJECT_STATUS.md",
+          "content": "// Suggested replacement for line:\n// mcmdennis\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_HANDLE ?? ''}\n"
+        },
+        {
+          "path": "src/app/api/admin/provision-elevenlabs-agent/route.ts",
+          "content": "// Suggested replacement for line:\n// mcmdennis\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_HANDLE ?? ''}\n"
+        },
+        {
+          "path": "src/app/contact/page.tsx",
+          "content": "// Suggested replacement for line:\n// dennis@corporateaisolutions\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}\n"
+        },
+        {
+          "path": "src/app/contact/page.tsx",
+          "content": "// Suggested replacement for line:\n// +61 402 612 471\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_PHONE ?? ''}\n"
+        },
+        {
+          "path": "src/app/privacy/page.tsx",
+          "content": "// Suggested replacement for line:\n// dennis@corporateaisolutions\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}\n"
+        },
+        {
+          "path": "src/app/terms/page.tsx",
+          "content": "// Suggested replacement for line:\n// dennis@corporateaisolutions\n// ↓\n// ${process.env.NEXT_PUBLIC_VENDOR_EMAIL ?? ''}\n"
+        }
+      ]
+    },
+    {
+      "kind": "patch",
+      "id": "add-resend-from-email-example",
+      "rule": "R6",
+      "title": "Update .env.example — add NEXT_PUBLIC_VENDOR_* placeholders (R11) + RESEND_FROM_EMAIL (R6)",
+      "description": "Single .env.example rewrite. NEXT_PUBLIC_VENDOR_* placeholders (R11). RESEND_FROM_EMAIL (R6).",
+      "files": [
+        {
+          "path": ".env.example",
+          "content": "\n# Portfolio Standard R11 — vendor identity routed through env vars.\n# Replace the placeholders with the consuming brand's identity, or leave\n# them as-is for a vendor-neutral white-label deploy.\nNEXT_PUBLIC_VENDOR_NAME=\"Your Brand Here\"\nNEXT_PUBLIC_VENDOR_EMAIL=\"hello@yourbrand.com\"\nNEXT_PUBLIC_VENDOR_PHONE=\"\"\nNEXT_PUBLIC_VENDOR_CALENDLY=\"\"\nNEXT_PUBLIC_VENDOR_INSTAGRAM=\"\"\n\n# Portfolio Standard R6 — verified Resend subdomain (never the bare\n# corporateaisolutions.com — not verified, silently fails delivery).\nRESEND_FROM_EMAIL=noreply@updates.corporateaisolutions.com\n"
+        }
+      ]
+    },
+    {
+      "kind": "note",
+      "id": "swap-auth-pages-to-authform",
+      "rule": "R1",
+      "title": "Swap raw auth pages to <AuthForm/>",
+      "description": "Raw <input type=\"password\"> was found in the repo. The Portfolio Standard requires <AuthForm/> for R1 compliance. Marked NOTE because the swap surface depends on per-product branding / redirect URLs / analytics hooks.",
+      "body": "Replace every raw login / signup / forgot-password / reset-password page\nwith `<AuthForm/>` from `@caistech/corporate-components` (shipped in 0.2.0).\n\n`<AuthForm/>` bakes in all four R1 legs (forgot-password link, password\nvisibility toggle, magic-link, email verification) plus mobile-first\nresponsive defaults (R2), 44 px tap targets, and a built-in\nexplanatory header per mode (R3).\n\n### Example: `app/login/page.tsx`\n\n```tsx\n'use client';\nimport { AuthForm } from '@caistech/corporate-components';\nimport { createBrowserClient } from '@supabase/ssr';\n\nexport default function LoginPage() {\n  const supabase = createBrowserClient(\n    process.env.NEXT_PUBLIC_SUPABASE_URL!,\n    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!\n  );\n  return (\n    <AuthForm\n      mode=\"login\"\n      supabase={supabase}\n      brandName=\"investor-pilot\"\n      redirectTo=\"/dashboard\"\n    />\n  );\n}\n```\n\n### What to review before swapping\n\n- **Redirect URL.** Confirm `redirectTo` matches your post-login surface.\n- **Custom branding.** If the existing login page has a hero / logo / illustration,\n  pass it via the `<AuthForm/>`'s `brandName` + slot props rather than wrapping\n  raw HTML around the form.\n- **Analytics.** If the existing form fires a custom event on submit, wire it via\n  the `onSuccess` callback rather than re-implementing the form.\n- **Server actions.** `<AuthForm/>` uses the Supabase browser client directly.\n  If your existing flow goes through a server action, you can keep that handler\n  and pass a thin `onSubmit` to the form — but the default direct-client path is\n  what the auth smoke test exercises.\n\nThis swap is **note-only** — the migrator does not auto-generate the new\npages because of the customisation surface above. Apply the swap by hand\nand verify with `npx portfolio-gate-smoke-auth` before landing.\n\n### Files containing raw password inputs\n\n- `src/app/(dashboard)/org/[slug]/settings/integrations/page.tsx`",
+      "suggestedFiles": [
+        {
+          "path": "src/app/(dashboard)/org/[slug]/settings/integrations/page.tsx",
+          "content": "// Suggested swap: replace this file's contents with <AuthForm/>.\n// See plan markdown for the canonical pattern.\n"
+        }
+      ]
+    },
+    {
+      "kind": "note",
+      "id": "rls-using-true-note",
+      "rule": "R9",
+      "title": "Replace USING (true) RLS policies",
+      "description": "Migrations contain USING (true) on data-bearing tables. NOTE-only — the replacement owner column depends on the table's tenancy model.",
+      "body": "One or more migrations contain `USING (true)` against a data-bearing\ntable — this violates Portfolio Standard R9.\n\n`USING (true)` allows every authenticated row to read every other row's\ndata, which is a Privacy Act exposure on REGULATED and REVENUE tier\nproducts. The naive-tester sweep on 2026-05-19 found this exact pattern\non Connexions, Universal Interviews, Platform-Trust, and Longtail-AIVS.\n\n### How to fix\n\nFor each violation, write a new migration that:\n\n1. `DROP POLICY IF EXISTS <name> ON <table>;`\n2. `CREATE POLICY <name> ON <table> FOR <ops> TO <role>\n   USING (auth.uid() = <owner_column>);`\n\nThe owner column varies per table — `owner_id`, `user_id`, `org_id`,\n`tenant_id` are all common. The migrator cannot infer the correct column\nsafely, so this step is **note-only**.\n\n### Verify\n\nAfter applying, run:\n\n```bash\nnpx portfolio-gate-audit-rls\n```\n\nIt must report `PASS` before the deploy promotes.\n\n### Locations\n\n- `supabase/migrations/003_agent_memory.sql:37`\n- `supabase/migrations/003_agent_memory.sql:41`\n- `supabase/migrations/004_outreach_log.sql:37`"
+    }
+  ]
+}

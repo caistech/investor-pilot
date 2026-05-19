@@ -1,0 +1,11 @@
+{
+  "baseUrl": "__OVERRIDE_FROM_CI__",
+  "loginPath": "/login",
+  "signupPath": "/signup",
+  "forgotPasswordPath": "/forgot-password",
+  "magicLinkPath": "/login",
+  "loginActionPath": "/api/auth/login",
+  "signupActionPath": "/api/auth/signup",
+  "forgotPasswordActionPath": "/api/auth/forgot",
+  "magicLinkActionPath": "/api/auth/magic-link"
+}

@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Read(//c/Users/denni/PycharmProjects/community-question-responder/**)",
+      "Bash(rm -rf app/api/setup app/setup components/setup components/corporate scripts archive Architecture.md supabase/admin-schema.sql supabase/client-schema.sql supabase/migrations/*)"
+    ]
+  }
+}
