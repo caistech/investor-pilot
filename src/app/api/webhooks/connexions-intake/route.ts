@@ -95,8 +95,11 @@ export async function POST(request: Request) {
   // 3) Resolve `ref` to a partner. If the ref is a non-empty string AND
   //    a valid UUID-shape, look it up. Stale/deleted partner refs flow
   //    through as unattributed (partner_id = null) rather than erroring.
+  //    Also fetch contact_linkedin here so we can backfill it below
+  //    (rule #4) when the prospect provided one and the partner has none.
   let partnerId: string | null = null;
   let organisationId: string | null = null;
+  let partnerContactLinkedin: string | null = null;
   const refLooksLikeUuid =
     typeof payload.ref === 'string' &&
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(payload.ref);
@@ -104,12 +107,13 @@ export async function POST(request: Request) {
   if (refLooksLikeUuid) {
     const { data: partner } = await db
       .from('partners')
-      .select('id, organisation_id')
+      .select('id, organisation_id, contact_linkedin')
       .eq('id', payload.ref!)
       .maybeSingle();
     if (partner) {
       partnerId = partner.id as string;
       organisationId = partner.organisation_id as string;
+      partnerContactLinkedin = (partner.contact_linkedin as string) || null;
     }
   }
 
@@ -120,13 +124,14 @@ export async function POST(request: Request) {
   if (!organisationId && payload.prospect?.email) {
     const { data: byEmail } = await db
       .from('partners')
-      .select('id, organisation_id')
+      .select('id, organisation_id, contact_linkedin')
       .ilike('contact_email', payload.prospect.email)
       .limit(1)
       .maybeSingle();
     if (byEmail) {
       partnerId = byEmail.id as string;
       organisationId = byEmail.organisation_id as string;
+      partnerContactLinkedin = (byEmail.contact_linkedin as string) || null;
     }
   }
 
@@ -195,7 +200,34 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'storage failed', detail: insertErr.message }, { status: 500 });
   }
 
-  // 7) Audit log so the operator can see this intake landed.
+  // 7) LinkedIn backfill on the partner record. Per the Connexions
+  //    follow-up brief (docs/integrations/connexions-side-handoff.md
+  //    section "What Connexions is sending"): the intake now optionally
+  //    captures a LinkedIn URL. If the prospect provided one AND we
+  //    matched them to a partner AND that partner has no
+  //    contact_linkedin yet, write the URL onto the partner permanently
+  //    so future renders can use the warm-vs-cold tier (network
+  //    distance enrichment), the channel router (LinkedIn step becomes
+  //    sendable), and the operator's manual triage from /prospects all
+  //    benefit. Conservative: only fills the empty case — never
+  //    overwrites an existing LinkedIn URL because the operator may
+  //    have set it deliberately.
+  const incomingLinkedin = payload.prospect?.linkedin_url || null;
+  let backfilledPartnerLinkedin = false;
+  if (partnerId && incomingLinkedin && !partnerContactLinkedin) {
+    const { error: backfillErr } = await db
+      .from('partners')
+      .update({ contact_linkedin: incomingLinkedin })
+      .eq('id', partnerId);
+    if (!backfillErr) {
+      backfilledPartnerLinkedin = true;
+      console.log(`[webhooks/connexions-intake] backfilled partner ${partnerId} contact_linkedin from intake ${payload.intake_id}`);
+    } else {
+      console.warn(`[webhooks/connexions-intake] backfill failed for partner ${partnerId}:`, backfillErr.message);
+    }
+  }
+
+  // 8) Audit log so the operator can see this intake landed.
   await db.from('audit_events').insert({
     organisation_id: organisationId,
     actor: 'webhook:connexions-intake',
@@ -209,6 +241,7 @@ export async function POST(request: Request) {
       intake_slug: payload.intake_slug,
       src: payload.src,
       prospect_email: payload.prospect?.email,
+      backfilled_partner_linkedin: backfilledPartnerLinkedin,
     },
   });
 

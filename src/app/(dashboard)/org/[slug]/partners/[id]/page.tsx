@@ -425,7 +425,14 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
                         )}
                         {r.prospect_company && r.prospect_company !== p.company_name && <span>· {r.prospect_company}</span>}
                         {r.prospect_linkedin && (
-                          <a href={r.prospect_linkedin} target="_blank" rel="noopener noreferrer" className="text-corp-green-400 hover:underline">LinkedIn</a>
+                          <a
+                            href={r.prospect_linkedin}
+                            target="_blank"
+                            rel="noreferrer noopener"
+                            className="text-corp-green-400 hover:underline inline-flex items-center gap-0.5"
+                          >
+                            LinkedIn profile <span aria-hidden="true">↗</span>
+                          </a>
                         )}
                       </div>
                     )}
