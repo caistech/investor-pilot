@@ -13,7 +13,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
     "@caistech/ai-client": "^0.1.0",
+    "@caistech/apollo-people": "^0.1.0",
     "@caistech/brave-search": "^0.1.0",
+    "@caistech/email-finder": "^0.1.0",
     "@caistech/hunter-email": "^0.1.0",
     "@caistech/unipile-channels": "^0.1.0",
     "@supabase/ssr": "^0.10.0",

@@ -1,18 +1,15 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { hunterEmailFinder, hunterDomainSearch } from '@/lib/agent/hunter-tools';
+import { findContactByDomain } from '@/lib/agent/email-finder';
 import { updateContact } from '@/lib/db/partners';
 import { NextResponse } from 'next/server';
 import { checkCap, buildCapExceededResponse } from '@/lib/usage/events';
 
 export const maxDuration = 60;
 
-// Operational caps — keeps the batch under Vercel's 60s edge ceiling even when
-// Hunter is slow. Sized so 20 partners × ~5s Hunter / 5-wide = ~20s, leaving
-// headroom for outliers.
+// Operational caps — keeps the batch under Vercel's 60s edge ceiling even
+// when the cascade is slow (Hunter + optional Apollo fall-through). Sized
+// so 20 partners × ~5s avg / 5-wide = ~20s, leaving headroom for outliers.
 const MAX_PARTNERS_PER_REQUEST = 20;
-const HUNTER_TIMEOUT_MS = 8_000;
-
-void hunterEmailFinder; // silence unused-import — legacy v2 codepath, kept for future revival
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -107,30 +104,21 @@ export async function POST(request: Request) {
         }
 
         try {
-          // Try domain search first (doesn't need a name). Hard timeout so a
-          // slow Hunter call can't block the whole batch — failed call gets
-          // marked unresolved and we move on. The 5-wide concurrency means
-          // worst case for 20 partners is 20/5 × 8s = 32s.
-          const domainResult = await Promise.race([
-            hunterDomainSearch(partner.domain, meterFor),
-            new Promise<null>((_, reject) =>
-              setTimeout(() => reject(new Error(`Hunter timeout after ${HUNTER_TIMEOUT_MS}ms`)), HUNTER_TIMEOUT_MS),
-            ),
-          ]);
+          // Run the Hunter → Apollo cascade. The cascade owns its own
+          // timeouts + role-account fallthrough; if Hunter returns
+          // admin@/info@ or no rows, Apollo's People Search +
+          // Enrichment cover the gap. Returns null when both miss.
+          const found = await findContactByDomain(partner.domain, { meterFor });
 
-          if (domainResult?.emails?.length) {
-            // Pick the best email: highest confidence, prefer decision-maker titles
-            const sorted = [...domainResult.emails].sort((a, b) => b.confidence - a.confidence);
-            const best = sorted[0];
-
+          if (found) {
             const contactData = {
-              contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
-              contact_title: best.position || null,
-              contact_email: best.value,
-              contact_linkedin: best.linkedin || null,
-              email_confidence: best.confidence,
-              email_status: best.confidence >= 70 ? 'verified' : 'probable',
-              contact_source: 'hunter_domain_search',
+              contact_name: found.contact_name,
+              contact_title: found.contact_title,
+              contact_email: found.contact_email,
+              contact_linkedin: found.contact_linkedin,
+              email_confidence: found.email_confidence,
+              email_status: found.email_confidence >= 70 ? 'verified' : 'probable',
+              contact_source: found.source === 'apollo' ? 'apollo_enrich' : 'hunter_domain_search',
             };
 
             await updateContact(db, organisation_id, partner.domain, contactData as Record<string, unknown> as import('@/lib/db/partners').ContactData);
@@ -146,10 +134,10 @@ export async function POST(request: Request) {
             };
           }
 
-          // No emails found
+          // Neither provider found a contact.
           await updateContact(db, organisation_id, partner.domain, {
             email_status: 'unresolved',
-            contact_source: 'hunter_domain_search',
+            contact_source: 'cascade_no_match',
           });
 
           return {

@@ -25,12 +25,11 @@
 
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
-import { hunterDomainSearch } from '@/lib/agent/hunter-tools';
+import { findContactByDomain } from '@/lib/agent/email-finder';
 
 export const maxDuration = 300;
 
-const HUNTER_CONCURRENCY = 4;
-const HUNTER_TIMEOUT_MS = 8_000;
+const CASCADE_CONCURRENCY = 4;
 const MAX_PARTNERS_PER_REQUEST = 100;
 
 export async function POST(request: Request) {
@@ -86,37 +85,27 @@ export async function POST(request: Request) {
   const meterFor = { organisation_id: orgId, route: '/api/partners/bulk-hunter' };
   const outcomes: Array<{ partner_id: string; status: string; email?: string | null; error?: string }> = [];
 
-  for (let i = 0; i < eligible.length; i += HUNTER_CONCURRENCY) {
-    const slice = eligible.slice(i, i + HUNTER_CONCURRENCY);
+  for (let i = 0; i < eligible.length; i += CASCADE_CONCURRENCY) {
+    const slice = eligible.slice(i, i + CASCADE_CONCURRENCY);
     const batch = await Promise.all(
       slice.map(async (p) => {
         try {
-          const result = await Promise.race([
-            hunterDomainSearch(p.domain as string, meterFor),
-            new Promise<null>((_, reject) =>
-              setTimeout(() => reject(new Error('hunter timeout')), HUNTER_TIMEOUT_MS),
-            ),
-          ]);
-          if (!result?.emails?.length) {
-            return { partner_id: p.id as string, status: 'no_emails', email: null };
-          }
-          const sorted = [...result.emails].sort((a, b) => b.confidence - a.confidence);
-          const best = sorted[0];
-          if (!best?.value) {
+          const found = await findContactByDomain(p.domain as string, { meterFor });
+          if (!found) {
             return { partner_id: p.id as string, status: 'no_emails', email: null };
           }
           await db.from('partners').update({
-            contact_name: [best.first_name, best.last_name].filter(Boolean).join(' ') || null,
-            contact_title: best.position || null,
-            contact_email: best.value,
-            contact_linkedin: best.linkedin || null,
-            email_confidence: best.confidence,
-            email_status: best.confidence >= 70 ? 'verified' : 'probable',
-            contact_source: 'hunter_bulk',
+            contact_name: found.contact_name,
+            contact_title: found.contact_title,
+            contact_email: found.contact_email,
+            contact_linkedin: found.contact_linkedin,
+            email_confidence: found.email_confidence,
+            email_status: found.email_confidence >= 70 ? 'verified' : 'probable',
+            contact_source: found.source === 'apollo' ? 'apollo_bulk' : 'hunter_bulk',
             status: 'contact_found',
             last_updated_at: new Date().toISOString(),
           }).eq('id', p.id);
-          return { partner_id: p.id as string, status: 'enriched', email: best.value };
+          return { partner_id: p.id as string, status: 'enriched', email: found.contact_email };
         } catch (err) {
           return {
             partner_id: p.id as string,
