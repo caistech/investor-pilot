@@ -255,14 +255,21 @@ export function PipelineTable({
   // looking for property credit). Operator can untick to see them, and if
   // they explicitly select one, assign-batch now sends an exploratory-tier
   // draft rather than skipping outright.
-  const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(true);
+  // Defaulted OFF 2026-05-19 — operator wants to see all rows on
+  // first load. out_of_scope is now dropped at discovery anyway
+  // (discover route hard-discards), so this checkbox is a legacy
+  // safety net for rows pre-dating that rule. Operator can tick it
+  // to narrow if they spot any.
+  const [excludeOutOfScope, setExcludeOutOfScope] = useState<boolean>(false);
   const [hideLowConfidence, setHideLowConfidence] = useState<boolean>(false);
-  // "Hide already targeted" = partner has been sent to (status moved past
-  // contact_found) OR has an in-flight sequence_steps row. Default ON for
-  // batch-assignment workflows so the operator doesn't accidentally
-  // double-target. Can be toggled off to see the full list including
-  // already-targeted rows.
-  const [hideTargeted, setHideTargeted] = useState<boolean>(true);
+  // "Hide already targeted" = partner has been sent to (status moved
+  // past contact_found) OR has an in-flight sequence_steps row.
+  // Defaulted OFF 2026-05-19 — operator hit "12 of 49 shown" and
+  // wanted to see all 49. The double-target guard now lives at the
+  // assign-batch route level (skips partners with live steps with a
+  // clear reason), so the UI doesn't need to hide them as a safety
+  // net. Operator can tick the box to narrow when batch-planning.
+  const [hideTargeted, setHideTargeted] = useState<boolean>(false);
   // Contact filter REMOVED 2026-05-19 — operator flagged it as
   // redundant with the source tabs. After the Brave-must-have-email
   // discovery rule, source IS reachability:
