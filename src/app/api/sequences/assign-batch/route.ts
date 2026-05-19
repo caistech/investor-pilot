@@ -391,16 +391,29 @@ export async function POST(request: Request) {
 
     // Filter template steps by available partner contact handles. The
     // template hardcodes a 6-step pattern that mixes LinkedIn and email
-    // channels — but a Brave-only partner with email contact but no
-    // LinkedIn URL has nowhere to send the linkedin_connect / linkedin_dm
-    // steps. Same in reverse: a LinkedIn-only partner with no work email
-    // can't receive the email steps. Previously every step landed in
-    // sequence_steps regardless and the renderer dutifully wrote 300-char
-    // connect notes for prospects who'd never see them — wasted LLM
-    // spend AND broken length expectations on the surviving email
-    // channels (Brave prospects got LinkedIn-cap renders when they
-    // should have got full-length emails). Operator flagged 2026-05-19.
-    const hasLinkedIn = !!(partner.contact_linkedin as string | null);
+    // channels — but the partner.source decides which of those handles
+    // are TRUSTWORTHY:
+    //
+    //   - LinkedIn-sourced partners (linkedin / sales_nav): LinkedIn URL
+    //     is authoritative — we found them via LinkedIn. Email is
+    //     optional and may not be present.
+    //   - Brave-sourced partners: Hunter returns a verified email + a
+    //     GUESSED LinkedIn URL (best-effort name match against Hunter's
+    //     database). The email is deliverability-tested; the LinkedIn URL
+    //     is inferential and may resolve to the wrong person, a defunct
+    //     profile, or no account at all. Sending a LinkedIn connect /
+    //     DM to a Hunter-guessed URL either targets the wrong person
+    //     or fails at Unipile send time and stalls the whole sequence
+    //     before email steps can fire.
+    //
+    // Operator decision 2026-05-19: Brave-sourced rows go EMAIL-ONLY.
+    // The LinkedIn URL stays on the partner record for manual inspection
+    // but the sequence skips LinkedIn steps entirely. If the operator
+    // verifies a Brave contact's LinkedIn manually later, they can
+    // flip source='linkedin' to re-enable LinkedIn channels.
+    const partnerSource = ((partner.source as string | null) || '').toLowerCase();
+    const isBraveSourced = partnerSource === 'brave';
+    const hasLinkedIn = !!(partner.contact_linkedin as string | null) && !isBraveSourced;
     const hasEmail = !!(partner.contact_email as string | null);
     const usableSteps = (chosen.steps || []).filter((s: { channel?: string }) => {
       const ch = (s.channel || '').toString();
