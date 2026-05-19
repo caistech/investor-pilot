@@ -216,6 +216,142 @@ export function templateChannel(key: string): 'linkedin_connect' | 'linkedin_dm'
   return null;
 }
 
+/**
+ * Decide whether a partner has so little usable evidence that any LLM
+ * personalisation will end up pseudo-specific rather than genuinely
+ * personalised. Operator flagged 2026-05-19: the approval queue was
+ * full of "Hi Tracy — the quantum/gallery deals Lendlease landed..."
+ * type copy where Tracy was an article author at a software vendor,
+ * not connected to Lendlease at all. Root cause: the LLM was reaching
+ * for inferences when the underlying evidence was empty.
+ *
+ * Threshold: we treat the partner as thin-evidence when ALL of:
+ *   - no LinkedIn posts on file (or enrichment never ran)
+ *   - no firm news / named deals from Brave enrichment
+ *   - all three scoring-time notes (audience_overlap, complementarity,
+ *     partner_readiness) are empty or under 40 chars trimmed
+ *
+ * Warm partners (1st-degree connections) are NEVER routed here — the
+ * connection itself is the signal even when posts/notes are thin.
+ */
+function hasThinEvidence(partner: RenderPartner): boolean {
+  const posts = (partner.profile_recent_posts || []).filter(p => p && (p.text || p.repost_content_text));
+  if (posts.length > 0) return false;
+
+  const news = (partner.firm_recent_news || []).length;
+  const deals = (partner.firm_named_deals || []).length;
+  if (news > 0 || deals > 0) return false;
+
+  const noteMeaty = (s: string | null | undefined) => typeof s === 'string' && s.trim().length >= 40;
+  if (
+    noteMeaty(partner.audience_overlap_notes) ||
+    noteMeaty(partner.complementarity_notes) ||
+    noteMeaty(partner.partner_readiness_notes) ||
+    noteMeaty(partner.operator_notes)
+  ) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Static thin-evidence template. Used when hasThinEvidence(partner)
+ * fires — bypasses the LLM entirely so we don't manufacture pseudo-
+ * specifics. The copy is deliberately generic and honest about the
+ * lack of tailoring: "I don't have specific signal, here's what we
+ * do, here's the intake." This is the path the operator explicitly
+ * asked for 2026-05-19: "either they should never appear, or we have
+ * the type of email that just says Hi X, you work at Y in Z industry,
+ * many problems can be solved by AI now etc".
+ *
+ * Field substitution only — no LLM call. Pure function modulo URL
+ * tracking-ref restoration which the caller handles.
+ */
+function renderThinEvidenceGeneric(args: {
+  firstName: string;
+  firm: string;
+  partner: RenderPartner;
+  context: RenderContext;
+  channel: 'linkedin_connect' | 'linkedin_dm' | 'email';
+  intakeUrl: string | null;
+  templateKey: string;
+  maxChars: number;
+  outreachTier: OutreachTier;
+}): RenderResult {
+  const { firstName, firm, partner, context, channel, intakeUrl, templateKey, maxChars, outreachTier } = args;
+
+  const sectorRaw = (partner.offering_context?.sector || '').trim();
+  const sectorPhrase = sectorRaw ? `${sectorRaw} ` : '';
+  const offeringName = partner.offering_context?.name?.trim() || 'what we do';
+  const senderName = context.sender_name;
+  const senderRole = context.sender_role;
+  const cta = intakeUrl || context.sender_calendar_url || '';
+  const ctaLine = cta ? `\n${cta}\n` : '';
+
+  let subject: string | null = null;
+  let body: string;
+
+  if (channel === 'linkedin_connect') {
+    body = `Hi ${firstName} — cold reach-out, no specific signal on ${firm}. If ${sectorPhrase}AI-tooling for half-manual ops is on the radar, happy to share scoping notes. — ${senderName}`;
+    if (body.length > 300) {
+      body = `Hi ${firstName} — cold reach-out on ${firm}. If AI tooling for ops is on the radar, happy to share scoping notes. — ${senderName}`;
+    }
+  } else if (channel === 'linkedin_dm') {
+    body = `Hi ${firstName},
+
+Cold reach-out — I don't have specific signal on your setup at ${firm}, so won't pretend otherwise.
+
+If half-manual operational processes are quietly costing time at ${firm}, ${offeringName} walks through what a scoping conversation would look like — short read, no commitment:
+${cta}
+
+No pressure if it's not your space.
+
+— ${senderName}`;
+  } else {
+    subject = `Quick intro from ${senderName}`;
+    body = `Hi ${firstName},
+
+I'll be upfront: I don't have specific signal about ${firm}'s setup, so this is a cold reach-out rather than something tailored.
+
+Many of the operational problems we see across ${sectorPhrase}businesses now have AI-powered solutions that weren't viable a year ago — typically the half-manual processes that quietly cost real time (dispatch coordination, reconciliation, compliance docs, the things that sit in spreadsheets and never quite leave).
+
+If anything in that resonates at ${firm}, this short intake walks through what a scoping conversation would look like:
+${cta}
+
+No pressure if it's not your space.
+
+— ${senderName}
+${senderRole}`;
+  }
+
+  if (maxChars && body.length > maxChars && channel !== 'linkedin_connect') {
+    return {
+      ok: false,
+      reason: `thin_evidence_generic body ${body.length} chars exceeds max ${maxChars} for ${templateKey} — tune the static template`,
+      blocker: 'llm_error',
+    };
+  }
+
+  return {
+    ok: true,
+    subject,
+    body,
+    evidence_refs: {
+      template_key: templateKey,
+      credit_signal: 'thin_evidence_generic',
+      signal_specificity: 'generic',
+      partner_score: partner.weighted_score,
+      warm: false,
+      target_language: 'en',
+      outreach_tier: outreachTier,
+      render_path: 'static_thin_evidence',
+    },
+    personalization_score: 1,
+    outreach_tier: outreachTier,
+  };
+}
+
 export async function renderStep(
   templateKey: string,
   partner: RenderPartner,
@@ -284,23 +420,34 @@ export async function renderStep(
 
   const warm = template.is_warm;
 
+  // Thin-evidence detector. When the partner has zero useful evidence
+  // (no posts, no firm news, no scoring notes worth quoting), the LLM
+  // can only manufacture pseudo-specifics. We route to a static generic
+  // template instead — honest, short, no fake personalisation. Only
+  // applies to cold outreach; warm partners always go through the
+  // personalised LLM path because the 1st-degree connection is the
+  // anchor. See hasThinEvidence() + renderThinEvidenceGeneric() above.
+  const useThinEvidenceGeneric = !warm && hasThinEvidence(partner);
+
   // Cold templates require a specific credit signal — generic openers tank
   // reply rates and the v3 brief explicitly forbids them. Warm templates
   // (1st-degree connections) skip this gate: the existing relationship IS
   // the trust signal, no external evidence needed — but they DO get a
   // per-recipient personalised opener so the message doesn't read like
   // an obvious template.
+  // Thin-evidence path skips extractCreditSignal too — wasted LLM call
+  // when we'll bypass the body-writing LLM.
   let signal: CreditSignal | null = null;
   let warmOpener = 'quick one.'; // fallback if Claude call fails — keeps original cadence
-  if (!warm) {
+  if (warm) {
+    const opener = await generateWarmOpener(partner);
+    if (opener) warmOpener = opener;
+  } else if (!useThinEvidenceGeneric) {
     // Always proceeds — extractor falls back to a humble explicit
     // framing rather than refusing, per the researcher rule. The
     // rendered message's confidence is captured in personalization_score
     // (high for tier-1 specific evidence, low for tier-4 humble).
     signal = await extractCreditSignal(partner);
-  } else {
-    const opener = await generateWarmOpener(partner);
-    if (opener) warmOpener = opener;
   }
 
   // Format the project URLs as a self-contained block so templates can drop
@@ -391,6 +538,36 @@ export async function renderStep(
       reason: `No intake URL configured on the ${offeringKind} "${partner.offering_context?.name ?? 'this offering'}". Open ${settingsPath}, edit the ${offeringKind}, and add a ${urlField}. The renderer refuses to invent URLs — without one the LLM would either hallucinate a domain or write literal placeholder text into the message.`,
       blocker: 'missing_offering_url',
     };
+  }
+
+  // Thin-evidence branch. When the partner has no usable evidence, skip
+  // the LLM entirely and emit a static, honest, deliberately-generic
+  // message. The LLM in that situation produces pseudo-specifics that
+  // read worse than a frank generic email — operator flagged 2026-05-19.
+  // Caller still post-processes for tracking-ref restoration below
+  // (handled in the unified return path).
+  if (useThinEvidenceGeneric) {
+    const genericResult = renderThinEvidenceGeneric({
+      firstName,
+      firm: firmRendered,
+      partner,
+      context,
+      channel,
+      intakeUrl: intakeUrl ?? null,
+      templateKey,
+      maxChars: template.max_chars,
+      outreachTier,
+    });
+    if (genericResult.ok && partner.id) {
+      const offeringCta = partner.offering_context?.one_pager_url || partner.offering_context?.pitch_deck_url;
+      if (offeringCta) {
+        genericResult.body = restoreTrackingRef(genericResult.body, offeringCta, partner.id);
+        if (genericResult.subject) {
+          genericResult.subject = restoreTrackingRef(genericResult.subject, offeringCta, partner.id);
+        }
+      }
+    }
+    return genericResult;
   }
 
   const llmResult = await writeMessageViaLLM({

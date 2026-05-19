@@ -69,21 +69,25 @@ const TERMINAL_STATUSES = new Set([
 
 const MAX_BATCH_SIZE = 100;
 
-// ICP-score gate — REMOVED 2026-05-17 (set to -1 so the check below is
-// always falsy without restructuring the comparison code). The gating
-// model is now:
-//   - UI default: "Exclude out-of-scope" checkbox defaults ON, so
-//     genuine-wrong-category prospects don't pollute the selectable list
-//   - Assign-batch: if the operator explicitly selected a prospect
-//     (overriding the default filter), we ALWAYS try to send. Tier
-//     modulation in render.ts handles tone:
-//       score ≥ 7   → confident tier (direct ask)
-//       4 ≤ s < 7  → qualified tier (soft hedge)
-//       s < 4      → exploratory tier ("not sure if this is for you but…")
-// Operator philosophy: "if they get to this stage, at minimum they should
-// get the 'I don't know if this is for you' email" — don't refuse to send
-// what the operator deliberately queued.
-const MIN_ICP_SCORE = -1;
+// out_of_scope is a HARD REFUSAL at this layer. Operator flagged
+// 2026-05-19: the previous "operator can override the UI filter" model
+// produced 50-row approval queues full of pseudo-specific copy to
+// article authors and obviously-wrong contacts. The LLM scorer has
+// actively judged these as not-a-fit (buyer title mismatch, reject
+// category, wrong size/stage/vertical, or explicit exclusion) — that
+// verdict is meaningful, not a UI nudge to ignore. If the operator
+// wants to email such a contact, they must either:
+//   - flip the partner's category manually (admin action), or
+//   - adjust the product's ICP rules and re-score
+// Tier modulation in render.ts still handles the legitimate
+// in-scope band:
+//   score ≥ 7   → confident tier (direct ask)
+//   4 ≤ s < 7  → qualified tier (soft hedge)
+//   s < 4      → exploratory tier OR thin_evidence_generic fallback
+//                (renderer decides — see render.ts)
+function isOutOfScopeCategory(category: unknown): boolean {
+  return typeof category === 'string' && /out[_ -]?of[_ -]?scope/i.test(category);
+}
 
 export async function POST(request: Request) {
   const { user, db, error } = await authenticateAndGetDb();
@@ -291,22 +295,21 @@ export async function POST(request: Request) {
       continue;
     }
 
-    // ICP-score gate REMOVED 2026-05-17 — operator philosophy is "if the
-    // user explicitly selected this prospect, send the exploratory-tier
-    // email rather than refusing". out_of_scope filtering happens at the
-    // UI layer (Exclude out-of-scope checkbox, defaulted ON). If the
-    // operator unticks the filter and selects an out_of_scope row,
-    // they're consciously overriding — honour that. Tier modulation in
-    // render.ts ensures low-score prospects get hedged copy.
-    const partnerScore = typeof partner.weighted_score === 'number' ? partner.weighted_score : null;
-    if (partnerScore !== null && partnerScore < MIN_ICP_SCORE) {
-      // Effectively unreachable now (MIN_ICP_SCORE = -1) but kept so the
-      // gate can be reinstated by raising the constant if abuse appears.
+    // out_of_scope hard refusal. See constant above. The LLM scorer
+    // marks a partner out_of_scope when buyer title doesn't match, the
+    // category is on the reject list, company size/stage is wrong, or
+    // an explicit exclusion fires. We do NOT draft for these, even if
+    // the operator selected through the UI filter — the previous
+    // "honour the override" model produced approval queues full of
+    // pseudo-specific copy to article authors and category-mismatch
+    // contacts. Operator must adjust ICP or flip the partner's
+    // category to recover such a row.
+    if (isOutOfScopeCategory(partner.category)) {
       results.push({
         partner_id: partnerId,
         partner_name: partner.company_name as string,
         outcome: 'skipped',
-        reason: `Weighted score ${partnerScore.toFixed(2)} below MIN_ICP_SCORE (${MIN_ICP_SCORE}) — genuine no-fit, not queuing`,
+        reason: `Out of scope (category="${partner.category}"). Not drafting — the LLM scorer judged this contact not-a-fit (wrong title / category / size / vertical / exclusion). If you want to email them anyway, adjust the product's ICP rules and re-score, or flip the partner's category manually.`,
       });
       continue;
     }
