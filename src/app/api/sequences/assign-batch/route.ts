@@ -51,6 +51,12 @@ interface TemplateRow {
   target_kind: 'product' | 'project' | null;
 }
 
+// Statuses where the partner is "available for re-planning" — i.e.
+// existing rows at these statuses do NOT block assigning a fresh
+// sequence. Used by the liveStepKeys check at the bottom of this route.
+// 'render_refused' added 2026-05-19 after migration 035: render-time
+// refusals are a dead-end for that step (no message ever produced)
+// and should not stop a re-plan attempt.
 const TERMINAL_STATUSES = new Set([
   'sent',
   'skipped',
@@ -58,6 +64,7 @@ const TERMINAL_STATUSES = new Set([
   'replied',
   'opted_out',
   'compliance_blocked',
+  'render_refused',
 ]);
 
 const MAX_BATCH_SIZE = 100;

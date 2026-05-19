@@ -21,12 +21,24 @@
 import { NextResponse } from 'next/server';
 import { authenticateAndGetDb } from '@/lib/agent/db';
 
+// Statuses that "Restart plan" wipes. The function-name promise is
+// "scrub the partner's plan back to nothing so a fresh assignment
+// works" — anything that isn't actively-sending or terminally-done
+// belongs in here. Operator flagged 2026-05-19: Restart was leaving
+// 'skipped' (from bulk-clears) and 'render_refused' (new in migration
+// 035) attached to partners, so the follow-up Plan Outreach treated
+// them as "already on a sequence" and refused to re-plan.
+//
+// Preserved (NOT wiped): 'sent', 'replied', 'opted_out' (terminal —
+// historical record), 'approved_queued_for_send' (about to dispatch).
 const NON_TERMINAL = [
   'pending',
   'queued_for_approval',
   'awaiting_verification',
   'compliance_blocked',
   'failed',
+  'skipped',
+  'render_refused',
 ];
 
 const MAX_PARTNERS = 50;
