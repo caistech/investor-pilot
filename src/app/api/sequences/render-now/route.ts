@@ -209,7 +209,15 @@ export async function POST(request: Request) {
   try {
     const runnerResponse = await runSequencer({
       partnerIds: needsRenderIds,
-      ignoreSchedule: true,
+      // 3-day forward window — renders the immediately-due step plus
+      // any FU steps scheduled within 3 days. Steps scheduled further
+      // out stay pending; the cron picks them up closer to their send
+      // date so the LLM has fresh context (e.g. did the recipient
+      // reply since step 1?) and the approval queue doesn't fill with
+      // future-dated FUs that look like duplicates. Operator flagged
+      // 2026-05-19 — ADCO/L.Arthur/First Logistics appearing 3× in
+      // the queue because FU1+FU2+FU3 were all rendered upfront.
+      scheduleWindowDays: 3,
       organisationId: profile.organisation_id,
       skipWarmupTick: true,
       // 4-wide parallelism. With MAX_PARTNERS_PER_REQUEST=4, that's the

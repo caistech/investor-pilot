@@ -72,6 +72,22 @@ export interface RunSequencerOptions {
    * ~max(call) rather than ~sum(calls).
    */
   concurrency?: number;
+  /**
+   * How far into the future to allow rendering. Defaults to 0 = "render
+   * only what's due now or overdue" (the cron's normal behaviour). The
+   * operator-triggered render-now route passes 3 — a 3-day forward
+   * window so a Plan-Outreach click renders Step 1 (due immediately)
+   * AND its near-term follow-ups, but doesn't drag in Step 5 / 6
+   * scheduled weeks out. Rendering far-future FUs early bakes in stale
+   * context (no chance to react to a reply) and clutters the Approvals
+   * queue with what look like duplicates. Operator flagged 2026-05-19:
+   * "pretty sure we've seen some of these before" — ADCO appearing
+   * 3× in the queue with FU1/FU2/FU3 all rendered.
+   *
+   * Ignored when ignoreSchedule is true (escape hatch for legacy /
+   * debugging).
+   */
+  scheduleWindowDays?: number;
 }
 
 export async function runSequencer(opts: RunSequencerOptions = {}) {
@@ -95,7 +111,17 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
     .limit(MAX_STEPS_PER_RUN);
 
   if (!opts.ignoreSchedule) {
-    dueQuery = dueQuery.lte('scheduled_for', startedAt);
+    // Default: only render what's due now or overdue.
+    // scheduleWindowDays > 0: allow rendering up to N days into the
+    // future. Used by render-now (operator's "Draft Messages Now"
+    // button) to render the first message AND its near-term follow-ups
+    // in one click, without dragging in far-future FUs.
+    const windowDays = typeof opts.scheduleWindowDays === 'number' && opts.scheduleWindowDays > 0
+      ? opts.scheduleWindowDays
+      : 0;
+    const cutoffMs = Date.now() + windowDays * 86_400_000;
+    const cutoff = windowDays > 0 ? new Date(cutoffMs).toISOString() : startedAt;
+    dueQuery = dueQuery.lte('scheduled_for', cutoff);
   }
   if (opts.partnerIds?.length) {
     dueQuery = dueQuery.in('partner_id', opts.partnerIds);
