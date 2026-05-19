@@ -263,13 +263,22 @@ export function PipelineTable({
   // double-target. Can be toggled off to see the full list including
   // already-targeted rows.
   const [hideTargeted, setHideTargeted] = useState<boolean>(true);
-  // Contact-status filter. Replaces the hidden contact_name pre-filter.
-  // Operator picks one explicit state to narrow the visible rows; the
-  // count chip + bulk actions then operate on the result. Default 'all'
-  // so first-load matches the raw count (Brave 155 visible, not 155→18).
-  // 2026-05-19: addresses operator question 'what does Brave 155/18 mean?
-  // I want to click 155 and run Hunter on the missing 137.'
-  type ContactStatusKey = 'all' | 'full' | 'has_li' | 'has_email' | 'company_only';
+  // Contact-status filter — intent-driven, not schema-flavoured.
+  // Operator flagged 2026-05-19: "I want to email these prospects, the
+  // list should show those I can email — not Has-name-and-email vs Has-
+  // LinkedIn-only vs whatever, that's me translating intent into your
+  // data model". Labels now name the OUTCOME, not the field state:
+  //   emailable_now         = has contact_email — ready to draft email
+  //   emailable_after_hunter = has a domain Hunter can try, no email yet
+  //   linkedin_reachable    = has a verified LinkedIn URL (LI-sourced)
+  //   not_actionable        = no email, no domain, no LinkedIn — needs
+  //                           manual enrichment or deletion
+  type ContactStatusKey =
+    | 'all'
+    | 'emailable_now'
+    | 'emailable_after_hunter'
+    | 'linkedin_reachable'
+    | 'not_actionable';
   const [contactFilter, setContactFilter] = useState<ContactStatusKey>('all');
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -290,20 +299,28 @@ export function PipelineTable({
     .filter(p => matchesFilter(p.status, filter, p.engaged_at))
     .filter(p => matchesSourceTier(p, sourceFilter))
     .filter(p => {
-      // Contact-status filter — explicit narrowing on what kind of
-      // outreach handle the row carries.
-      //   full         = has both contact_name AND contact_email
-      //   has_li       = has contact_name + contact_linkedin (LI path only)
-      //   has_email    = has contact_email (email path only — may also have LI)
-      //   company_only = company_name + domain, NO person attached yet
+      // Intent-driven Contact filter. Maps user intent to row state:
+      //   emailable_now         → can draft + send email today
+      //   emailable_after_hunter → has a domain, Hunter run will (probably)
+      //                            produce a real email — Plan Outreach
+      //                            now runs Hunter inline on these, so
+      //                            selecting them is a single-click path
+      //   linkedin_reachable    → has a verified LinkedIn URL — source
+      //                            must be linkedin/sales_nav to count
+      //                            (Brave-guessed LinkedIn URLs don't
+      //                            count; they're unreliable per the
+      //                            2026-05-19 Brave→email-only rule)
+      //   not_actionable        → no email, no domain, no verified LI
       if (contactFilter === 'all') return true;
-      const hasName = typeof p.contact_name === 'string' && p.contact_name.trim().length > 0;
       const hasEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
+      const hasDomain = typeof p.domain === 'string' && p.domain.trim().length > 0;
       const hasLi = typeof p.contact_linkedin === 'string' && p.contact_linkedin.trim().length > 0;
-      if (contactFilter === 'full') return hasName && hasEmail;
-      if (contactFilter === 'has_li') return hasName && hasLi;
-      if (contactFilter === 'has_email') return hasEmail;
-      if (contactFilter === 'company_only') return !hasName && !hasEmail && !hasLi;
+      const liSourced = p.source === 'linkedin' || p.source === 'sales_nav';
+      const verifiedLi = hasLi && liSourced;
+      if (contactFilter === 'emailable_now') return hasEmail;
+      if (contactFilter === 'emailable_after_hunter') return !hasEmail && hasDomain;
+      if (contactFilter === 'linkedin_reachable') return verifiedLi;
+      if (contactFilter === 'not_actionable') return !hasEmail && !hasDomain && !verifiedLi;
       return true;
     })
     .filter(p => matchesSearch(p, search))
@@ -815,34 +832,168 @@ export function PipelineTable({
     if (selectedPartners.length === 0) return;
     const firstDegreeCount = selectedPartners.filter(p => p.network_distance === '1st').length;
     const otherCount = selectedPartners.length - firstDegreeCount;
+
+    // Auto-Hunter: identify rows that need email lookup before they can
+    // be planned. "Needs Hunter" = no contact_email yet AND we have a
+    // domain to try. These get Hunter inline before the assign call, so
+    // the operator never has to remember to run Find Emails first.
+    const needsHunter = selectedPartners.filter(p =>
+      (!p.contact_email || p.contact_email.trim().length === 0)
+      && typeof p.domain === 'string' && p.domain.trim().length > 0
+    );
+    const hunterIds = needsHunter.map(p => p.id);
+
     const confirmMsg = `Plan outreach for ${selectedPartners.length} prospect${selectedPartners.length === 1 ? '' : 's'}?\n\n` +
       `  • ${firstDegreeCount} 1st-degree LinkedIn connection${firstDegreeCount === 1 ? '' : 's'} → warm sequence (3 messages over 9 days)\n` +
-      `  • ${otherCount} other prospect${otherCount === 1 ? '' : 's'} → cold sequence (6 messages over 14 days, with personalised research per recipient)\n\n` +
-      `Prospects already on a sequence will be left alone. Low-fit prospects (below the project's ICP threshold) will be skipped with a reason.`;
+      `  • ${otherCount} other prospect${otherCount === 1 ? '' : 's'} → cold sequence (6 messages over 14 days, with personalised research per recipient)\n` +
+      (hunterIds.length > 0
+        ? `  • ${hunterIds.length} need an email lookup first — Hunter will run automatically before scheduling.\n`
+        : '') +
+      `\nDrafts then render into Approvals as the cron picks them up (a few minutes for the first batch, then ongoing). Sending happens at your channel caps over the following days — you don't need to babysit it.\n\n` +
+      `Prospects already on a sequence will be left alone. Out-of-scope prospects are refused.`;
     if (!confirm(confirmMsg)) return;
 
     const n = selectedPartners.length;
     setLoading('assign');
     setNextCta(null);
-    setMessage(`Planning outreach for ${n} prospect${n === 1 ? '' : 's'} now — picking the right template per prospect and scheduling each step…`);
+
+    // PHASE 1: Auto-Hunter on missing-email rows. Chunked at ENRICH_MAX
+    // so an operator selecting 200+ doesn't hit the server's per-request
+    // cap. Failures are non-fatal — Hunter often doesn't find a real
+    // email and the row stays unactionable, which assign-batch will
+    // then surface as 'skipped — no email'.
+    let hunterFoundEmails = 0;
+    const hunterFoundIds = new Set<string>();
+    if (hunterIds.length > 0) {
+      setMessage(`Running Hunter on ${hunterIds.length} prospect${hunterIds.length === 1 ? '' : 's'} missing email addresses… (then will plan outreach for all ${n})`);
+      const huntChunks: string[][] = [];
+      for (let i = 0; i < hunterIds.length; i += ENRICH_MAX) {
+        huntChunks.push(hunterIds.slice(i, i + ENRICH_MAX));
+      }
+      for (let i = 0; i < huntChunks.length; i += 1) {
+        const chunk = huntChunks[i];
+        try {
+          const hRes = await fetch('/api/pipeline/enrich', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ partner_ids: chunk, organisation_id: organisationId }),
+          });
+          const hBody = await hRes.text();
+          let hData: { [k: string]: unknown } = {};
+          try { hData = JSON.parse(hBody); } catch { /* ignore */ }
+          if (hRes.ok) {
+            hunterFoundEmails += (hData.enriched as number) || 0;
+            const results = (hData.results as Array<{ partner_id: string; status: string }>) || [];
+            for (const r of results) {
+              if (r.status === 'enriched') hunterFoundIds.add(r.partner_id);
+            }
+          }
+        } catch { /* non-fatal — row will be auto-deleted below if it ends up unactionable */ }
+        if (huntChunks.length > 1) {
+          setMessage(`Hunter batch ${i + 1} of ${huntChunks.length} done — ${hunterFoundEmails} email${hunterFoundEmails === 1 ? '' : 's'} found so far…`);
+        }
+      }
+      router.refresh();
+    }
+
+    // PHASE 1.5: Auto-delete unactionable rows. Operator rule 2026-05-19:
+    // "If they have no findable LinkedIn and no findable email after
+    // Hunter — delete them. They will never be any good so why clutter
+    // up our database." A row is unactionable when:
+    //   - it has no contact_email AND wasn't enriched by Hunter just now
+    //   - AND it has no verified LinkedIn (source must be linkedin /
+    //     sales_nav for the LI URL to count; Brave-guessed handles
+    //     don't, per the 2026-05-19 channel-routing rule)
+    const unactionableIds = selectedPartners
+      .filter(p => {
+        const hadEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
+        const gotEmailJustNow = hunterFoundIds.has(p.id);
+        if (hadEmail || gotEmailJustNow) return false;
+        const liSourced = p.source === 'linkedin' || p.source === 'sales_nav';
+        const hasLi = typeof p.contact_linkedin === 'string' && p.contact_linkedin.trim().length > 0;
+        return !(liSourced && hasLi);
+      })
+      .map(p => p.id);
+
+    let autoDeletedCount = 0;
+    if (unactionableIds.length > 0) {
+      setMessage(`Auto-deleting ${unactionableIds.length} prospect${unactionableIds.length === 1 ? '' : 's'} with no email + no verified LinkedIn (unactionable — never going to convert)…`);
+      try {
+        const dRes = await fetch('/api/partners/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partner_ids: unactionableIds }),
+        });
+        if (dRes.ok) {
+          const dData = await dRes.json();
+          autoDeletedCount = (dData.deleted as number) || unactionableIds.length;
+        }
+      } catch { /* non-fatal — they'll still get skipped at assign-batch */ }
+      router.refresh();
+    }
+
+    const survivingIds = selectedPartners.map(p => p.id).filter(id => !unactionableIds.includes(id));
+    const n2 = survivingIds.length;
+    if (n2 === 0) {
+      setMessage(
+        `Nothing to plan. All ${n} selected prospect${n === 1 ? '' : 's'} were unactionable (no email Hunter could find, no verified LinkedIn) — auto-deleted.` +
+        (hunterFoundEmails > 0 ? ` Hunter found ${hunterFoundEmails} email${hunterFoundEmails === 1 ? '' : 's'} but those rows still lacked a route.` : '')
+      );
+      setSelected(new Set());
+      router.refresh();
+      setLoading(null);
+      return;
+    }
+
+    setMessage(`Planning outreach for ${n2} prospect${n2 === 1 ? '' : 's'}${hunterIds.length > 0 ? ` (${hunterFoundEmails} new emails from Hunter, ${autoDeletedCount} unactionable rows deleted)` : ''}…`);
+
+    // PHASE 2: assign-batch, client-side chunked at 100. Server cap
+    // also at 500 (raised 2026-05-19) — chunking lets the operator
+    // select 500+ in one click without hitting a wall.
+    const ASSIGN_MAX = 100;
+    const assignChunks: string[][] = [];
+    for (let i = 0; i < survivingIds.length; i += ASSIGN_MAX) {
+      assignChunks.push(survivingIds.slice(i, i + ASSIGN_MAX));
+    }
+
+    let totalAssigned = 0;
+    let totalSkipped = 0;
+    let totalErrored = 0;
+    let totalSteps = 0;
+    const allResults: Array<{ outcome: string; partner_name: string; reason?: string }> = [];
 
     try {
-      const res = await fetch('/api/sequences/assign-batch', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ partner_ids: selectedPartners.map(p => p.id) }),
-      });
-      const rawBody = await res.text();
-      let data: { [k: string]: unknown };
-      try { data = JSON.parse(rawBody); } catch {
-        setMessage(`Something went wrong contacting the server (HTTP ${res.status}). It returned a non-JSON response — usually means the request took too long. Try again with fewer prospects, or wait a minute.`);
-        return;
+      for (let i = 0; i < assignChunks.length; i += 1) {
+        const chunk = assignChunks[i];
+        if (assignChunks.length > 1) {
+          setMessage(`Planning outreach — batch ${i + 1} of ${assignChunks.length} (${chunk.length} prospects, ${totalAssigned} assigned so far)…`);
+        }
+        const res = await fetch('/api/sequences/assign-batch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ partner_ids: chunk }),
+        });
+        const rawBody = await res.text();
+        let data: { [k: string]: unknown };
+        try { data = JSON.parse(rawBody); } catch {
+          setMessage(`Server returned a non-JSON response on batch ${i + 1} (HTTP ${res.status}). ${totalAssigned} prospects already assigned. Try the remaining selection again.`);
+          return;
+        }
+        if (!res.ok) {
+          setMessage(`Couldn't plan outreach on batch ${i + 1}: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}. ${totalAssigned} already assigned.`);
+          return;
+        }
+        const s = (data.summary as { assigned: number; skipped: number; errored: number; total_steps: number }) || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
+        totalAssigned += s.assigned;
+        totalSkipped += s.skipped;
+        totalErrored += s.errored;
+        totalSteps += s.total_steps;
+        const results = (data.results as Array<{ outcome: string; partner_name: string; reason?: string }>) || [];
+        allResults.push(...results);
       }
-      if (!res.ok) {
-        setMessage(`Couldn't plan outreach: ${(data.error as string) || `server returned ${res.status} ${res.statusText}`}`);
-        return;
-      }
-      const s = (data.summary as { assigned: number; skipped: number; errored: number; total_steps: number }) || { assigned: 0, skipped: 0, errored: 0, total_steps: 0 };
+
+      const data = { summary: { assigned: totalAssigned, skipped: totalSkipped, errored: totalErrored, total_steps: totalSteps }, results: allResults };
+      const s = data.summary;
 
       // Surface up to 3 skip reasons inline, translated from the
       // server's technical phrasing to plain English. Most common
@@ -900,15 +1051,21 @@ export function PipelineTable({
         }
       }
 
+      const deletedSuffix = autoDeletedCount > 0
+        ? ` (${autoDeletedCount} unactionable row${autoDeletedCount === 1 ? '' : 's'} also auto-deleted)`
+        : '';
+      const hunterSuffix = hunterFoundEmails > 0
+        ? ` Hunter found ${hunterFoundEmails} new email${hunterFoundEmails === 1 ? '' : 's'} along the way.`
+        : '';
       const headline = s.assigned === 0
-        ? `Couldn't plan outreach for any of the ${n} selected prospect${n === 1 ? '' : 's'} — ${s.skipped} skipped, ${s.errored} hit errors.`
-        : s.assigned === n
-          ? `Planned outreach for all ${n} prospect${n === 1 ? '' : 's'} (${s.total_steps} total message${s.total_steps === 1 ? '' : 's'} scheduled across the sequences).`
-          : `Planned outreach for ${s.assigned} of ${n} prospects (${s.total_steps} scheduled messages). ${s.skipped} skipped${s.errored > 0 ? `, ${s.errored} hit errors` : ''}.`;
+        ? `Couldn't plan outreach for any of the ${n2} prospect${n2 === 1 ? '' : 's'} that made it through — ${s.skipped} skipped, ${s.errored} hit errors${deletedSuffix}.${hunterSuffix}`
+        : s.assigned === n2
+          ? `Planned outreach for all ${n2} prospect${n2 === 1 ? '' : 's'} (${s.total_steps} message${s.total_steps === 1 ? '' : 's'} scheduled across the sequences)${deletedSuffix}.${hunterSuffix}`
+          : `Planned outreach for ${s.assigned} of ${n2} prospects (${s.total_steps} scheduled messages). ${s.skipped} skipped${s.errored > 0 ? `, ${s.errored} hit errors` : ''}${deletedSuffix}.${hunterSuffix}`;
       setMessage(
         `${headline}` +
         (s.assigned > 0
-          ? '\nSelection kept — click "3. Draft Messages Now" to write the first message for each now, or wait up to 15 min for the system to do it in the background.'
+          ? '\n\nDrafts will render into Approvals over the next few minutes via the background cron. Sending happens automatically at your channel daily caps — you don\'t need to babysit this.'
           : '') +
         reasonsBlock +
         betterHint,
@@ -1074,13 +1231,13 @@ export function PipelineTable({
             value={contactFilter}
             onChange={(e) => { setContactFilter(e.target.value as ContactStatusKey); setSelected(new Set()); }}
             className="bg-dark-800 border border-dark-700 rounded px-1.5 py-0.5 text-xs text-dark-200 focus:border-corp-green-500 focus:outline-none"
-            title="Narrow by what outreach handle the row has. 'Company only' = no person attached yet — bulk-select these and click Find emails to run Hunter."
+            title="Narrow by what you can DO with each row. 'Emailable after Hunter' = no email yet but Plan Outreach will run Hunter inline before drafting."
           >
             <option value="all">All</option>
-            <option value="full">Has email + name</option>
-            <option value="has_li">Has LinkedIn only</option>
-            <option value="has_email">Has email only</option>
-            <option value="company_only">Company only (no person yet)</option>
+            <option value="emailable_now">Emailable now</option>
+            <option value="emailable_after_hunter">Emailable after Hunter</option>
+            <option value="linkedin_reachable">LinkedIn reachable</option>
+            <option value="not_actionable">Not actionable yet</option>
           </select>
         </label>
         <label className="flex items-center gap-1.5 text-dark-400">

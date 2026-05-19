@@ -67,7 +67,13 @@ const TERMINAL_STATUSES = new Set([
   'render_refused',
 ]);
 
-const MAX_BATCH_SIZE = 100;
+// Operator flagged 2026-05-19: "why am I limited to a low number, I
+// want all those with emails to be selected for a plan". Raised from
+// 100 → 500. assign-batch is DB-only (no LLM calls, no external API)
+// so the work is just inserts; 500 rows complete in ~2-3s server-side.
+// Client still chunks at 100 for progressive UI feedback, but the
+// server now accepts up to 500 per call so the chunk count drops.
+const MAX_BATCH_SIZE = 500;
 
 // out_of_scope is a HARD REFUSAL at this layer. Operator flagged
 // 2026-05-19: the previous "operator can override the UI filter" model
