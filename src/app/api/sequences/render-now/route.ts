@@ -125,12 +125,12 @@ export async function POST(request: Request) {
   // without re-rendering.
   const { data: existingSteps } = await db
     .from('sequence_steps')
-    .select('id, partner_id, status, step_index, outbound_message_id')
+    .select('id, partner_id, status, step_index, outbound_message_id, channel')
     .in('partner_id', allowedIds)
     .eq('organisation_id', profile.organisation_id)
     .order('step_index', { ascending: true });
 
-  type StepRow = { id: string; partner_id: string; status: string; step_index: number; outbound_message_id: string | null };
+  type StepRow = { id: string; partner_id: string; status: string; step_index: number; outbound_message_id: string | null; channel: string | null };
   const firstStepByPartner = new Map<string, StepRow>();
   for (const s of (existingSteps || []) as StepRow[]) {
     if (!firstStepByPartner.has(s.partner_id)) {
@@ -228,7 +228,7 @@ export async function POST(request: Request) {
   // Re-fetch step states post-run so the response reflects the new truth.
   const { data: postSteps } = await db
     .from('sequence_steps')
-    .select('id, partner_id, status, step_index, outbound_message_id')
+    .select('id, partner_id, status, step_index, outbound_message_id, channel')
     .in('partner_id', allowedIds)
     .eq('organisation_id', profile.organisation_id)
     .order('step_index', { ascending: true });
@@ -261,6 +261,12 @@ export async function POST(request: Request) {
     // Kept for backwards-compatible client-side display.
     already_rendered: alreadyDoneIds.length,
   };
+  // Track which channel TYPES are stuck so the operator sees the right
+  // remediation ("connect an email channel" vs "connect a LinkedIn
+  // channel"). Without this, the UI hardcoded "LinkedIn" even when
+  // every stuck step was actually email — burned 30 min on 2026-05-19
+  // chasing a non-existent LinkedIn gate.
+  const stuckChannelTypes = new Set<string>();
   for (const pid of allowedIds) {
     const post = postFirstByPartner.get(pid);
     if (!post) continue; // no step at all (noStepIds covered above)
@@ -277,6 +283,14 @@ export async function POST(request: Request) {
         // genuinely pending — but in render-now's contract every selected
         // partner gets attempted, so treat any leftover pending as skipped.
         counts.skipped_no_channel += 1;
+        if (post.channel) {
+          // 'linkedin_connect' / 'linkedin_dm' both need a 'linkedin'
+          // channel; 'email' needs an 'email' channel.
+          const ch = String(post.channel);
+          if (ch.startsWith('linkedin')) stuckChannelTypes.add('LinkedIn');
+          else if (ch === 'email') stuckChannelTypes.add('email');
+          else stuckChannelTypes.add(ch);
+        }
         break;
       default:                    counts.failed += 1;
     }
@@ -393,7 +407,14 @@ export async function POST(request: Request) {
       : '';
     parts.push(`${counts.failed} failed${reasonClip}. Open prospect detail for the per-step error trail.`);
   }
-  if (counts.skipped_no_channel > 0) parts.push(`${counts.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
+  if (counts.skipped_no_channel > 0) {
+    const channelLabel = stuckChannelTypes.size === 0
+      ? 'channel'
+      : stuckChannelTypes.size === 1
+        ? `${Array.from(stuckChannelTypes)[0]} channel`
+        : `${Array.from(stuckChannelTypes).join(' or ')} channel`;
+    parts.push(`${counts.skipped_no_channel} skipped — needs an active ${channelLabel}. Connect one in /channels.`);
+  }
   if (counts.sent_or_replied > 0) parts.push(`${counts.sent_or_replied} already sent or replied (historical).`);
   if (counts.no_pending_step > 0) parts.push(`${counts.no_pending_step} have no sequence assigned — click "2. Plan Outreach" first.`);
   if (skippedStepIds.length > 0) parts.push(`${skippedStepIds.length} have skipped drafts (likely from a bulk-clear) — click "2. Plan Outreach" to re-assign fresh sequences before re-rendering.`);
