@@ -313,14 +313,33 @@ export function PipelineTable({
       //   not_actionable        → no email, no domain, no verified LI
       if (contactFilter === 'all') return true;
       const hasEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
-      const hasDomain = typeof p.domain === 'string' && p.domain.trim().length > 0;
+      const domainStr = typeof p.domain === 'string' ? p.domain.trim() : '';
+      const hasDomain = domainStr.length > 0;
+      // LinkedIn pseudo-domains (linkedin.com/in/foo, or anything with a
+      // slash like li/foo-12345) aren't real company domains — Hunter
+      // can't search them and rejects them on sight. The 'Emailable
+      // after Hunter' bucket must exclude these or it lies to the
+      // operator about what Hunter can do. Operator hit this 2026-05-19:
+      // selected 40 'emailable after Hunter' rows, Hunter found 0
+      // because 37 were LinkedIn-sourced rows with pseudo-domains.
+      const isRealCompanyDomain = hasDomain
+        && !/^linkedin\.com\//i.test(domainStr)
+        && !domainStr.includes('/');
       const hasLi = typeof p.contact_linkedin === 'string' && p.contact_linkedin.trim().length > 0;
       const liSourced = p.source === 'linkedin' || p.source === 'sales_nav';
       const verifiedLi = hasLi && liSourced;
       if (contactFilter === 'emailable_now') return hasEmail;
-      if (contactFilter === 'emailable_after_hunter') return !hasEmail && hasDomain;
+      if (contactFilter === 'emailable_after_hunter') {
+        // Hunter only helps when:
+        //  - row has no email already (otherwise we're done)
+        //  - row has a REAL company domain Hunter can query
+        //  - row isn't already reachable via LinkedIn (those go in the
+        //    LinkedIn-reachable bucket — LinkedIn DM is the right channel
+        //    for them, not paying Hunter to fail)
+        return !hasEmail && isRealCompanyDomain && !verifiedLi;
+      }
       if (contactFilter === 'linkedin_reachable') return verifiedLi;
-      if (contactFilter === 'not_actionable') return !hasEmail && !hasDomain && !verifiedLi;
+      if (contactFilter === 'not_actionable') return !hasEmail && !isRealCompanyDomain && !verifiedLi;
       return true;
     })
     .filter(p => matchesSearch(p, search))
@@ -835,12 +854,19 @@ export function PipelineTable({
 
     // Auto-Hunter: identify rows that need email lookup before they can
     // be planned. "Needs Hunter" = no contact_email yet AND we have a
-    // domain to try. These get Hunter inline before the assign call, so
-    // the operator never has to remember to run Find Emails first.
-    const needsHunter = selectedPartners.filter(p =>
-      (!p.contact_email || p.contact_email.trim().length === 0)
-      && typeof p.domain === 'string' && p.domain.trim().length > 0
-    );
+    // REAL company domain to try (NOT a LinkedIn pseudo-domain — Hunter
+    // can't search those and rejects them). Skipping LI pseudo-domains
+    // here saves the Hunter API call entirely; the row stays in the
+    // selection and either has a verified LinkedIn (kept) or doesn't
+    // (auto-deleted in phase 1.5).
+    const needsHunter = selectedPartners.filter(p => {
+      const hasEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
+      if (hasEmail) return false;
+      const domainStr = typeof p.domain === 'string' ? p.domain.trim() : '';
+      if (!domainStr) return false;
+      if (/^linkedin\.com\//i.test(domainStr) || domainStr.includes('/')) return false;
+      return true;
+    });
     const hunterIds = needsHunter.map(p => p.id);
 
     const confirmMsg = `Plan outreach for ${selectedPartners.length} prospect${selectedPartners.length === 1 ? '' : 's'}?\n\n` +
