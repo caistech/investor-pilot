@@ -123,10 +123,44 @@ export async function POST(request: Request) {
     stepsDeleted = stepIds.length;
   }
 
+  // Reset stale partner.status badges. Without this, partners whose
+  // steps we just wiped keep wearing their old 'draft_ready' / 'drafted'
+  // badges on the Prospects list — visually identical to having an
+  // actual draft, even though the step row is gone. Operator flagged
+  // 2026-05-19 after the out_of_scope purge: the table still LOOKED
+  // unchanged because partner.status hadn't been reset. The reset
+  // endpoint's promise is "scrub the partner back to plannable state",
+  // so wiping the badge is part of the same promise. Sent / replied /
+  // follow_up_due / meeting_booked / closed_* are NOT touched — those
+  // reflect real historical events.
+  const STALE_BADGES = ['draft_ready', 'drafted', 'queued_for_approval', 'queued', 'awaiting_verification'];
+  const { data: stalePartners } = await db
+    .from('partners')
+    .select('id')
+    .in('id', allowedIds)
+    .eq('organisation_id', orgId)
+    .in('status', STALE_BADGES);
+  let partnerStatusesReset = 0;
+  if (stalePartners && stalePartners.length > 0) {
+    const { error: stErr } = await db
+      .from('partners')
+      .update({ status: 'contact_found' })
+      .in('id', stalePartners.map(p => p.id as string))
+      .eq('organisation_id', orgId);
+    if (stErr) {
+      return NextResponse.json(
+        { error: `Failed to reset partner.status: ${stErr.message}` },
+        { status: 500 },
+      );
+    }
+    partnerStatusesReset = stalePartners.length;
+  }
+
   return NextResponse.json({
     ok: true,
     partners_reset: allowedIds.length,
     steps_deleted: stepsDeleted,
     messages_deleted: messagesDeleted,
+    partner_statuses_reset: partnerStatusesReset,
   });
 }
