@@ -29,11 +29,29 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      # Detect package manager so the cache step + install step use the
+      # right tooling. Pnpm workspaces (TourLingo, NDISSDA, F2K trio) need
+      # pnpm/action-setup before setup-node can use the `cache: pnpm` key.
+      - name: Detect package manager
+        id: detect-pm
+        run: |
+          if [ -f pnpm-lock.yaml ]; then
+            echo "pm=pnpm" >> $GITHUB_OUTPUT
+          else
+            echo "pm=npm" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Setup pnpm
+        if: steps.detect-pm.outputs.pm == 'pnpm'
+        uses: pnpm/action-setup@v3
+        with:
+          version: 9
+
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
-          cache: npm
+          cache: ${{ steps.detect-pm.outputs.pm }}
 
       - name: Install dependencies
         run: |
