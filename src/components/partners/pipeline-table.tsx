@@ -263,23 +263,15 @@ export function PipelineTable({
   // double-target. Can be toggled off to see the full list including
   // already-targeted rows.
   const [hideTargeted, setHideTargeted] = useState<boolean>(true);
-  // Contact-status filter — intent-driven, not schema-flavoured.
-  // Operator flagged 2026-05-19: "I want to email these prospects, the
-  // list should show those I can email — not Has-name-and-email vs Has-
-  // LinkedIn-only vs whatever, that's me translating intent into your
-  // data model". Labels now name the OUTCOME, not the field state:
-  //   emailable_now         = has contact_email — ready to draft email
-  //   emailable_after_hunter = has a domain Hunter can try, no email yet
-  //   linkedin_reachable    = has a verified LinkedIn URL (LI-sourced)
-  //   not_actionable        = no email, no domain, no LinkedIn — needs
-  //                           manual enrichment or deletion
-  type ContactStatusKey =
-    | 'all'
-    | 'emailable_now'
-    | 'emailable_after_hunter'
-    | 'linkedin_reachable'
-    | 'not_actionable';
-  const [contactFilter, setContactFilter] = useState<ContactStatusKey>('all');
+  // Contact filter REMOVED 2026-05-19 — operator flagged it as
+  // redundant with the source tabs. After the Brave-must-have-email
+  // discovery rule, source IS reachability:
+  //   Brave (web)        → has email (guaranteed by the discovery contract)
+  //   LinkedIn 1st/2nd/cold → has a verified LinkedIn URL
+  // No intermediate state survives discovery, so picking a source tab
+  // already tells the operator which channel each row is on. Adding a
+  // second filter on top was UX noise. Keep the variable as a no-op
+  // constant so any downstream references don't need a sweep.
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState<string | null>(null);
@@ -298,50 +290,8 @@ export function PipelineTable({
     // Recovery tools button, or bulk-enriched via "Find emails".
     .filter(p => matchesFilter(p.status, filter, p.engaged_at))
     .filter(p => matchesSourceTier(p, sourceFilter))
-    .filter(p => {
-      // Intent-driven Contact filter. Maps user intent to row state:
-      //   emailable_now         → can draft + send email today
-      //   emailable_after_hunter → has a domain, Hunter run will (probably)
-      //                            produce a real email — Plan Outreach
-      //                            now runs Hunter inline on these, so
-      //                            selecting them is a single-click path
-      //   linkedin_reachable    → has a verified LinkedIn URL — source
-      //                            must be linkedin/sales_nav to count
-      //                            (Brave-guessed LinkedIn URLs don't
-      //                            count; they're unreliable per the
-      //                            2026-05-19 Brave→email-only rule)
-      //   not_actionable        → no email, no domain, no verified LI
-      if (contactFilter === 'all') return true;
-      const hasEmail = typeof p.contact_email === 'string' && p.contact_email.trim().length > 0;
-      const domainStr = typeof p.domain === 'string' ? p.domain.trim() : '';
-      const hasDomain = domainStr.length > 0;
-      // LinkedIn pseudo-domains (linkedin.com/in/foo, or anything with a
-      // slash like li/foo-12345) aren't real company domains — Hunter
-      // can't search them and rejects them on sight. The 'Emailable
-      // after Hunter' bucket must exclude these or it lies to the
-      // operator about what Hunter can do. Operator hit this 2026-05-19:
-      // selected 40 'emailable after Hunter' rows, Hunter found 0
-      // because 37 were LinkedIn-sourced rows with pseudo-domains.
-      const isRealCompanyDomain = hasDomain
-        && !/^linkedin\.com\//i.test(domainStr)
-        && !domainStr.includes('/');
-      const hasLi = typeof p.contact_linkedin === 'string' && p.contact_linkedin.trim().length > 0;
-      const liSourced = p.source === 'linkedin' || p.source === 'sales_nav';
-      const verifiedLi = hasLi && liSourced;
-      if (contactFilter === 'emailable_now') return hasEmail;
-      if (contactFilter === 'emailable_after_hunter') {
-        // Hunter only helps when:
-        //  - row has no email already (otherwise we're done)
-        //  - row has a REAL company domain Hunter can query
-        //  - row isn't already reachable via LinkedIn (those go in the
-        //    LinkedIn-reachable bucket — LinkedIn DM is the right channel
-        //    for them, not paying Hunter to fail)
-        return !hasEmail && isRealCompanyDomain && !verifiedLi;
-      }
-      if (contactFilter === 'linkedin_reachable') return verifiedLi;
-      if (contactFilter === 'not_actionable') return !hasEmail && !isRealCompanyDomain && !verifiedLi;
-      return true;
-    })
+    // Contact filter REMOVED 2026-05-19 — source tabs replace it. See
+    // comment near the (now-removed) ContactStatusKey type.
     .filter(p => matchesSearch(p, search))
     .filter(p => typeFilter === 'all' || p.partner_type === typeFilter)
     .filter(p => (p.weighted_score ?? 0) >= minScore)
@@ -1247,25 +1197,11 @@ export function PipelineTable({
         ))}
       </div>
 
-      {/* Quality filters — Contact status, Min score, Exclude out-of-scope,
-          Hide low conf, Hide already targeted. Compose with everything
-          above; batch actions fire on the intersection. */}
+      {/* Quality filters — Min score, Exclude out-of-scope, Hide low
+          conf, Hide already targeted. Contact filter removed 2026-05-19
+          (operator: "source IS the channel — Brave = email, LinkedIn =
+          LinkedIn DM, dropdown is redundant"). */}
       <div className="flex items-center gap-4 mb-4 text-xs flex-wrap">
-        <label className="flex items-center gap-1.5 text-dark-400">
-          <span>Contact</span>
-          <select
-            value={contactFilter}
-            onChange={(e) => { setContactFilter(e.target.value as ContactStatusKey); setSelected(new Set()); }}
-            className="bg-dark-800 border border-dark-700 rounded px-1.5 py-0.5 text-xs text-dark-200 focus:border-corp-green-500 focus:outline-none"
-            title="Narrow by what you can DO with each row. 'Emailable after Hunter' = no email yet but Plan Outreach will run Hunter inline before drafting."
-          >
-            <option value="all">All</option>
-            <option value="emailable_now">Emailable now</option>
-            <option value="emailable_after_hunter">Emailable after Hunter</option>
-            <option value="linkedin_reachable">LinkedIn reachable</option>
-            <option value="not_actionable">Not actionable yet</option>
-          </select>
-        </label>
         <label className="flex items-center gap-1.5 text-dark-400">
           <span>Min score</span>
           <input
