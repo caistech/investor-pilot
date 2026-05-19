@@ -47,27 +47,14 @@ jobs:
         with:
           version: 9
 
+      # Setup Node with built-in @caistech registry auth (official pattern).
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: lts/*
           cache: ${{ steps.detect-pm.outputs.pm }}
-
-      # Write the @caistech registry auth into ~/.npmrc BEFORE install.
-      # The repo-local .npmrc uses `${GITHUB_PACKAGES_TOKEN}` syntax which is
-      # supposed to be expanded by npm/pnpm — but the expansion has been
-      # unreliable in CI (npm sends the literal placeholder string, GitHub
-      # rejects it as "unauthenticated"). Writing the literal token via bash
-      # `>>` is the robust path: bash always expands env vars.
-      - name: Configure @caistech registry auth
-        run: |
-          mkdir -p ~
-          {
-            echo "@caistech:registry=https://npm.pkg.github.com"
-            echo "//npm.pkg.github.com/:_authToken=${GITHUB_PACKAGES_TOKEN}"
-          } >> ~/.npmrc
-        env:
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.CAISTECH_PACKAGES_TOKEN }}
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@caistech'
 
       - name: Install dependencies
         run: |
@@ -80,7 +67,7 @@ jobs:
             npm install
           fi
         env:
-          GITHUB_PACKAGES_TOKEN: ${{ secrets.CAISTECH_PACKAGES_TOKEN }}
+          NODE_AUTH_TOKEN: ${{ secrets.CAISTECH_PACKAGES_TOKEN }}
 
       - name: Typecheck
         run: npm run typecheck --if-present
