@@ -100,6 +100,34 @@ export default async function PartnersPage() {
       (p) => typeof p.contact_name === 'string' && (p.contact_name as string).trim().length > 0,
     ).length;
 
+  // Email-finder performance panel. The cascade routes Brave-sourced rows
+  // through Hunter first, then Apollo on a Hunter miss or role-account
+  // result. contact_source records which provider actually attached the
+  // contact so the operator can see at a glance whether Apollo is
+  // earning its credits or just burning them on misses.
+  const emailFinderStats = (() => {
+    const allPartners = partners || [];
+    const hunterSources = new Set(['hunter_at_discovery', 'hunter_domain_search', 'hunter_bulk']);
+    const apolloSources = new Set(['apollo_at_discovery', 'apollo_bulk', 'apollo_enrich']);
+    let hunter = 0;
+    let apollo = 0;
+    let other = 0;
+    let noEmail = 0;
+    for (const p of allPartners) {
+      const source = typeof p.contact_source === 'string' ? p.contact_source : '';
+      const hasEmail = typeof p.contact_email === 'string' && (p.contact_email as string).trim().length > 0;
+      if (!hasEmail) {
+        noEmail += 1;
+        continue;
+      }
+      if (hunterSources.has(source)) hunter += 1;
+      else if (apolloSources.has(source)) apollo += 1;
+      else other += 1;
+    }
+    const totalWithEmail = hunter + apollo + other;
+    return { hunter, apollo, other, noEmail, totalWithEmail };
+  })();
+
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
@@ -111,6 +139,42 @@ export default async function PartnersPage() {
           Discover More
         </Link>
       </div>
+
+      {/*
+        Email-finder performance — Hunter vs Apollo split, plus the
+        no-email tail. Lives above the prospect table so the operator
+        sees provider yield at a glance before scanning rows.
+      */}
+      {(partners?.length ?? 0) > 0 && (
+        <div className="card mb-6">
+          <div className="text-xs text-dark-400 uppercase tracking-wide mb-2">
+            Email finder performance
+          </div>
+          <div className="flex flex-wrap gap-4 sm:gap-6 items-baseline">
+            <div>
+              <div className="text-2xl font-semibold">{emailFinderStats.hunter}</div>
+              <div className="text-xs text-dark-400">via Hunter</div>
+            </div>
+            <div>
+              <div className="text-2xl font-semibold">{emailFinderStats.apollo}</div>
+              <div className="text-xs text-dark-400">via Apollo</div>
+            </div>
+            {emailFinderStats.other > 0 && (
+              <div>
+                <div className="text-2xl font-semibold">{emailFinderStats.other}</div>
+                <div className="text-xs text-dark-400">via other / legacy</div>
+              </div>
+            )}
+            <div>
+              <div className="text-2xl font-semibold text-dark-400">{emailFinderStats.noEmail}</div>
+              <div className="text-xs text-dark-400">no email yet</div>
+            </div>
+            <div className="ml-auto text-xs text-dark-400">
+              Cascade: Hunter → Apollo (role-account fallthrough). Apollo fires only when Hunter misses or returns admin@/info@.
+            </div>
+          </div>
+        </div>
+      )}
 
       {partners && partners.length > 0 ? (
         <PipelineTable

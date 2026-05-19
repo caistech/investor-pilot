@@ -541,6 +541,30 @@ export async function POST(request: Request) {
     },
   });
 
+  // Fire-and-forget: kick the sequencer immediately so first-touch steps
+  // (scheduled_for = now) render in seconds rather than waiting up to 15
+  // minutes for the next */15 cron tick. The cron stays as the safety
+  // net for forward-scheduled FUs that the operator isn't actively
+  // watching. We pass scheduleWindowDays=3 so the same lazy-render
+  // window /api/sequences/render-now uses also applies here — the FU2/
+  // FU3 steps three days out render at THEIR scheduled time, not now.
+  //
+  // Self-fetch with the CRON_SECRET header (cron route's auth path)
+  // avoids importing runSequencer here, which would lengthen this
+  // function's wall-time past the 60s ceiling on a 100-partner batch.
+  // The fetch initiates a new Vercel function invocation that runs
+  // independently of this response.
+  const cronSecret = process.env.CRON_SECRET;
+  if (cronSecret) {
+    const cronUrl = new URL('/api/cron/sequencer', request.url);
+    void fetch(cronUrl, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${cronSecret}` },
+    }).catch((err) => {
+      console.warn('[assign-batch] immediate-render trigger failed (cron will retry):', err instanceof Error ? err.message : err);
+    });
+  }
+
   return NextResponse.json({
     ok: true,
     summary: tallyResults(results, inserted?.length || 0),
