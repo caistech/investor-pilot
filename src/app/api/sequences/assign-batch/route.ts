@@ -379,7 +379,41 @@ export async function POST(request: Request) {
       continue;
     }
 
-    for (const s of chosen.steps || []) {
+    // Filter template steps by available partner contact handles. The
+    // template hardcodes a 6-step pattern that mixes LinkedIn and email
+    // channels — but a Brave-only partner with email contact but no
+    // LinkedIn URL has nowhere to send the linkedin_connect / linkedin_dm
+    // steps. Same in reverse: a LinkedIn-only partner with no work email
+    // can't receive the email steps. Previously every step landed in
+    // sequence_steps regardless and the renderer dutifully wrote 300-char
+    // connect notes for prospects who'd never see them — wasted LLM
+    // spend AND broken length expectations on the surviving email
+    // channels (Brave prospects got LinkedIn-cap renders when they
+    // should have got full-length emails). Operator flagged 2026-05-19.
+    const hasLinkedIn = !!(partner.contact_linkedin as string | null);
+    const hasEmail = !!(partner.contact_email as string | null);
+    const usableSteps = (chosen.steps || []).filter((s: { channel?: string }) => {
+      const ch = (s.channel || '').toString();
+      if (ch === 'linkedin_connect' || ch === 'linkedin_dm') return hasLinkedIn;
+      if (ch === 'email') return hasEmail;
+      // Unknown channel — keep it; the renderer will fail with a clear
+      // 'unknown_template' or similar so the gap surfaces.
+      return true;
+    });
+
+    if (usableSteps.length === 0) {
+      const reachableChannels = [hasLinkedIn ? 'linkedin' : null, hasEmail ? 'email' : null].filter(Boolean).join(', ') || 'none';
+      results.push({
+        partner_id: partnerId,
+        partner_name: partner.company_name as string,
+        outcome: 'skipped',
+        reason: `Template "${chosen.name}" has no steps that match this partner's available channels (partner has: ${reachableChannels}). Enrich the partner's contact_email or contact_linkedin, or assign a single-channel template.`,
+        template_name: chosen.name,
+      });
+      continue;
+    }
+
+    for (const s of usableSteps) {
       rowsToInsert.push({
         organisation_id: orgId,
         partner_id: partnerId,

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
+import { cleanCompanyName } from '@/lib/discovery/clean-company-name';
 
 export interface PartnerUpsertData {
   organisation_id: string;
@@ -103,6 +104,20 @@ export async function upsertPartner(
   db: SupabaseClient,
   data: PartnerUpsertData
 ): Promise<{ status: string; partner_id?: string; error?: string }> {
+  // Normalise company_name at the single insertion point. Brave-sourced
+  // partners frequently arrive as scraped page titles (pipe-delimited
+  // multi-names, "About Us — X", "Company History" style headings) which
+  // produce embarrassing renders downstream. cleanCompanyName takes the
+  // first salvageable segment, strips marketing suffixes, and flags
+  // truly junk-shaped results so the render-side garbage-detector knows
+  // to refuse rather than ship "Hi X at Company History...".
+  // Original is preserved as audit context in the caller's logs if needed.
+  const nameResult = cleanCompanyName(data.company_name);
+  if (nameResult.cleaned && nameResult.cleaned !== data.company_name) {
+    console.log(`[upsertPartner] normalised company_name: "${data.company_name}" → "${nameResult.cleaned}"`);
+    data = { ...data, company_name: nameResult.cleaned };
+  }
+
   const { data: existing } = await db
     .from('partners')
     .select('id')

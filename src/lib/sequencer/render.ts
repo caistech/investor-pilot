@@ -20,6 +20,7 @@
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import { SEED_TEMPLATES, type SeedTemplate } from './seed-templates';
 import { writeMessageViaLLM } from './render-llm';
+import { looksLikeJunkCompanyName } from '@/lib/discovery/clean-company-name';
 
 /**
  * Per-organisation context the renderer needs to fill `{sender_name}` and
@@ -328,6 +329,25 @@ export async function renderStep(
     ? 'your firm'
     : companyName;
 
+  // Refuse to render when company_name is still junk-shaped after the
+  // discovery-side normaliser (cleanCompanyName) had its pass. The LLM
+  // will otherwise "helpfully" substitute a hallucinated clean name —
+  // operator hit this 2026-05-19 with "Renovation Builders
+  // Sydney|Civil...|Remedial..." getting renamed to a fabricated
+  // "Everest" in the rendered DM. Better to fail with an actionable
+  // error than ship a draft addressed to the wrong company name.
+  //
+  // Skipped when the contact-name-fallback already kicked in
+  // (firmRendered === 'your firm'); that path is explicitly designed to
+  // reshape sentences and not produce fake firm names.
+  if (firmRendered !== 'your firm' && looksLikeJunkCompanyName(companyName)) {
+    return {
+      ok: false,
+      reason: `Partner company_name "${companyName}" looks like a scraped page title, not a real company name. The LLM would invent a fake clean name if rendered. Edit the partner's company_name on /prospects → ${partner.id} → Edit, or skip this partner. (Discovery-side normaliser missed this case — flag the pattern.)`,
+      blocker: 'missing_contact',
+    };
+  }
+
   // {credit_signal} hard-cap at 80 chars. The extractor prompt says
   // "≤80 chars" but the LLM occasionally returns 100-150-char phrases
   // which then blow the connect note's 300-char LinkedIn cap and the
@@ -401,13 +421,38 @@ export async function renderStep(
     return { ok: false, reason: `LLM render failed: ${llmResult.error}`, blocker: 'llm_error' };
   }
 
+  // Post-render URL ref fixup. The LLM is instructed to use the CTA URL
+  // verbatim (which already carries ?ref=<partner.id>&src=ip-outreach
+  // appended in render-llm.ts) but occasionally strips the query string
+  // — most often on 300-char connect notes where it treats the params
+  // as visual noise. Operator hit this 2026-05-19: 13 of 14 drafts had
+  // the bare URL, only 1 retained the ref. Restore the params
+  // programmatically so the Connexions intake can still attribute the
+  // completion back to this partner.
+  //
+  // Only fires when the base CTA URL appears in the body without the
+  // ref param; otherwise leave the LLM's output alone (e.g. if the LLM
+  // omitted the URL entirely there's nothing to fix).
+  let body = llmResult.body;
+  let subject = llmResult.subject;
+  const offeringCta = partner.offering_context?.one_pager_url || partner.offering_context?.pitch_deck_url;
+  if (offeringCta && partner.id) {
+    body = restoreTrackingRef(body, offeringCta, partner.id);
+    if (subject) subject = restoreTrackingRef(subject, offeringCta, partner.id);
+  }
+
   // Char-limit guard. writeMessageViaLLM enforces the connect-note 300
   // cap internally (LinkedIn-mandated), but other channels can still
   // overshoot. Reject overshoots rather than truncate mid-sentence.
-  if (template.max_chars && llmResult.body.length > template.max_chars) {
+  // NOTE the check uses the post-fixup body length — restoring the ref
+  // adds ~60 chars, which can push a near-limit connect note over. When
+  // that happens we accept the overshoot rather than reject (the ref is
+  // load-bearing for conversion tracking; 360-char connects fail at
+  // LinkedIn send time which is recoverable).
+  if (template.max_chars && body.length > template.max_chars && !templateKey.includes('connect')) {
     return {
       ok: false,
-      reason: `LLM-rendered body ${llmResult.body.length} chars exceeds max ${template.max_chars} for ${templateKey}`,
+      reason: `LLM-rendered body ${body.length} chars exceeds max ${template.max_chars} for ${templateKey}`,
       blocker: 'llm_error',
     };
   }
@@ -418,8 +463,8 @@ export async function renderStep(
   // in the recipient's language when geography signals it.
   return {
     ok: true,
-    subject: llmResult.subject,
-    body: llmResult.body,
+    subject,
+    body,
     evidence_refs: {
       template_key: templateKey,
       credit_signal: signal?.short || (warm ? 'warm_relationship' : ''),
@@ -1545,6 +1590,55 @@ function formatRelativeDate(date: Date): string {
   if (days < 90) return `${Math.floor(days / 30)} months ago`;
   if (days < 365) return `${Math.floor(days / 30)} months ago`;
   return 'a while back';
+}
+
+/**
+ * Restore the `?ref=<partner_id>&src=ip-outreach` query params on the
+ * offering's CTA URL if the LLM stripped them from the rendered body.
+ *
+ * Looks for the base URL (without query string) anywhere in the body or
+ * subject and replaces it with the fully-parameterised version. Idempotent:
+ * if the URL already has the right params, the regex still matches the
+ * base URL but the replacement is the same string. Tolerant of trailing
+ * punctuation (period, comma, paren close).
+ *
+ * Why this exists: render-llm.ts:withTrackingRef adds the params to the
+ * URL we pass to the LLM. The system prompt's URL DISCIPLINE section
+ * tells the LLM to use URLs verbatim. The LLM follows this most of the
+ * time but inconsistently strips query strings — especially in 300-char
+ * connect notes where the params look like visual noise. This
+ * programmatic fixup is the belt-and-braces backup. Operator hit the
+ * LLM dropping the params on 13 of 14 drafts on 2026-05-19.
+ */
+function restoreTrackingRef(text: string, ctaUrl: string, partnerId: string): string {
+  if (!text || !ctaUrl || !partnerId) return text;
+  // Strip any existing query string from the configured CTA URL so we
+  // search for the bare base in the rendered text. The configured URL
+  // typically WON'T have query params (the operator types it raw in
+  // /settings/products) but operators can include UTMs; preserve them
+  // by appending alongside the ref/src.
+  let baseUrl: string;
+  let preservedQuery = '';
+  try {
+    const u = new URL(ctaUrl);
+    preservedQuery = u.search.replace(/^\?/, '');
+    u.search = '';
+    baseUrl = u.toString().replace(/\/$/, '');
+  } catch {
+    return text;
+  }
+
+  // Match the base URL plus any (or no) query string the LLM happened
+  // to keep. Trailing punctuation that's NOT part of a URL we exclude.
+  const baseEscaped = baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const re = new RegExp(`${baseEscaped}(\\?[^\\s)>,.]*)?`, 'g');
+
+  const wantQuery = new URLSearchParams(preservedQuery);
+  wantQuery.set('ref', partnerId);
+  wantQuery.set('src', 'ip-outreach');
+  const replacement = `${baseUrl}?${wantQuery.toString()}`;
+
+  return text.replace(re, replacement);
 }
 
 function personalizationScore(

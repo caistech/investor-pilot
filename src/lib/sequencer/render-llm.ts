@@ -191,6 +191,38 @@ LOCALISATION
 
 If the recipient's geography is non-English-primary (Vietnam, Japan, Korea, China, Thailand, etc.) AND the recipient's recent_posts contain non-English content, write in their language with proper diacritics. Subject can stay English unless the body is fully translated. Report detected_language accurately.
 
+EVIDENCE DISCIPLINE — read this before writing any concrete claim
+
+Every concrete factual claim in your output must be traceable to a SPECIFIC field in the input. If you cannot point to which input field a claim came from, omit the claim — generic vertical-level observation is fine, but invented specifics destroy trust the moment the recipient reads them.
+
+Allowed claim sources, by category:
+
+  About the SENDER's work / case studies:
+    - The OFFERING block (Name, Pitch, Sector). If the operator's traction line mentions "MMC Build for an Australian modular operator", you may reference that. If the operator did NOT mention "cost reconciliation tool for a logistics firm" — DO NOT write it. You will read traction text from one offering and, under vertical-fit pressure, want to fabricate a more-vertical-appropriate variant. Don't. A real proof in a different vertical is better than an invented proof in the recipient's vertical.
+
+  About the RECIPIENT firm / industry:
+    - audience_overlap_notes, complementarity_notes, partner_readiness_notes
+    - Recent firm news (Brave) — for SPECIFIC numbers, dates, named events
+    - Named deals / portfolio (Brave)
+    - Operator-supplied notes
+    - The recipient's title and firm name as provided
+    Generic industry-level observation ("transport operators often face dispatch friction") is FINE — you don't need a citation for that. The discipline applies to SPECIFIC claims (numbers, years in business, named partnerships, named past work, dollar amounts).
+
+  About the RECIPIENT person:
+    - Recent LinkedIn posts (only when present)
+    - profile_engagement_flags
+    - shared_connections_count
+    - DO NOT claim the recipient said / did / posted anything that's not in those fields.
+
+Common hallucinations to refuse:
+  - "X years in [vertical]" / "Y-generation firm" — only when the input states it. Do NOT extrapolate from a company name that sounds historic.
+  - "$N million [facility / deal / round]" — only when firm_recent_news contains the specific number.
+  - "We built X for a [recipient-vertical] operator" — only when the offering's traction explicitly names that engagement. Inventing a recipient-vertical-matched case study is the WORST class of error: the recipient will check, find nothing, and you've burned the sender's credibility.
+  - "Saw your post on [topic]" — only when profile_recent_posts contains that post.
+  - "Your [partnership / certification / award] caught my eye" — only when firm_recent_news or audience_overlap_notes references it.
+
+When you have only generic input (name + title + firm + vertical) and no specific signal: write the vertical-level observation honestly. Skip the "Saw your [thing]" opener entirely. Manufactured specificity reads as obvious template; a generic-but-honest message reads as a real human writing.
+
 PROOF POSITIONING — read this before naming a case study
 
 The proof points in the offering data are CLIENT DELIVERABLES — platforms the sender BUILT FOR a specific client, NOT products the sender sells across a vertical. The relationship matters: the sender is a build shop, not a productised vendor with a flagship vertical product. Mis-positioning the relationship makes the entire pitch sound wrong to anyone who actually reads the offering's website.
