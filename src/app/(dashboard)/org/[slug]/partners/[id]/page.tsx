@@ -184,6 +184,7 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
     { data: outboundRaw },
     { data: inboundRaw },
     { data: legacyEmailRaw },
+    { data: intakeResponsesRaw },
   ] = await Promise.all([
     supabase
       .from('sequence_steps')
@@ -217,6 +218,17 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
       .eq('partner_id', params.id)
       .order('created_at', { ascending: false })
       .limit(50),
+    // Intake responses landed via /api/webhooks/connexions-intake. The
+    // CTA URL in the outreach carries ?ref=<partner.id>; the webhook
+    // resolves it and writes intake_responses.partner_id = this partner.
+    // See docs/integrations/connexions-intake-webhook.md.
+    supabase
+      .from('intake_responses')
+      .select('id, source, intake_slug, completed_at, prospect_name, prospect_email, prospect_company, prospect_linkedin, answers, summary, duration_seconds, created_at')
+      .eq('organisation_id', organisationId)
+      .eq('partner_id', params.id)
+      .order('completed_at', { ascending: false })
+      .limit(20),
   ]);
 
   const pendingApprovals: PendingApproval[] = (pendingStepsRaw || []).map((s: any) => {
@@ -371,6 +383,75 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
           {/* Unified comms — pending approvals + sent + inbound. Per-contact
               lens; /approvals remains the compilation view across all partners. */}
           <PartnerCommunications pendingApprovals={pendingApprovals} timeline={timeline} />
+
+          {/* Intake responses — when the prospect clicks through from an
+              outreach CTA and completes the Connexions intake (or any
+              future native intake), the answers land here. Strongest
+              available conversion signal: this person engaged enough to
+              describe their problem. Defaults to expanded since intakes
+              are rare and high-signal. */}
+          {(intakeResponsesRaw && intakeResponsesRaw.length > 0) && (
+            <div className="card">
+              <div className="flex items-baseline justify-between mb-4">
+                <h4 className="flex items-center gap-2">
+                  Intake responses
+                  <span className="badge-green">{intakeResponsesRaw.length}</span>
+                </h4>
+                <span className="text-xs text-dark-500">strongest conversion signal — they completed the form</span>
+              </div>
+              <div className="space-y-4">
+                {intakeResponsesRaw.map((r: any) => (
+                  <div key={r.id} className="border border-dark-700 rounded-lg p-4 bg-dark-900/40">
+                    <div className="flex items-baseline justify-between mb-2 flex-wrap gap-2">
+                      <div className="text-sm">
+                        <span className="font-medium">
+                          {r.intake_slug ? r.intake_slug.replace(/-/g, ' ') : 'Intake'}
+                        </span>
+                        <span className="text-dark-500"> · via {r.source}</span>
+                        {typeof r.duration_seconds === 'number' && r.duration_seconds > 0 && (
+                          <span className="text-dark-500"> · {Math.round(r.duration_seconds / 60)} min to complete</span>
+                        )}
+                      </div>
+                      <span className="text-xs text-dark-500" suppressHydrationWarning>
+                        {r.completed_at ? new Date(r.completed_at).toLocaleString() : 'received: ' + new Date(r.created_at).toLocaleString()}
+                      </span>
+                    </div>
+
+                    {(r.prospect_name || r.prospect_email || r.prospect_linkedin) && (
+                      <div className="text-xs text-dark-400 mb-3 flex flex-wrap gap-x-3 gap-y-1">
+                        {r.prospect_name && <span>{r.prospect_name}</span>}
+                        {r.prospect_email && (
+                          <a href={`mailto:${r.prospect_email}`} className="text-corp-green-400 hover:underline">{r.prospect_email}</a>
+                        )}
+                        {r.prospect_company && r.prospect_company !== p.company_name && <span>· {r.prospect_company}</span>}
+                        {r.prospect_linkedin && (
+                          <a href={r.prospect_linkedin} target="_blank" rel="noopener noreferrer" className="text-corp-green-400 hover:underline">LinkedIn</a>
+                        )}
+                      </div>
+                    )}
+
+                    {r.summary && (
+                      <p className="text-sm text-dark-200 mb-3 px-3 py-2 rounded bg-corp-green-500/10 border border-corp-green-500/30">
+                        <span className="text-xs uppercase tracking-wide text-corp-green-400 mr-1">Summary:</span>
+                        {r.summary}
+                      </p>
+                    )}
+
+                    {Array.isArray(r.answers) && r.answers.length > 0 && (
+                      <div className="space-y-2">
+                        {r.answers.map((qa: { question?: string; answer?: string }, idx: number) => (
+                          <div key={idx} className="text-sm">
+                            <p className="text-dark-400 text-xs uppercase tracking-wide mb-0.5">{qa.question || `Question ${idx + 1}`}</p>
+                            <p className="text-dark-100 whitespace-pre-wrap">{qa.answer || <span className="text-dark-500 italic">(no answer)</span>}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Draft Editor — manual email composition path (legacy v2). Still
               useful for one-off direct sends outside the sequencer. */}

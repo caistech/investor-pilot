@@ -420,7 +420,13 @@ function buildUserMessage(input: LLMRenderInput): string {
     recipientLines.push(`Operator-supplied notes (ground truth — weight heavily): ${partner.operator_notes}`);
   }
 
-  // Offering context
+  // Offering context — append ?ref=<partner_id>&src=ip-outreach to the
+  // CTA URLs so the Connexions intake (or any other receiver) can phone
+  // home with answers attached to the partner record that drove the
+  // click. See docs/integrations/connexions-intake-webhook.md. The LLM
+  // is told to use the URL verbatim and the URL DISCIPLINE section
+  // forbids inventing or modifying URLs, so the ref + src params flow
+  // through into the rendered body unchanged.
   const offering = partner.offering_context;
   const offeringLines: string[] = [];
   if (offering) {
@@ -428,8 +434,8 @@ function buildUserMessage(input: LLMRenderInput): string {
     offeringLines.push(`Pitch: ${offering.pitch}`);
     if (offering.sector) offeringLines.push(`Sector: ${offering.sector}`);
     if (offering.geography) offeringLines.push(`Offering geography: ${offering.geography}`);
-    if (offering.pitch_deck_url) offeringLines.push(`Pitch deck URL (use as CTA in Funding mode): ${offering.pitch_deck_url}`);
-    if (offering.one_pager_url) offeringLines.push(`One-pager / intake URL (use as CTA in Sales mode): ${offering.one_pager_url}`);
+    if (offering.pitch_deck_url) offeringLines.push(`Pitch deck URL (use as CTA in Funding mode): ${withTrackingRef(offering.pitch_deck_url, partner.id)}`);
+    if (offering.one_pager_url) offeringLines.push(`One-pager / intake URL (use as CTA in Sales mode): ${withTrackingRef(offering.one_pager_url, partner.id)}`);
   } else {
     offeringLines.push('(no offering context configured — write a generic intro for the sender\'s organisation)');
   }
@@ -493,4 +499,28 @@ function clampScore(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isFinite(n)) return 5;
   return Math.max(1, Math.min(10, Math.round(n)));
+}
+
+/**
+ * Append ?ref=<partner_id>&src=ip-outreach to a CTA URL so the receiving
+ * intake (Connexions today, native InvestorPilot intake later) can phone
+ * home with answers attached to the partner record that triggered the
+ * click. See docs/integrations/connexions-intake-webhook.md.
+ *
+ * Preserves any pre-existing query string on the URL (operators sometimes
+ * configure intake URLs with UTM params or campaign tracking already).
+ * Non-throwing: malformed URLs (rare — the offering record is operator-
+ * controlled but we don't validate it on write) fall through as-is so we
+ * don't blow up rendering over a bad URL.
+ */
+function withTrackingRef(url: string, partnerId: string | null | undefined): string {
+  if (!url || !partnerId) return url;
+  try {
+    const parsed = new URL(url);
+    parsed.searchParams.set('ref', partnerId);
+    parsed.searchParams.set('src', 'ip-outreach');
+    return parsed.toString();
+  } catch {
+    return url;
+  }
 }
