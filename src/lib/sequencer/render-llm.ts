@@ -121,7 +121,42 @@ export interface LLMRenderError {
 // SYSTEM PROMPT — the messaging framework, condensed for runtime use
 // =============================================================================
 
-const SYSTEM_PROMPT = `You write one cold-outreach message at a time. Each call gives you a recipient, an offering, a sender, and a step. Write what THIS recipient should receive — not a template, not a recipe, not a checklist of beats. Read the inputs and write the message a thoughtful human would write to this specific person.
+/**
+ * Pattern-detect whether an offering is AI-flavoured. Drives whether
+ * the system prompt forces "AI" into the sender's intro line. Operator
+ * rule 2026-05-19: "case by case — if the pitch is for an AI product
+ * or offering for a raise, it includes AI; if the pitch is for a
+ * product or project that is not AI, the rule is to exempt the AI
+ * rule." Detection is on the offering's name + pitch + sector, since
+ * those are the operator-authored signals about what's being pitched.
+ *
+ * Conservative pattern: catches "AI", "artificial intelligence",
+ * "machine learning", "LLM", "GPT", "Claude", "automation",
+ * "AI-powered" (matches but the AI ban still applies to the LLM
+ * output — we want plain "AI"). Misses creative spellings; operator
+ * can override via the offering's name if they need to.
+ */
+function isAiOffering(offering: { name?: string; pitch?: string; sector?: string | null } | null | undefined): boolean {
+  if (!offering) return false;
+  const blob = [
+    offering.name || '',
+    offering.pitch || '',
+    offering.sector || '',
+  ].join(' ').toLowerCase();
+  return /\b(a\.?i\.?|artificial intelligence|machine learning|llm|gpt|claude|generative)\b/i.test(blob);
+}
+
+function buildSystemPrompt(opts: { aiOffering: boolean }): string {
+  return SYSTEM_PROMPT_TEMPLATE.replace(
+    '__AI_QUALIFIER_LINE__',
+    opts.aiOffering ? AI_QUALIFIER_RULE : '',
+  );
+}
+
+const AI_QUALIFIER_RULE = `
+- AI qualifier on every sender description: when you describe the sender's work, the word "AI" MUST appear explicitly — "small Aus AI shop", "we build custom AI platforms for operator-led teams", "AI tooling for ops-heavy businesses". Banned vague stand-ins that the operator has flagged: "small Aus tech shop", "small build shop", "fixed-scope platform work" (alone), "custom platforms" (alone). The recipient must finish reading and know we build AI specifically, not generic software, web apps, or IT consulting. Confusion about WHAT we do breeds deletion. The vendor-jargon ban on "AI-powered" still applies — say "AI" plainly, not "AI-powered".`;
+
+const SYSTEM_PROMPT_TEMPLATE = `You write one cold-outreach message at a time. Each call gives you a recipient, an offering, a sender, and a step. Write what THIS recipient should receive — not a template, not a recipe, not a checklist of beats. Read the inputs and write the message a thoughtful human would write to this specific person.
 
 THE PROBLEM YOU'RE SOLVING
 
@@ -155,8 +190,7 @@ REQUIRED ELEMENTS — but woven naturally, not slot-filled
 
 These elements MUST appear in every message that has room for them. The recipe-vs-principles distinction is HOW you weave them in, not whether they appear. A human writer fits these naturally; they don't bolt them on as separate paragraphs.
 
-- Sender introduction (name + one-line about who they are): required on every step except the 300-char connect note. The recipient must know who's writing. Weave it casually — "I'm Dennis from Corporate AI Solutions" works; "Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl)" reads like a corporate signature and breaks the tone.
-- AI qualifier on every sender description: when you describe the sender's work, the word "AI" MUST appear explicitly — "small Aus AI shop", "we build custom AI platforms for operator-led teams", "AI tooling for ops-heavy businesses". Banned vague stand-ins that the operator has flagged: "small Aus tech shop", "small build shop", "fixed-scope platform work" (alone), "custom platforms" (alone). The recipient must finish reading and know we build AI specifically, not generic software, web apps, or IT consulting. Confusion about WHAT we do breeds deletion. The vendor-jargon ban on "AI-powered" still applies — say "AI" plainly, not "AI-powered".
+- Sender introduction (name + one-line about who they are): required on every step except the 300-char connect note. The recipient must know who's writing. Weave it casually — "I'm Dennis from Corporate AI Solutions" works; "Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl)" reads like a corporate signature and breaks the tone.__AI_QUALIFIER_LINE__
 - Sender's LinkedIn URL: required on every DM and email — recipients verify before replying. PLACEMENT IS YOUR CALL. Common natural placements: bottom-of-signature line ("Dennis McMahon — linkedin.com/in/denniskl"), an aside in the intro ("background here: linkedin.com/in/denniskl"), or a quiet final line beneath the name. NEVER as a parenthetical interrupting the opening sentence — that's the robotic pattern to avoid.
 - Intake / CTA URL: required on EVERY step. It is the single low-commitment ask, framed for-their-benefit. On a 300-char connect note, the URL is most of the message. On a longer message, it appears LATE, after the value beat has done its work, on its own line ideally. Never as a bare paste — always introduced ("if something like that comes to mind, this walks you through it: …").
 - Proof point from the offering: use when the recipient is in the EXACT vertical the proof addresses, OR when the proof transfers cleanly with one sentence of bridge. Skip when the proof is in a different vertical from the recipient — forcing it signals copy-paste outreach. Better to lead with a vertical-specific observation and let the proof appear only if it actually fits.
@@ -354,7 +388,7 @@ export async function writeMessageViaLLM(
       {
         model,
         max_tokens: 2000,
-        system: SYSTEM_PROMPT,
+        system: buildSystemPrompt({ aiOffering: isAiOffering(input.partner.offering_context) }),
         messages: [{ role: 'user', content: userMessage }],
       },
       { signal: AbortSignal.timeout(20_000) }, // per-render budget; callers chunk for Vercel ceiling
