@@ -199,16 +199,29 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
       }
 
       // Per-member channel picking (migration 028): prefer the step
-      // owner's own channel for this channel_type. Fall back to ANY active
-      // org channel of the right type only when the step has no owner
-      // (legacy rows pre-migration-028 that weren't backfilled to an
-      // owner). This preserves attribution — Recipient sees the sender
-      // they expect, never an unexpected teammate's account in their
-      // LinkedIn inbox.
+      // owner's own channel for this channel_type. Fall back through:
+      //   (a) owner-specific channel match,
+      //   (b) any channel with NULL user_id (legacy / pre-028 connect
+      //       flows OR cases where Unipile's webhook didn't return the
+      //       embedded user_id — burned by this 2026-05-21 when a fresh
+      //       LinkedIn connect ended up with user_id NULL despite the
+      //       auth-link being created with the user_id in the name field),
+      //   (c) any active channel of the right type as a last resort so the
+      //       step can still ship instead of hanging forever.
+      // Step (c) gives up team attribution but keeps the message moving.
       const orgChannelsOfType = (channels as ChannelRow[] | null)?.filter(c => c.channel_type === requiredChannelType) ?? [];
-      const channel = step.created_by_user_id
-        ? orgChannelsOfType.find(c => c.user_id === step.created_by_user_id)
-        : orgChannelsOfType[0];
+      let channel: ChannelRow | undefined;
+      if (step.created_by_user_id) {
+        channel = orgChannelsOfType.find(c => c.user_id === step.created_by_user_id);
+        if (!channel) {
+          channel = orgChannelsOfType.find(c => c.user_id === null || c.user_id === undefined);
+        }
+        if (!channel) {
+          channel = orgChannelsOfType[0];
+        }
+      } else {
+        channel = orgChannelsOfType[0];
+      }
       if (!channel) {
         // No active channel for the right user — leave step pending so the
         // sequencer picks it up once the operator reconnects or reassigns

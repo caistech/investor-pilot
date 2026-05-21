@@ -555,7 +555,10 @@ export function PipelineTable({
           summaryParts.push(`${renderTotals.failed} failed — open prospect detail for the per-step error trail.`);
         }
         if (renderTotals.skipped_no_channel > 0) {
-          summaryParts.push(`${renderTotals.skipped_no_channel} skipped — Step 1 needs an active LinkedIn channel. Connect one in /channels.`);
+          // Generic — the actual reason (channel disconnected, wrong owner,
+          // email vs linkedin mismatch) varies. Open the prospect detail
+          // to see the per-step reason from the audit trail.
+          summaryParts.push(`${renderTotals.skipped_no_channel} skipped — no usable channel for the step (the step needs a connected channel of the right type matching its owner). Check /channels and the prospect's audit trail.`);
         }
         if (renderTotals.sent_or_replied > 0) {
           summaryParts.push(`${renderTotals.sent_or_replied} already sent or replied (historical).`);
