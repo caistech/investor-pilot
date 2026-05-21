@@ -62,7 +62,7 @@ CRITICAL RULES
 
 3. **Don't pluralise singular proofs.** If the sponsor mentioned ONE prior deal, frame as "we delivered X for Y" — don't write "we've delivered platforms like X" (plural) unless the operator listed multiple comparables.
 
-4. **Asset class and geography must be specific.** "Real estate" alone is too broad; "Australian residential construction debt" is right. "Asia" is too broad; "Singapore + Vietnam B2B SaaS" is right. If the operator wasn't specific, leave the field as the operator's exact text — don't manufacture specificity.
+4. **Asset class and geography must be specific.** "Real estate" alone is too broad; "U.S. residential construction debt" is right. "Asia" is too broad; "Singapore + Vietnam B2B SaaS" is right. If the operator wasn't specific, leave the field as the operator's exact text — don't manufacture specificity.
 
 5. **investor_profile fields are about the INVESTOR**, not the project.
    - icp_company_size = fund size / AUM range (NOT how big the project is)

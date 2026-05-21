@@ -2,8 +2,15 @@
  * InvestorPilot adapter over `@caistech/brave-search`.
  *
  * Resolves the API key from env (BRAVE_SEARCH_API_KEY or BRAVE_API_KEY) and
- * applies the project's default country (AU). All other behaviour is delegated
+ * applies the project's default country (US). All other behaviour is delegated
  * to the shared package.
+ *
+ * 2026-05-21: flipped default country AU → US alongside the US-primary
+ * discovery pivot. AU coverage in Hunter+Apollo is poor, and the query
+ * generator now biases queries to US markets — Brave's country lock was
+ * the silent factor over-riding all of that by returning AU-skewed pages
+ * regardless of the query string. Operator's services can be sold anywhere
+ * so default fishing waters are the US, not AU.
  */
 
 import {
@@ -35,7 +42,7 @@ export async function braveWebSearch(
 
   const results = await remoteBraveWebSearch(query, apiKey, {
     count,
-    country: 'AU',
+    country: 'US',
     signal,
     offset: clampedOffset,
   } as Parameters<typeof remoteBraveWebSearch>[2] & { offset: number });

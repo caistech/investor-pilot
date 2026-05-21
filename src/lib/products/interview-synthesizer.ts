@@ -52,7 +52,7 @@ CRITICAL RULES
 
 2. **Don't invent specifics.** If the operator didn't name a customer, vertical, or company size, leave the corresponding field empty or use a sensible generic. Do NOT manufacture detail to fill a slot. Empty is better than fabricated.
 
-3. **Plural vs singular matters.** "We built X for an Australian modular operator" → ONE client. Don't write it as "for Australian modular operators" (plural) — that implies a vertical product line.
+3. **Plural vs singular matters.** "We built X for a Texas logistics operator" → ONE client. Don't write it as "for logistics operators" (plural) — that implies a vertical product line.
 
 4. **Be honest about what we don't know.** The "what we don't know" empty fields are signals to the operator that they should fill those in — better than a confidently-wrong synthesis.
 

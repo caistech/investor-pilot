@@ -1716,16 +1716,26 @@ async function generateWarmOpener(partner: RenderPartner): Promise<string | null
 
   if (evidenceBits.length === 0) return null;
 
+  // Pitch anchor — what the warm opener is leading INTO. Previously hard-
+  // coded as "senior debt placement for AU property development" (F2K-
+  // specific), which biased every product's warm DM toward AU property
+  // debt. Now reads from the actual offering context. Falls back to a
+  // generic "the offering you're outreaching about" so the LLM doesn't
+  // invent a specific pitch from thin air.
+  const pitchAnchor = partner.offering_context?.pitch?.trim()
+    || partner.offering_context?.name?.trim()
+    || 'the offering you are reaching out about';
+
   const prompt = `You write conversational warm-DM openers for outreach to existing 1st-degree LinkedIn connections.
 
 Recipient evidence:
 ${evidenceBits.join('\n')}
 
 Generate a ONE-SENTENCE opener that:
-- PREFER referencing a specific recent post (if any provided). Quote a concrete detail — what they posted about, what they reposted — not just "saw your post". E.g. "saw your repost of the Versowood glulam project — adjacent to what F2K's running in TAS".
+- PREFER referencing a specific recent post (if any provided). Quote a concrete detail — what they posted about, what they reposted — not just "saw your post".
 - If no usable post evidence, reference role/company/connection-time instead.
 - Reads natural and brief — like one founder texting another, not a sales template.
-- Leads into a pitch about senior debt placement for AU property development.
+- Leads into a pitch about: ${pitchAnchor}.
 - Avoids cliches: NO "I hope this finds you well", NO generic "saw your background", NO "exciting opportunity".
 - Length: 8-25 words. Single sentence. (Slightly longer allowance when quoting a post.)
 - Lower case after a comma is fine. Em dashes fine.
