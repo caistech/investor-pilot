@@ -73,27 +73,30 @@ type NetworkTier = '1st' | '2nd' | 'cold';
 //   Total target: ~50-60s. Stays under Vercel's 60s client-edge timeout.
 // LinkedIn profile-only enrichment moved to a separate operator-triggered
 // endpoint (was costing another ~10s here and pushed total over).
-// Wall-time budget (with maxDuration=300s via vercel.json — Vercel Pro):
-//   Searches: 10 queries × 3 tiers × 25 LinkedIn = up to 750 person-results
-//             + 10 queries × 25 Brave = up to 250 page-results. With
-//             SEARCH_CONCURRENCY=4 and ~5-12s per call, ~60-90s wall.
-//   Scoring: up to 150 candidates × ~4s / 8 concurrent = ~75s.
-//   Hunter (top 20 Brave): ~5s × 20 / 4-wide = ~25s.
-//   Total target: ~180-200s, well inside the 300s ceiling.
+// Wall-time budget — TARGETING THE 60S BROWSER WALL, NOT THE 300S
+// FUNCTION CEILING. Per the wall-time-discipline memory, Vercel's edge
+// gateway forcibly closes the browser TCP connection at ~60s even when
+// the underlying serverless function is still allowed to run to 300s.
+// Symptom: function returns 200 (logs confirm), browser sees
+// ERR_CONNECTION_CLOSED and "Failed to fetch". Burned 2026-05-21
+// after the 150-cap version landed assuming 300s was usable.
 //
-// The 20-cap that was here before was a wall-time guard back when
-// maxDuration was 60s. With 300s available, the cap was making
-// discovery look broken on common B2B ICPs (10–500 employee
-// operationally-heavy businesses) where the real pool runs into the
-// hundreds per search. Lifted to 150 — high enough that the operator
-// actually sees the diversity Brave + Unipile return, low enough that
-// scoring + Hunter stay inside budget.
-const DEFAULT_QUERY_COUNT = 10;                 // 5 LinkedIn + 5 Brave (50/50 split)
+//   Searches: 6 queries × 3 tiers (LinkedIn) + 6 Brave = ~24 jobs.
+//             SEARCH_CONCURRENCY=4 × ~5-12s = 25-35s wall.
+//   Scoring:  up to 30 candidates × ~4s / 8 concurrent = ~12-15s.
+//   Hunter:   inline per Brave candidate inside scoreAndUpsertCandidate
+//             (no separate Hunter wave any more).
+//   Total target: ~40-55s, comfortably under the 60s edge wall.
+//
+// Lifting MAX_TOTAL_CANDIDATES requires moving to the background-job
+// pattern (return job_id immediately, poll for results) — not a single-
+// request budget bump. That work is queued separately.
+const DEFAULT_QUERY_COUNT = 6;                  // 3 LinkedIn + 3 Brave (50/50 split)
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
 const CANDIDATES_PER_QUERY = 25;                // LinkedIn — Unipile caps at 100, 25 gives variety without spamming
 const BRAVE_CANDIDATES_PER_QUERY = 20;          // Brave — API max is 20 per request; exceeding it returns 422 Unprocessable Entity
-const MAX_TOTAL_CANDIDATES = 150;               // lifted from 20 (which dated from the 60s wall-time era)
+const MAX_TOTAL_CANDIDATES = 30;                // fits the ~12-15s scoring slot under the 60s edge wall
 const SEARCH_TIMEOUT_MS = 15_000;               // per-search timeout — Unipile cold-tier searches can take ~10s
 // HUNTER_AT_DISCOVERY_CAP / HUNTER_CONCURRENCY / HUNTER_TIMEOUT_MS removed
 // 2026-05-19 — Hunter now runs inline per Brave candidate inside
