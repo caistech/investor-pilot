@@ -19,6 +19,7 @@
     "@caistech/email-finder": "^0.1.0",
     "@caistech/hunter-email": "^0.1.0",
     "@caistech/unipile-channels": "^0.1.0",
+    "@elevenlabs/convai-widget-embed": "^0.12.6",
     "@supabase/ssr": "^0.10.0",
     "@supabase/supabase-js": "^2.102.1",
     "date-fns": "^4.1.0",
