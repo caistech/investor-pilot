@@ -67,9 +67,21 @@ export async function POST(request: Request) {
     .eq('organisation_id', orgId)
     .in('id', ids);
 
-  const eligible = (rows || []).filter(
-    p => p.domain && !/\//.test(p.domain as string) && !p.contact_email,
-  );
+  // Eligible = has a real company domain AND no email yet.
+  // Skipped:
+  //   - linkedin.com/in/<slug> pseudo-domain (contains /)
+  //   - linkedin-unknown-<rand> placeholder (set by the runner when LinkedIn
+  //     returned no current_company_domain) — Hunter would just waste a
+  //     call on a non-resolvable string
+  //   - rows already enriched
+  const eligible = (rows || []).filter((p) => {
+    const d = (p.domain as string | null) || '';
+    if (!d) return false;
+    if (d.includes('/')) return false;
+    if (d.startsWith('linkedin-unknown-')) return false;
+    if (p.contact_email) return false;
+    return true;
+  });
 
   if (eligible.length === 0) {
     return NextResponse.json({

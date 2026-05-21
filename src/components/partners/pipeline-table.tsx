@@ -390,6 +390,7 @@ export function PipelineTable({
     let totalSucceeded = 0;
     let totalErrored = 0;
     let totalSkipped = 0;
+    let totalNoEmails = 0;
     let totalAlreadyDone = 0;
     // Per-category render-now totals so the final summary can name every
     // bucket the batches landed in. Previously the aggregator collapsed
@@ -461,6 +462,7 @@ export function PipelineTable({
           totalSucceeded += (data.enriched as number) || 0;
           totalErrored += (data.errors as number) || 0;
           totalSkipped += (data.skipped as number) || (data.unresolved as number) || 0;
+          totalNoEmails += (data.no_emails as number) || 0;
         } else {
           const counts = (data.counts as Record<string, number>) || {};
           totalSucceeded += counts.queued || 0;
@@ -490,20 +492,35 @@ export function PipelineTable({
         : '';
 
       if (action === 'enrich') {
-        // Tailor the follow-up suggestion to whether anything actually
-        // got an email. Hunter only finds public business emails — for
-        // LinkedIn-2nd contacts it routinely returns 0, in which case
-        // the right next step is Refresh research (LinkedIn/Brave
-        // fit signal) not Plan Outreach.
-        const nextStepHint = totalSucceeded > 0
-          ? 'Selection kept — click "2. Plan Outreach" next.'
-          : 'These prospects don\'t have public business email addresses in Hunter\'s database — usually means they\'re LinkedIn-only contacts. ' +
-            'For LinkedIn DM outreach (no email needed), click "Refresh research" to gather LinkedIn signal, then "2. Plan Outreach".';
+        // Honest breakdown across all four buckets returned by the
+        // cascade. The earlier copy ("X had no public business email")
+        // conflated skipped-no-real-domain with cascade-misses, making
+        // the operator think Hunter/Apollo were broken when most of the
+        // 84/85 were never even queried (LinkedIn pseudo-domains get
+        // filtered out at /api/partners/bulk-hunter eligible step).
+        const parts: string[] = [];
+        if (totalSucceeded > 0) {
+          parts.push(`Found emails for ${totalSucceeded} of ${n}.`);
+        }
+        if (totalNoEmails > 0) {
+          parts.push(`${totalNoEmails} had a real company domain but Hunter+Apollo returned no public email — typically AU SMEs or small private firms outside their crawl coverage.`);
+        }
+        if (totalSkipped > 0) {
+          parts.push(`${totalSkipped} skipped — LinkedIn-only profiles with no resolved company domain (the cascade needs a real domain to query).`);
+        }
+        if (totalErrored > 0) {
+          parts.push(`${totalErrored} hit lookup errors.`);
+        }
         const headline = totalSucceeded === 0
           ? `Looked up ${n} prospect${n === 1 ? '' : 's'} — no emails found.`
           : totalSucceeded === n
             ? `Found emails for all ${n} prospect${n === 1 ? '' : 's'}.`
-            : `Found emails for ${totalSucceeded} of ${n} prospects. The other ${n - totalSucceeded} had no public business email on record${totalErrored > 0 ? ` (${totalErrored} also hit lookup errors)` : ''}.`;
+            : parts.join(' ');
+        const nextStepHint = totalSucceeded > 0
+          ? 'Selection kept — click "2. Plan Outreach" next.'
+          : totalSkipped > 0 && totalNoEmails === 0
+            ? 'These are LinkedIn-only profiles — Hunter+Apollo can\'t reach them without a company domain. For LinkedIn DM outreach (no email needed), click "Refresh research" then "2. Plan Outreach".'
+            : 'Hunter+Apollo coverage skews to US + larger firms. For AU SMEs, expect low hit rates — use LinkedIn DM via "Refresh research" → "2. Plan Outreach", or pivot discovery toward US-based prospects.';
         setMessage(
           `${headline}${chunks.length > 1 ? ` (Ran in ${chunks.length} batches of up to ${chunkSize} per Hunter API call.)` : ''}\n${nextStepHint}${errorTrailer}`,
         );

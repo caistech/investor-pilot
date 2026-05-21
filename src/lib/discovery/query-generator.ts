@@ -102,9 +102,9 @@ STEP 2 — QUERY SHAPE (LINKEDIN vs BRAVE — universal rules)
 
 LINKEDIN / SALES NAVIGATOR — searches PROFILES with AND-matching. EVERY word must appear in the profile or the row is filtered out. KEEP LINKEDIN QUERIES TIGHT: 3-4 words MAX. Pattern: ONE role/title term + ONE geography (optionally ONE vertical term, but only if titles are too broad without it).
 
-Good shape examples (these are PATTERNS, not literal queries — substitute the offering's actual titles/verticals/geos):
-- "<role> <geography>" → "managing director Sydney"
-- "<vertical> <role>" → "construction founder"
+Good shape examples (these are PATTERNS, not literal queries — substitute the offering's actual titles/verticals/geos; when geography is empty, default to US cities/states per the geography rule below):
+- "<role> <geography>" → "operations director Houston" / "managing director Atlanta"
+- "<vertical> <role>" → "construction founder" / "logistics owner"
 - "<role> <vertical>" → "operations director manufacturing"
 - "<niche-role>" alone if it's already narrow → "fund principal"
 
@@ -121,13 +121,14 @@ Brave query strategy depends on direction:
 
 BUYER-HUNTING (direction A): queries must surface REAL OPERATING COMPANIES in the ICP verticals + geography. Pattern: "<vertical> <company-type> <geography>" or "<vertical> business <geography>" or "<sub-vertical-noun> <geography>".
 
-Good shape examples (PATTERNS — adapt to the offering):
-- "modular construction company Sydney"
-- "logistics company family-owned Brisbane"
-- "manufacturing SME Melbourne"
-- "construction contractor New South Wales"
-- "field services business Australia"
-- "industrial bakery Queensland"
+Good shape examples (PATTERNS — adapt to the offering; default to US cities when geography is empty per the rule below):
+- "modular construction company Texas"
+- "logistics company family-owned Atlanta"
+- "manufacturing SME Ohio"
+- "construction contractor Phoenix"
+- "field services business Houston"
+- "industrial bakery Chicago"
+- (AU bonus slice — only when geography explicitly sets Australia): "construction company Sydney"
 
 Avoid: any keyword that surfaces vendors instead of operators. "AI for construction" returns AI vendors. "Construction company Sydney" returns construction companies.
 
@@ -152,7 +153,8 @@ STEP 3 — APPLY ICP FIELDS
 - icp_verticals: drive Brave queries (one per vertical, especially when buyer-hunting). Verticals + geography combination is the highest-yield Brave pattern.
 - icp_company_size: shapes vocabulary — "SME", "family-owned", "owner-operated", "mid-market" surface different result types. Pick the word that maps to the size band.
 - icp_stage: filters for stage-specific terms ("growth-stage", "established", "post-seed") when relevant.
-- geography: PRIMARY input for any Brave query and most LinkedIn queries. If the offering specifies multiple geographies, distribute queries across them proportionally. If the offering says "global" or omits geography, use the strongest 2-3 markets the offering plausibly serves.
+- geography: PRIMARY input for any Brave query and most LinkedIn queries. If the offering specifies multiple geographies, distribute queries across them proportionally.
+  - **DEFAULT WHEN GEOGRAPHY IS EMPTY OR "global": United States is the primary target zone.** Concentrate 60-70% of the query budget on US markets (cities like Austin, Houston, Dallas, Atlanta, Phoenix, Denver, Nashville for industrial/operational verticals; NYC + SF for fintech/SaaS), with the remainder distributed across Canada, UK, and the Anglosphere. Australia/NZ are acceptable as a small bonus slice (≤15%) but are NOT a default focus — Hunter+Apollo coverage of AU SMEs is poor, so chasing them wastes the email-finder budget. Only target AU heavily when the offering explicitly sets geography to "Australia".
   - DIRECTION-A SPECIFIC: geography is where the BUYERS operate. Queries should target operators in those markets.
   - DIRECTION-B SPECIFIC: geography names the PROJECT's physical location, NOT necessarily where the investors live. Read funding_type + asset_class to infer which capital markets typically fund this asset class — e.g. modular-construction senior debt with an Australian physical asset often needs offshore capital (Singapore, Hong Kong, UAE, US) because domestic lenders don't typically underwrite cross-border manufacturing-finance. Distribute queries across the capital markets that plausibly fund this asset class, not just the project's location.
 - exclusions: NEVER produce a query that targets an excluded segment. If exclusions list "in-house tech teams" or "agencies", don't generate queries that surface those.
