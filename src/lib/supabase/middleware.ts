@@ -125,11 +125,38 @@ export async function updateSession(request: NextRequest) {
       .select('active_organisation_id')
       .eq('id', user.id)
       .maybeSingle();
-    if (profile?.active_organisation_id) {
+
+    let activeOrgId = (profile?.active_organisation_id as string | null | undefined) ?? null;
+
+    // Defensive fallback: when active_organisation_id is null OR the org
+    // it points at no longer exists, pick the user's earliest membership
+    // and self-heal the profile. Without this, post-login redirect to
+    // /dashboard 404s silently because the lookup below requires a valid
+    // slug. Bit by this on 2026-05-21 after migration 038 deleted a
+    // duplicate org and some profiles were left without a usable
+    // active_organisation_id.
+    if (!activeOrgId) {
+      const { data: anyMembership } = await supabase
+        .from('memberships')
+        .select('organisation_id')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: true })
+        .limit(1)
+        .maybeSingle();
+      activeOrgId = (anyMembership?.organisation_id as string | undefined) ?? null;
+      if (activeOrgId) {
+        await supabase
+          .from('profiles')
+          .update({ active_organisation_id: activeOrgId })
+          .eq('id', user.id);
+      }
+    }
+
+    if (activeOrgId) {
       const { data: org } = await supabase
         .from('organisations')
         .select('slug')
-        .eq('id', profile.active_organisation_id)
+        .eq('id', activeOrgId)
         .maybeSingle();
       if (org?.slug) {
         const url = request.nextUrl.clone();
