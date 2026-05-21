@@ -7,10 +7,14 @@
     {
       "path": "/api/cron/drain-send-queue",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/run-discovery-jobs",
+      "schedule": "*/2 * * * *"
     }
   ],
   "functions": {
-    "src/app/api/pipeline/discover-batch/route.ts": {
+    "src/app/api/cron/run-discovery-jobs/route.ts": {
       "maxDuration": 300
     },
     "src/app/api/pipeline/discover/route.ts": {

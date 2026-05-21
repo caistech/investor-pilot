@@ -315,9 +315,16 @@ export default function ProductsPage() {
     });
   }
 
+  // Polling status — replaces the single in-flight "finding" boolean.
+  // Background-job pattern (2026-05-21): POST returns immediately with
+  // a job_id; we poll /api/pipeline/discover-jobs/[id] every 3s until
+  // status is 'completed' or 'failed'.
+  const [findStatus, setFindStatus] = useState<'pending' | 'running' | null>(null);
+
   async function findBuyersForProduct(productId: string) {
-    if (!confirm('This runs a multi-query discovery batch (~2-5 minutes). Score budget: up to 80 candidates. Continue?')) return;
+    if (!confirm('This runs a multi-query discovery batch in the background (~1-3 minutes). Score budget: up to 150 candidates. Continue?')) return;
     setFindingFor(productId);
+    setFindStatus('pending');
     setFindResult(null);
     try {
       // Defensive: even if state somehow includes LinkedIn while no channel
@@ -337,15 +344,18 @@ export default function ProductsPage() {
           error: 'No sources selected. Connect a LinkedIn channel or keep Brave enabled.',
         });
         setFindingFor(null);
+        setFindStatus(null);
         return;
       }
+      // POST returns { ok, job_id } immediately. The actual work runs on
+      // the cron worker against the 300s function ceiling.
       const res = await fetch('/api/pipeline/discover-batch', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ product_id: productId, sources: safeSources }),
       });
       const data = await res.json();
-      if (!res.ok) {
+      if (!res.ok || !data.job_id) {
         setFindResult({
           productId,
           queries_used: [],
@@ -353,19 +363,69 @@ export default function ProductsPage() {
           candidates_failed: 0,
           candidates_unique: 0,
           top_results: [],
-          error: data.error || 'Discovery batch failed',
+          error: data.error || 'Discovery batch failed to queue',
         });
-      } else {
-        setFindResult({
-          productId,
-          queries_used: data.queries_used || [],
-          candidates_scored: data.candidates_scored || 0,
-          candidates_failed: data.candidates_failed || 0,
-          candidates_unique: data.candidates_unique || 0,
-          tier_breakdown: data.tier_breakdown,
-          top_results: data.top_results || [],
-          search_errors: data.search_errors || [],
-        });
+        setFindingFor(null);
+        setFindStatus(null);
+        return;
+      }
+      // Poll until completed or failed. Hard ceiling at 8 min — well past
+      // the worker's 300s budget but a safety net against a stalled cron.
+      const jobId: string = data.job_id;
+      const pollStart = Date.now();
+      const MAX_POLL_MS = 8 * 60 * 1000;
+      const POLL_INTERVAL_MS = 3000;
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        if (Date.now() - pollStart > MAX_POLL_MS) {
+          setFindResult({
+            productId,
+            queries_used: [],
+            candidates_scored: 0,
+            candidates_failed: 0,
+            candidates_unique: 0,
+            top_results: [],
+            error: 'Discovery job is taking longer than expected. Check Prospects in a few minutes — results will land there.',
+          });
+          break;
+        }
+        await new Promise(r => setTimeout(r, POLL_INTERVAL_MS));
+        const pollRes = await fetch(`/api/pipeline/discover-jobs/${jobId}`);
+        if (!pollRes.ok) {
+          // Transient — keep polling unless we hit the ceiling.
+          continue;
+        }
+        const pollData = await pollRes.json();
+        if (pollData.status === 'pending' || pollData.status === 'running') {
+          setFindStatus(pollData.status);
+          continue;
+        }
+        if (pollData.status === 'failed') {
+          setFindResult({
+            productId,
+            queries_used: [],
+            candidates_scored: 0,
+            candidates_failed: 0,
+            candidates_unique: 0,
+            top_results: [],
+            error: pollData.error || 'Discovery job failed',
+          });
+          break;
+        }
+        if (pollData.status === 'completed') {
+          const r = pollData.result || {};
+          setFindResult({
+            productId,
+            queries_used: r.queries_used || [],
+            candidates_scored: r.candidates_scored || 0,
+            candidates_failed: r.candidates_failed || 0,
+            candidates_unique: r.candidates_unique || 0,
+            tier_breakdown: r.tier_breakdown,
+            top_results: r.top_results || [],
+            search_errors: r.search_errors || [],
+          });
+          break;
+        }
       }
     } catch (err) {
       setFindResult({
@@ -379,6 +439,7 @@ export default function ProductsPage() {
       });
     } finally {
       setFindingFor(null);
+      setFindStatus(null);
     }
   }
 
@@ -848,7 +909,14 @@ export default function ProductsPage() {
                         }
                       >
                         {findingFor === p.id ? (
-                          <><Loader2 className="w-4 h-4 animate-spin" /> Finding…</>
+                          <>
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            {findStatus === 'pending'
+                              ? 'Queued…'
+                              : findStatus === 'running'
+                                ? 'Running…'
+                                : 'Finding…'}
+                          </>
                         ) : (
                           <><Target className="w-4 h-4" /> Find Buyers</>
                         )}
