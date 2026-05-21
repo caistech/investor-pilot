@@ -59,17 +59,11 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id, active_organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  // Multi-org: scope to the user's active_organisation_id (where the
-  // approvals queue is being viewed), falling back to the legacy
-  // organisation_id column for single-org users. Operator flagged
-  // 2026-05-19 that the rerender endpoint returned 'No matching steps'
-  // even with a queue full of approvals — root cause was this route
-  // scoping to the legacy column when the active org had moved.
-  const orgId = (profile?.active_organisation_id || profile?.organisation_id) as string | undefined;
+  const orgId = profile?.active_organisation_id as string | undefined;
   if (!orgId) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }

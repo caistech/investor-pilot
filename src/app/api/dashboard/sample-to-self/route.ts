@@ -99,13 +99,13 @@ export async function POST() {
   // local-part of their email so the rendered {first_name} still works.
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id, full_name, email')
+    .select('active_organisation_id, full_name, email')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
-  const orgId = profile.organisation_id as string;
+  const orgId = profile.active_organisation_id as string;
 
   const operatorEmail = (profile.email as string) || user!.email;
   if (!operatorEmail) {

@@ -38,14 +38,14 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
-  const orgId = profile.organisation_id;
+  const orgId = profile.active_organisation_id;
 
   // Find candidates. partner_ids explicit list wins; otherwise pull all
   // LinkedIn-sourced rows in the org that lack a usable company_name

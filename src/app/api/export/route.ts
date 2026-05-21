@@ -7,7 +7,7 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await supabase.from('profiles').select('organisation_id').eq('id', user.id).single();
+  const { data: profile } = await supabase.from('profiles').select('active_organisation_id').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 404 });
 
   const { searchParams } = new URL(request.url);
@@ -16,7 +16,7 @@ export async function GET(request: Request) {
   const { data: partners } = await supabase
     .from('partners')
     .select('*')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
   if (!partners) return NextResponse.json({ error: 'No data' }, { status: 404 });

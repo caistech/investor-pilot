@@ -29,18 +29,18 @@ export async function POST(request: Request) {
   // Resolve organisation
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
   // Pre-flight cap check — refuse to generate a connect link if the org has
   // already hit its connected-account limit. Avoids the user going through
   // Unipile's OAuth flow only to be silently rejected at the webhook.
-  const cap = await checkCap(profile.organisation_id, 'unipile_account_active');
+  const cap = await checkCap(profile.active_organisation_id, 'unipile_account_active');
   if (!cap.allowed) {
     return NextResponse.json(buildCapExceededResponse('unipile_account_active', cap), { status: 429 });
   }
@@ -52,7 +52,7 @@ export async function POST(request: Request) {
 
   const link = await createHostedAuthLink({
     provider,
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     user_id: user!.id,
     return_url: returnUrl,
   });

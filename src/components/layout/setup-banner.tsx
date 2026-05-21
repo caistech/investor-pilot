@@ -19,11 +19,11 @@ export async function SetupBanner() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
-  if (!profile?.organisation_id) return null;
+  if (!profile?.active_organisation_id) return null;
 
-  const state = await getSetupState(profile.organisation_id);
+  const state = await getSetupState(profile.active_organisation_id);
   if (state.allDone) return null;
 
   const gaps = listSetupGaps(state);

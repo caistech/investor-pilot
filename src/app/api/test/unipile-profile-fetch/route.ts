@@ -55,11 +55,11 @@ export async function GET(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ ok: false, stage: 'profile', error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
       .from('partners')
       .select('id, company_name, network_distance, contact_linkedin')
       .eq('id', partnerIdParam)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .maybeSingle();
     if (!partner) {
       return NextResponse.json({ ok: false, stage: 'partner_lookup', error: 'Partner not found in your org' }, { status: 404 });
@@ -114,7 +114,7 @@ export async function GET(request: Request) {
     const { data: partner } = await db
       .from('partners')
       .select('id, company_name, network_distance, contact_linkedin, source, last_updated_at')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .eq('network_distance', findParam)
       .in('source', ['linkedin', 'sales_nav'])
       .not('contact_linkedin', 'is', null)
@@ -157,7 +157,7 @@ export async function GET(request: Request) {
   const { data: channel } = await db
     .from('client_channels')
     .select('id, oauth_token_ref, account_identifier, status')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .eq('channel_type', 'linkedin')
     .eq('status', 'active')
     .limit(1)

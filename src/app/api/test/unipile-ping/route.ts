@@ -29,18 +29,18 @@ export async function GET(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
   const { data: channel } = await db
     .from('client_channels')
     .select('id, oauth_token_ref, account_identifier, status')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .eq('channel_type', 'linkedin')
     .eq('status', 'active')
     .limit(1)

@@ -210,7 +210,7 @@ export async function POST(request: Request) {
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
 
-  const { data: profile } = await db.from('profiles').select('organisation_id').eq('id', user.id).single();
+  const { data: profile } = await db.from('profiles').select('active_organisation_id').eq('id', user.id).single();
   if (!profile) return NextResponse.json({ error: 'No profile' }, { status: 404 });
 
   const contentType = request.headers.get('content-type') || '';
@@ -228,7 +228,7 @@ export async function POST(request: Request) {
     const parentLink = projectId ? { project_id: projectId } : { product_id: productId! };
 
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      ...parentLink, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.active_organisation_id,
       source_type: 'file', title: file.name, file_name: file.name,
       file_type: file.type, file_size: file.size, processing_status: 'processing',
     }).select().single();
@@ -259,7 +259,7 @@ export async function POST(request: Request) {
     if (!url) return NextResponse.json({ error: 'url required' }, { status: 400 });
 
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      ...parentLink, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.active_organisation_id,
       source_type: 'url', title: title || url, url, processing_status: 'processing',
     }).select().single();
 
@@ -281,7 +281,7 @@ export async function POST(request: Request) {
   if (source_type === 'text') {
     if (!content) return NextResponse.json({ error: 'content required' }, { status: 400 });
     const { data: source, error: insertError } = await db.from('product_sources').insert({
-      ...parentLink, organisation_id: profile.organisation_id,
+      ...parentLink, organisation_id: profile.active_organisation_id,
       source_type: 'text', title: title || 'Pasted text',
       content: content.slice(0, 50000), processing_status: 'completed',
     }).select().single();

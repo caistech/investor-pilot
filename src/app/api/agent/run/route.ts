@@ -59,11 +59,11 @@ export async function POST(request: Request) {
   // Load profile for organisation_id
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  const organisationId = profile?.organisation_id || session.organisation_id;
+  const organisationId = profile?.active_organisation_id || session.organisation_id;
 
   // Load source content and product website URL
   const [sourceContent, productUrl] = await Promise.all([

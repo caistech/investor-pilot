@@ -13,7 +13,7 @@ export async function DELETE(request: Request) {
   // Verify the session belongs to the user's org
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user.id)
     .single();
 
@@ -25,7 +25,7 @@ export async function DELETE(request: Request) {
     .eq('id', id)
     .single();
 
-  if (!session || session.organisation_id !== profile.organisation_id) {
+  if (!session || session.organisation_id !== profile.active_organisation_id) {
     return NextResponse.json({ error: 'Session not found' }, { status: 404 });
   }
 

@@ -57,10 +57,10 @@ export async function POST(request: Request) {
   if (!organisation_id || organisation_id === 'auto') {
     const { data: profile } = await db
       .from('profiles')
-      .select('organisation_id')
+      .select('active_organisation_id')
       .eq('id', user!.id)
       .single();
-    organisation_id = profile?.organisation_id;
+    organisation_id = profile?.active_organisation_id;
   }
   if (!organisation_id) {
     return NextResponse.json({ error: 'Could not resolve organisation' }, { status: 400 });
