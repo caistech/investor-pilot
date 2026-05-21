@@ -40,6 +40,12 @@ const EMPTY_FORM = {
   // 'buyer' / 'referral_partner' / 'integration_partner' / 'reseller' /
   // 'strategic' — see PRODUCT_PROSPECT_TYPE_OPTIONS.
   icp_partner_type: 'buyer',
+  // Courtesy-contract attachments — the renderer refuses to draft outreach
+  // without at least one (renderer.ts emits 'missing_offering_url' block).
+  // Autofill populates these from source_url / KB URL sources so the
+  // operator doesn't have to type them manually.
+  pitch_deck_url: '',
+  one_pager_url: '',
 };
 
 interface SetupSnapshot {
@@ -174,6 +180,10 @@ export default function ProductsPage() {
         partner_types: data.partner_types || 'referral',
         exclusions: data.exclusions || '',
         icp_partner_type: data.icp_partner_type || prev.icp_partner_type || 'buyer',
+        // Autofill resolves one_pager_url from source_url / KB URL sources
+        // so the renderer-required field is filled in without operator typing.
+        one_pager_url: data.one_pager_url || prev.one_pager_url || '',
+        pitch_deck_url: data.pitch_deck_url || prev.pitch_deck_url || '',
       }));
       setFilled(true);
       setShowDetails(true);
@@ -262,6 +272,8 @@ export default function ProductsPage() {
       partner_types: product.partner_types || 'referral',
       exclusions: product.exclusions || '',
       icp_partner_type: product.icp_partner_type || 'buyer',
+      pitch_deck_url: (product as unknown as { pitch_deck_url?: string }).pitch_deck_url || '',
+      one_pager_url: (product as unknown as { one_pager_url?: string }).one_pager_url || '',
     });
     setEditingId(product.id);
     setFilled(true);
@@ -490,7 +502,8 @@ export default function ProductsPage() {
               // since the interview question set is sales-side; the operator
               // can change it in the form if the product targets a different
               // prospect type.
-              setForm({
+              setForm((prev) => ({
+                ...prev,
                 name: profile.name,
                 one_sentence_description: profile.one_sentence_description,
                 core_mechanism: profile.core_mechanism,
@@ -506,7 +519,13 @@ export default function ProductsPage() {
                 partner_types: 'referral',
                 exclusions: profile.exclusions,
                 icp_partner_type: 'buyer',
-              });
+                // Preserve any URL fields the operator added pre-interview
+                // (or auto-populated from KB sources). The interview
+                // synthesizer doesn't produce URLs — those land via the
+                // form's autofill or the KB ingestion.
+                pitch_deck_url: prev.pitch_deck_url || '',
+                one_pager_url: prev.one_pager_url || '',
+              }));
               setShowInterview(false);
               setShowForm(true);
               setFilled(true);
@@ -687,6 +706,40 @@ export default function ProductsPage() {
               )}
             </>
           )}
+
+          {/* Courtesy-contract attachments — surfaced in outreach as the
+              value-offer link. Without one_pager_url the renderer refuses
+              to draft (blocker: missing_offering_url). Autofill populates
+              one_pager_url from source_url so the operator usually only
+              needs to confirm. */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-6">
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">
+                One-pager URL <span className="text-dark-600">— required for outreach</span>
+              </label>
+              <input
+                type="url"
+                value={form.one_pager_url || ''}
+                onChange={(e) => setForm({ ...form, one_pager_url: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="https://... — your product page, Notion doc, or PDF link"
+              />
+              <p className="text-xs text-dark-500 mt-1">Surfaced in cold outreach so prospects can self-serve before replying. Auto-populated when you AI-fill from a URL source.</p>
+            </div>
+            <div>
+              <label className="block text-sm text-dark-300 mb-1">
+                Pitch deck URL <span className="text-dark-600">— optional</span>
+              </label>
+              <input
+                type="url"
+                value={form.pitch_deck_url || ''}
+                onChange={(e) => setForm({ ...form, pitch_deck_url: e.target.value })}
+                className="w-full bg-dark-800 border border-dark-600 rounded-lg px-3 py-2 text-sm text-white focus:border-corp-green-500 focus:outline-none"
+                placeholder="https://docsend.com/view/... or Notion / Drive URL"
+              />
+              <p className="text-xs text-dark-500 mt-1">Heavier-weight alternative to the one-pager. Used in longer email touches when the recipient is engaged.</p>
+            </div>
+          </div>
 
           {error && (
             <div className="mb-4 p-3 rounded-lg bg-red-500/10 border border-red-500/20 text-red-400 text-sm">

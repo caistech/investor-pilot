@@ -153,5 +153,30 @@ Return ONLY valid JSON with these exact keys:
   }
 
   const profile = JSON.parse(jsonMatch[0]);
+
+  // Auto-populate the URL fields so the operator doesn't need to type them
+  // manually. Priority: source_url (if the autofill was driven by a URL) →
+  // first completed URL source in the product's KB → leave blank.
+  // The renderer requires one_pager_url before it'll draft outreach; this
+  // step is what makes "no fields left to fill manually" actually true.
+  let resolvedOnePagerUrl: string | null = null;
+  if (source_url) {
+    resolvedOnePagerUrl = source_url;
+  } else if (product_id) {
+    const { data: kbUrls } = await supabase
+      .from('product_sources')
+      .select('url')
+      .eq('product_id', product_id)
+      .eq('source_type', 'url')
+      .eq('processing_status', 'completed')
+      .not('url', 'is', null)
+      .order('created_at', { ascending: true })
+      .limit(1);
+    resolvedOnePagerUrl = (kbUrls?.[0]?.url as string | undefined) ?? null;
+  }
+  if (resolvedOnePagerUrl && !profile.one_pager_url) {
+    profile.one_pager_url = resolvedOnePagerUrl;
+  }
+
   return NextResponse.json(profile);
 }
