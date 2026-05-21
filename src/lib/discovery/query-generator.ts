@@ -190,11 +190,15 @@ Return ONLY a JSON object, no markdown or prose:
 export async function generateLenderQueries(input: {
   product: ProductForQueryGen;
   knowledgeBase: KnowledgeBaseSource[];
-  // Total queries split across LinkedIn (50%) + Brave (50%). Default 6 = 3 LI + 3 Brave.
-  // Bumped Brave's share from 40% → 50% on 2026-05-15 — operators noted that a
-  // simple "real estate fund" Google search returns thousands of results,
-  // while our prior 1-2 Brave queries per run returned zero. More Brave
-  // queries × broader prompt = actual breadth.
+  // Total queries split across LinkedIn (25%) + Brave (75%). Default 10 = 2-3 LI + 7-8 Brave.
+  // 2026-05-21: shifted from 50/50 → 25/75 in favour of Brave. Operator
+  // ran a batch and got 89 LinkedIn-sourced rows with NO email (cascade
+  // can't reach LinkedIn-only profiles without a real company domain) vs
+  // 4 Brave rows all of which got verified emails (100% hit rate when
+  // given real domains). LinkedIn discovery is currently dead weight —
+  // it surfaces prospects we can't reach. Give the query budget to the
+  // channel that actually produces reachable contacts. (Re-balance back
+  // toward LinkedIn once the LinkedIn-URL → email path via Apollo lands.)
   count?: number;
   meterFor?: MeterFor;
   /**
@@ -208,8 +212,8 @@ export async function generateLenderQueries(input: {
    */
   priorQueries?: string[];
 }): Promise<QueryGenerationResult | QueryGenerationError> {
-  const total = Math.min(Math.max(input.count || 6, 4), 15);
-  const linkedinCount = Math.max(1, Math.floor(total * 0.5));
+  const total = Math.min(Math.max(input.count || 10, 4), 15);
+  const linkedinCount = Math.max(1, Math.floor(total * 0.25));
   const braveCount = Math.max(1, total - linkedinCount);
 
   // Build a compact product context string. Keep knowledge base extracts

@@ -111,6 +111,24 @@ const PUBLISHER_HOSTNAMES = new Set<string>([
   'slidebean.com',
   'pitch.com',
   'visible.vc',
+  // Social platforms / professional networks — Brave occasionally returns
+  // these as top results (e.g. company profile page hosted on LinkedIn,
+  // a Facebook business page). The hostname belongs to the platform, not
+  // the target prospect. Hunter on linkedin.com returns LinkedIn employees,
+  // not the company whose profile got matched. Burned by this 2026-05-21
+  // when 'Daniel Maurath @ Linkedin (dmaurath@linkedin.com)' surfaced as
+  // a construction-company prospect.
+  'linkedin.com',
+  'facebook.com',
+  'instagram.com',
+  'twitter.com',
+  'x.com',
+  'youtube.com',
+  'tiktok.com',
+  'pinterest.com',
+  'glassdoor.com',
+  'indeed.com',
+  'yelp.com',
 ]);
 
 // Pattern-based catch for the long tail. These match a hostname's

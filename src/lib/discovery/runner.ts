@@ -48,7 +48,12 @@ import { looksLikeJunkBraveResult } from '@/lib/discovery/junk-result-filter';
 export type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 export type NetworkTier = '1st' | '2nd' | 'cold';
 
-const DEFAULT_QUERY_COUNT = 6;
+// 2026-05-21: bumped DEFAULT_QUERY_COUNT 6 → 10 alongside the 75/25
+// Brave/LinkedIn re-balance in query-generator.ts. Brave is now the
+// primary funnel for reachable prospects (real domains → cascade works);
+// LinkedIn drops to 25% until the LinkedIn-URL → email path lands.
+// At 10 total = ~2-3 LinkedIn + ~7-8 Brave queries per batch.
+const DEFAULT_QUERY_COUNT = 10;
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
 const CANDIDATES_PER_QUERY = 25;
