@@ -34,13 +34,11 @@ export async function GET(
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id, active_organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  // Active org first (multi-org); fall back to legacy column for users
-  // who haven't migrated yet.
-  const orgId = profile?.active_organisation_id ?? profile?.organisation_id ?? null;
+  const orgId = profile?.active_organisation_id ?? null;
   if (!orgId) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
