@@ -308,9 +308,11 @@ export default function ProductsPage() {
   const [findResult, setFindResult] = useState<{
     productId: string;
     queries_used: Array<{ query: string; rationale: string; category: string }>;
+    candidates_found: number;
     candidates_scored: number;
     candidates_failed: number;
     candidates_unique: number;
+    candidates_discarded: number;
     tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
     top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
     search_errors?: Array<{ query: string; source: string; tier: string; error: string }>;
@@ -349,9 +351,11 @@ export default function ProductsPage() {
         setFindResult({
           productId,
           queries_used: [],
+          candidates_found: 0,
           candidates_scored: 0,
           candidates_failed: 0,
           candidates_unique: 0,
+          candidates_discarded: 0,
           top_results: [],
           error: 'No sources selected. Connect a LinkedIn channel or keep Brave enabled.',
         });
@@ -371,9 +375,11 @@ export default function ProductsPage() {
         setFindResult({
           productId,
           queries_used: [],
+          candidates_found: 0,
           candidates_scored: 0,
           candidates_failed: 0,
           candidates_unique: 0,
+          candidates_discarded: 0,
           top_results: [],
           error: data.error || 'Discovery batch failed to queue',
         });
@@ -393,9 +399,11 @@ export default function ProductsPage() {
           setFindResult({
             productId,
             queries_used: [],
+            candidates_found: 0,
             candidates_scored: 0,
             candidates_failed: 0,
             candidates_unique: 0,
+            candidates_discarded: 0,
             top_results: [],
             error: 'Discovery job is taking longer than expected. Check Prospects in a few minutes — results will land there.',
           });
@@ -416,9 +424,11 @@ export default function ProductsPage() {
           setFindResult({
             productId,
             queries_used: [],
+            candidates_found: 0,
             candidates_scored: 0,
             candidates_failed: 0,
             candidates_unique: 0,
+            candidates_discarded: 0,
             top_results: [],
             error: pollData.error || 'Discovery job failed',
           });
@@ -429,9 +439,11 @@ export default function ProductsPage() {
           setFindResult({
             productId,
             queries_used: r.queries_used || [],
+            candidates_found: r.candidates_found || 0,
             candidates_scored: r.candidates_scored || 0,
             candidates_failed: r.candidates_failed || 0,
             candidates_unique: r.candidates_unique || 0,
+            candidates_discarded: r.candidates_discarded || 0,
             tier_breakdown: r.tier_breakdown,
             top_results: r.top_results || [],
             search_errors: r.search_errors || [],
@@ -443,9 +455,11 @@ export default function ProductsPage() {
       setFindResult({
         productId,
         queries_used: [],
+        candidates_found: 0,
         candidates_scored: 0,
         candidates_failed: 0,
         candidates_unique: 0,
+        candidates_discarded: 0,
         top_results: [],
         error: err instanceof Error ? err.message : String(err),
       });
@@ -982,14 +996,18 @@ export default function ProductsPage() {
                           <p className="text-red-400 text-xs">{findResult.error}</p>
                         ) : (
                           <>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
-                              <div className="bg-dark-900 rounded px-2 py-1.5">
-                                <p className="text-dark-500">Queries</p>
-                                <p className="font-mono font-bold">{findResult.queries_used.length}</p>
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Raw candidates Brave + LinkedIn returned before any filter">
+                                <p className="text-dark-500">Found</p>
+                                <p className="font-mono font-bold">{findResult.candidates_found}</p>
                               </div>
-                              <div className="bg-dark-900 rounded px-2 py-1.5">
-                                <p className="text-dark-500">Scored</p>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Reached the Prospects list (passed scoring, has a real contact + email)">
+                                <p className="text-dark-500">Kept</p>
                                 <p className="font-mono font-bold text-corp-green-400">{findResult.candidates_scored}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Scored but dropped: out-of-scope OR no email OR no real contact name. Strict 2-bucket rule — Prospects only keeps contactable rows.">
+                                <p className="text-dark-500">Discarded</p>
+                                <p className="font-mono font-bold text-dark-300">{findResult.candidates_discarded}</p>
                               </div>
                               <div className="bg-dark-900 rounded px-2 py-1.5">
                                 <p className="text-dark-500">Top fit</p>

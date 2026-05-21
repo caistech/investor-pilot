@@ -16,7 +16,7 @@
     "@caistech/apollo-people": "^0.1.0",
     "@caistech/brave-search": "^0.1.0",
     "@caistech/corporate-components": "^0.3.0",
-    "@caistech/email-finder": "^0.1.0",
+    "@caistech/email-finder": "^0.2.0",
     "@caistech/hunter-email": "^0.1.0",
     "@caistech/unipile-channels": "^0.1.0",
     "@elevenlabs/convai-widget-embed": "^0.12.6",

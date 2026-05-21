@@ -41,10 +41,11 @@ function buildMeterHook(meterFor: MeterFor | undefined) {
   if (!meterFor) return undefined;
   return (event: ProviderCallEvent) => {
     // Map provider call events to usage_events rows. Hunter calls log as
-    // 'hunter_lookup'; Apollo search + enrichment log under their own
-    // event types so caps can be set independently.
+    // 'hunter_lookup' (covers both domain-search and pattern email-finder
+    // — same Hunter quota); Apollo search + enrichment log under their
+    // own event types so caps can be set independently.
     const eventType =
-      event.provider === 'hunter'
+      event.provider === 'hunter' || event.provider === 'hunter_pattern'
         ? 'hunter_lookup'
         : event.provider === 'apollo_search'
           ? 'apollo_search'

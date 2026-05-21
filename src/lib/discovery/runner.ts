@@ -48,12 +48,17 @@ import { looksLikeJunkBraveResult } from '@/lib/discovery/junk-result-filter';
 export type DiscoverSource = 'linkedin' | 'sales_nav' | 'brave';
 export type NetworkTier = '1st' | '2nd' | 'cold';
 
-// 2026-05-21: bumped DEFAULT_QUERY_COUNT 6 → 10 alongside the 75/25
-// Brave/LinkedIn re-balance in query-generator.ts. Brave is now the
-// primary funnel for reachable prospects (real domains → cascade works);
-// LinkedIn drops to 25% until the LinkedIn-URL → email path lands.
-// At 10 total = ~2-3 LinkedIn + ~7-8 Brave queries per batch.
-const DEFAULT_QUERY_COUNT = 10;
+// 2026-05-21 (evening): bumped DEFAULT_QUERY_COUNT 10 → 15 after the
+// funnel investigation showed the cron worker runs at ~91s of the 300s
+// ceiling — plenty of headroom for more queries. At 15 total ≈ 4 LinkedIn
+// + 11 Brave at the 75/25 mix, lifting the raw candidate pool ~50% before
+// the discard filters. Pairs with the @caistech/email-finder v0.2.0
+// Hunter pattern fallback that recovers ~50-70% of previously-discarded
+// Apollo-named-no-email rows.
+//
+// Prior history: bumped 6 → 10 (2026-05-21 afternoon) alongside the 75/25
+// Brave-heavy re-balance.
+const DEFAULT_QUERY_COUNT = 15;
 const SCORING_CONCURRENCY = 8;
 const SEARCH_CONCURRENCY = 4;
 const CANDIDATES_PER_QUERY = 25;
@@ -100,6 +105,14 @@ export interface DiscoveryBatchSuccess {
   candidates_unique: number;
   candidates_scored: number;
   candidates_failed: number;
+  /**
+   * Brave-sourced candidates that were scored but discarded under the
+   * strict 2-bucket prospects contract: out_of_scope OR cascade returned
+   * no email OR cascade returned no real person name (role accounts).
+   * Surfaces what the silent-discard filter dropped so the operator
+   * can see the full funnel, not just the contactable tail.
+   */
+  candidates_discarded: number;
   search_errors: Array<{ query: string; source: DiscoverSource; tier: NetworkTier; error: string }>;
   scoring_errors: string[];
   top_results: Array<{ company_name: string; weighted_score?: number; source: 'linkedin' | 'sales_nav' | 'brave'; partner_id?: string; network_distance?: NetworkTier }>;
@@ -456,7 +469,22 @@ export async function runDiscoveryBatch(
 
   const dedupedInRun = Array.from(seen.values());
 
-  // Pre-score dedup against existing partners.
+  // Pre-score dedup against existing partners — but ONLY against rows
+  // in an active outreach state. Closed-lost, follow-up-due, and
+  // closed-won rows shouldn't permanently block re-discovery: an FO's
+  // thesis changes, a deal closes and reopens later, or the original
+  // contact left and a new BD lead is now reachable. Only block when
+  // there's an active workflow on the row.
+  //
+  // Active statuses (block re-discovery):
+  //   scored, contact_found, contact_partial, draft_ready, sent,
+  //   replied, meeting_booked
+  // Inactive statuses (allow re-discovery):
+  //   follow_up_due, closed_won, closed_lost
+  const ACTIVE_PARTNER_STATUSES = [
+    'scored', 'contact_found', 'contact_partial',
+    'draft_ready', 'sent', 'replied', 'meeting_booked',
+  ];
   let preScoreDedupDropped = 0;
   let uniqueCandidates = dedupedInRun;
   {
@@ -468,6 +496,7 @@ export async function runDiscoveryBatch(
         .from('partners')
         .select('domain')
         .eq('organisation_id', organisation_id)
+        .in('status', ACTIVE_PARTNER_STATUSES)
         .in('domain', Array.from(new Set(candidateDomains)));
       const existingDomainSet = new Set(
         (existingPartners || [])
@@ -614,6 +643,7 @@ export async function runDiscoveryBatch(
     candidates_unique: uniqueCandidates.length,
     candidates_scored: candidatesScored,
     candidates_failed: candidatesFailed,
+    candidates_discarded: discardedCount,
     queries_used: queriesUsed,
     search_errors: errors,
     scoring_errors: scoringErrorSamples,
@@ -656,6 +686,7 @@ export async function runDiscoveryBatch(
     candidates_unique: uniqueCandidates.length,
     candidates_scored: candidatesScored,
     candidates_failed: candidatesFailed,
+    candidates_discarded: discardedCount,
     search_errors: errors,
     scoring_errors: scoringErrorSamples,
     top_results: topResults,

@@ -307,6 +307,7 @@ export default function ProjectsPage() {
     candidates_unique: number;
     candidates_scored: number;
     candidates_failed: number;
+    candidates_discarded: number;
     tier_breakdown?: { '1st'?: number; '2nd'?: number; cold?: number };
     top_results: Array<{ company_name: string; weighted_score: number; source: string; partner_id?: string; network_distance?: string }>;
     search_errors?: Array<{ query: string; source: string; tier: string; error: string }>;
@@ -343,6 +344,7 @@ export default function ProjectsPage() {
           candidates_unique: 0,
           candidates_scored: 0,
           candidates_failed: 0,
+          candidates_discarded: 0,
           top_results: [],
           error: data.error || 'Discovery failed',
         });
@@ -354,6 +356,7 @@ export default function ProjectsPage() {
           candidates_unique: data.candidates_unique || 0,
           candidates_scored: data.candidates_scored || 0,
           candidates_failed: data.candidates_failed || 0,
+          candidates_discarded: data.candidates_discarded || 0,
           tier_breakdown: data.tier_breakdown,
           top_results: data.top_results || [],
           search_errors: data.search_errors || [],
@@ -368,6 +371,7 @@ export default function ProjectsPage() {
         candidates_unique: 0,
         candidates_scored: 0,
         candidates_failed: 0,
+        candidates_discarded: 0,
         top_results: [],
         error: err instanceof Error ? err.message : String(err),
       });
@@ -1028,7 +1032,7 @@ export default function ProjectsPage() {
                           <p className="text-red-400 text-xs">{findResult.error}</p>
                         ) : (
                           <>
-                            <div className="grid grid-cols-3 gap-2 text-xs">
+                            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
                               <div className="bg-dark-900 rounded px-2 py-1.5">
                                 <p className="text-dark-500">Queries</p>
                                 <p className="font-mono font-bold">{findResult.queries_used.length}</p>
@@ -1041,9 +1045,13 @@ export default function ProjectsPage() {
                                 <p className="text-dark-500">Unique</p>
                                 <p className="font-mono font-bold">{findResult.candidates_unique}</p>
                               </div>
-                              <div className="bg-dark-900 rounded px-2 py-1.5">
-                                <p className="text-dark-500">Scored</p>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Reached the Prospects list (passed scoring, has a real contact + email)">
+                                <p className="text-dark-500">Kept</p>
                                 <p className="font-mono font-bold text-corp-green-400">{findResult.candidates_scored}</p>
+                              </div>
+                              <div className="bg-dark-900 rounded px-2 py-1.5" title="Scored but dropped: out-of-scope OR no email OR no real contact name. Strict 2-bucket rule — Prospects only keeps contactable rows.">
+                                <p className="text-dark-500">Discarded</p>
+                                <p className="font-mono font-bold text-dark-300">{findResult.candidates_discarded}</p>
                               </div>
                               <div className="bg-dark-900 rounded px-2 py-1.5" title="Candidates whose Claude scoring call errored — hidden bug surface">
                                 <p className="text-dark-500">Failed</p>
