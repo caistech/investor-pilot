@@ -19,9 +19,9 @@ const IN_FLIGHT_STATUSES = [
 
 export default async function PartnersPage() {
   const supabase = createClient();
-  const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
+  const { data: profile } = await supabase.from('profiles').select('active_organisation_id').single();
 
-  if (!profile?.organisation_id) return <p>Loading...</p>;
+  if (!profile?.active_organisation_id) return <p>Loading...</p>;
 
   // Fetch partners + currently-in-flight sequence_steps + discovery_runs +
   // every product / project (for the offering filter) in parallel so we can
@@ -39,28 +39,28 @@ export default async function PartnersPage() {
     supabase
       .from('partners')
       .select('*')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .eq('screened_out', false)
       .order('weighted_score', { ascending: false, nullsFirst: false }),
     supabase
       .from('sequence_steps')
       .select('partner_id')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .in('status', IN_FLIGHT_STATUSES),
     supabase
       .from('products')
       .select('id, name')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: true }),
     supabase
       .from('projects')
       .select('id, name')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: true }),
     supabase
       .from('discovery_runs')
       .select('id, run_code, created_at')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: false }),
   ]);
 
@@ -180,7 +180,7 @@ export default async function PartnersPage() {
       {partners && partners.length > 0 ? (
         <PipelineTable
           partners={partners as Partner[]}
-          organisationId={profile.organisation_id}
+          organisationId={profile.active_organisation_id}
           productId={product?.id || ''}
           inFlightPartnerIds={Array.from(inFlightPartnerIds)}
           runsById={Object.fromEntries(runsById)}

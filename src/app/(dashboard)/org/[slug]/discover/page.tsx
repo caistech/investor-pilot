@@ -63,21 +63,21 @@ export default function DiscoverPage() {
       if (!user) return;
       const { data: profile } = await supabase
         .from('profiles')
-        .select('organisation_id')
+        .select('active_organisation_id')
         .eq('id', user.id)
         .single();
-      if (!profile?.organisation_id) return;
+      if (!profile?.active_organisation_id) return;
       const [{ data: projects }, { data: products }] = await Promise.all([
         supabase
           .from('projects')
           .select('id, name')
-          .eq('organisation_id', profile.organisation_id)
+          .eq('organisation_id', profile.active_organisation_id)
           .eq('is_active', true)
           .order('created_at', { ascending: false }),
         supabase
           .from('products')
           .select('id, name')
-          .eq('organisation_id', profile.organisation_id)
+          .eq('organisation_id', profile.active_organisation_id)
           .eq('is_active', true)
           .order('created_at', { ascending: false }),
       ]);

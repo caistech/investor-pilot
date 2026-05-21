@@ -125,10 +125,10 @@ export default function ProjectsPage() {
     if (!user) return null;
     const { data: profile } = await supabase
       .from('profiles')
-      .select('organisation_id')
+      .select('active_organisation_id')
       .eq('id', user.id)
       .single();
-    return profile?.organisation_id || null;
+    return profile?.active_organisation_id || null;
   }
 
   async function loadProjects() {

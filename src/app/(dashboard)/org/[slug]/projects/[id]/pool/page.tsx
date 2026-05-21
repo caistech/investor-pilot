@@ -15,16 +15,16 @@ export default async function ProjectSummaryPage({ params }: { params: { id: str
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
-  if (!profile?.organisation_id) notFound();
+  if (!profile?.active_organisation_id) notFound();
 
   const db = createServiceClient();
   const { data: project } = await db
     .from('projects')
     .select('id, name, investment_thesis, description, target_round, round_size_label, asset_class, geography, sponsor')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
   if (!project) notFound();
 
@@ -32,7 +32,7 @@ export default async function ProjectSummaryPage({ params }: { params: { id: str
     .from('partners')
     .select('id, company_name, contact_name, weighted_score, category, status, source, network_distance, audience_overlap_notes, complementarity_notes, partner_readiness_notes')
     .eq('project_id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
   const summary = computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: 'project' });

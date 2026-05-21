@@ -11,7 +11,7 @@ export default async function ChannelsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
 
   let channels: Array<{
@@ -29,11 +29,11 @@ export default async function ChannelsPage() {
     created_at: string;
   }> = [];
 
-  if (profile?.organisation_id) {
+  if (profile?.active_organisation_id) {
     const { data } = await supabase
       .from('client_channels')
       .select('id, channel_type, provider, account_identifier, display_name, status, pause_reason, daily_send_cap, daily_send_count, warmup_day, last_health_check_at, created_at')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: false });
     channels = data || [];
   }

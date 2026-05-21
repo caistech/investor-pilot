@@ -32,13 +32,13 @@ export default async function TemplatesSettingsPage() {
   const supabase = createClient();
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
 
   const { data: templates } = await supabase
     .from('sequence_templates')
     .select('id, name, description, vertical, is_active, steps')
-    .eq('organisation_id', profile?.organisation_id || '')
+    .eq('organisation_id', profile?.active_organisation_id || '')
     .order('created_at', { ascending: true });
 
   const rows = (templates ?? []) as TemplateRow[];

@@ -54,12 +54,12 @@ export default async function ApprovalsPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
 
   let items: ApprovalItem[] = [];
 
-  if (profile?.organisation_id) {
+  if (profile?.active_organisation_id) {
     const { data: steps } = await supabase
       .from('sequence_steps')
       .select(`
@@ -72,7 +72,7 @@ export default async function ApprovalsPage() {
         partners ( id, company_name, weighted_score, source, network_distance ),
         outbound_messages ( id, rendered_subject, rendered_body, compliance_check, personalization_score, evidence_refs )
       `)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       // Show BOTH queued + compliance_blocked. Previously compliance_blocked
       // drafts were invisible from /approvals — the operator had to drill
       // into each prospect's detail page to see why a draft didn't ship.

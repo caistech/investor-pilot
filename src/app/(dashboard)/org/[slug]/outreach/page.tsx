@@ -76,15 +76,15 @@ export default function OutreachPage() {
     }
     const { data: profile } = await supabase
       .from('profiles')
-      .select('organisation_id')
+      .select('active_organisation_id')
       .eq('id', user.id)
       .single();
 
-    if (!profile?.organisation_id) {
+    if (!profile?.active_organisation_id) {
       setLoading(false);
       return;
     }
-    setOrgId(profile.organisation_id);
+    setOrgId(profile.active_organisation_id);
 
     const { data } = await supabase
       .from('outreach_log')
@@ -93,7 +93,7 @@ export default function OutreachPage() {
         sent_at, reply_received_at, follow_up_due_at, created_at,
         partners!inner(company_name, domain, status)
       `)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: false });
 
     if (data) setEntries(data as unknown as OutreachEntry[]);

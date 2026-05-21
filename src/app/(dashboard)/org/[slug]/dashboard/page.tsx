@@ -20,21 +20,21 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id, full_name, email')
+    .select('active_organisation_id, full_name, email')
     .single();
 
   // Org-level config the SampleToSelf component needs to decide whether to
   // prompt for LinkedIn URL before running. Fetched server-side so the
   // dashboard doesn't flash a "click to set up" CTA after the page mounts.
-  const { data: org } = profile?.organisation_id
+  const { data: org } = profile?.active_organisation_id
     ? await supabase
         .from('organisations')
         .select('sender_linkedin_url, sender_name, sender_role')
-        .eq('id', profile.organisation_id)
+        .eq('id', profile.active_organisation_id)
         .single()
     : { data: null };
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return (
       <div className="text-center py-20">
         <h2>Welcome to InvestorPilot</h2>
@@ -43,7 +43,7 @@ export default async function DashboardPage() {
     );
   }
 
-  const orgId = profile.organisation_id;
+  const orgId = profile.active_organisation_id;
 
   // Last 7 days for funnel
   const sevenDaysAgo = new Date();

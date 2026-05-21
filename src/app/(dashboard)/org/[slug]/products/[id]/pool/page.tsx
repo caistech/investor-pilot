@@ -15,16 +15,16 @@ export default async function ProductSummaryPage({ params }: { params: { id: str
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
-  if (!profile?.organisation_id) notFound();
+  if (!profile?.active_organisation_id) notFound();
 
   const db = createServiceClient();
   const { data: product } = await db
     .from('products')
     .select('id, name, one_sentence_description, asset_class, geography, partner_types')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
   if (!product) notFound();
 
@@ -32,7 +32,7 @@ export default async function ProductSummaryPage({ params }: { params: { id: str
     .from('partners')
     .select('id, company_name, contact_name, weighted_score, category, status, source, network_distance, audience_overlap_notes, complementarity_notes, partner_readiness_notes')
     .eq('product_id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
   const summary = computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: 'product' });

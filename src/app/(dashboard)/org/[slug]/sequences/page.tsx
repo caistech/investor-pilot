@@ -13,16 +13,16 @@ export default async function SequencesPage() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .single();
 
-  if (!profile?.organisation_id) return null;
+  if (!profile?.active_organisation_id) return null;
 
   const [{ data: templates }, { data: activeSteps }] = await Promise.all([
     supabase
       .from('sequence_templates')
       .select('id, name, vertical, description, compliance_mode, is_active, steps, created_at')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .order('created_at', { ascending: false }),
     supabase
       .from('sequence_steps')
@@ -30,7 +30,7 @@ export default async function SequencesPage() {
         id, channel, scheduled_for, status, step_index,
         partners ( id, company_name )
       `)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .in('status', ['pending', 'awaiting_verification', 'queued_for_approval'])
       .order('scheduled_for', { ascending: true })
       .limit(30),

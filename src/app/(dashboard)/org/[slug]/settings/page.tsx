@@ -26,7 +26,6 @@ export default async function SettingsPage() {
     .select('*, organisations!profiles_active_organisation_id_fkey(*)')
     .single();
   const activeOrgId = (profile as { active_organisation_id?: string | null } | null)?.active_organisation_id
-    || profile?.organisation_id
     || '';
 
   // Channels summary — scope to the active org so multi-org users see

@@ -81,8 +81,8 @@ export default async function PartnerDetailPage({ params }: { params: { id: stri
   if (!partner) notFound();
   const p = partner as Partner & { first_seen_in_run_id?: string | null };
 
-  const { data: profile } = await supabase.from('profiles').select('organisation_id').single();
-  const organisationId = profile?.organisation_id || '';
+  const { data: profile } = await supabase.from('profiles').select('active_organisation_id').single();
+  const organisationId = profile?.active_organisation_id || '';
 
   // If the partner was discovered after migration 010, pull the originating
   // run so the sidebar can show "Discovered in DR-xxxxxx · timestamp · sources".
