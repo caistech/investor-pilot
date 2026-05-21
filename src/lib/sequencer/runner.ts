@@ -462,13 +462,23 @@ export async function runSequencer(opts: RunSequencerOptions = {}) {
     }
   }
 
+  const finishedAt = new Date().toISOString();
+  const counts = tally(results);
+  console.log(JSON.stringify({
+    src: 'sequencer:run',
+    started_at: startedAt,
+    finished_at: finishedAt,
+    processed: results.length,
+    counts,
+    warmup_tick: warmupTick,
+  }));
   return NextResponse.json({
     ok: true,
     started_at: startedAt,
-    finished_at: new Date().toISOString(),
+    finished_at: finishedAt,
     warmup_tick: warmupTick,
     processed: results.length,
-    counts: tally(results),
+    counts,
     results,
   });
 }

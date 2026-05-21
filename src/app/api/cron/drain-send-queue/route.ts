@@ -139,7 +139,9 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ ok: true, ...results, wall_time_ms: Date.now() - startedAt });
+  const summary = { ok: true, ...results, wall_time_ms: Date.now() - startedAt };
+  console.log(JSON.stringify({ src: 'cron:drain-send-queue', ...summary }));
+  return NextResponse.json(summary);
 }
 
 async function dispatchStep(
