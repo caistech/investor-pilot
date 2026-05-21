@@ -127,15 +127,24 @@ export async function updateSession(request: NextRequest) {
       .maybeSingle();
 
     let activeOrgId = (profile?.active_organisation_id as string | null | undefined) ?? null;
+    let orgSlug: string | null = null;
 
-    // Defensive fallback: when active_organisation_id is null OR the org
-    // it points at no longer exists, pick the user's earliest membership
-    // and self-heal the profile. Without this, post-login redirect to
-    // /dashboard 404s silently because the lookup below requires a valid
-    // slug. Bit by this on 2026-05-21 after migration 038 deleted a
-    // duplicate org and some profiles were left without a usable
-    // active_organisation_id.
-    if (!activeOrgId) {
+    // Step 1 — resolve the slug for the profile's claimed active org.
+    if (activeOrgId) {
+      const { data: org } = await supabase
+        .from('organisations')
+        .select('slug')
+        .eq('id', activeOrgId)
+        .maybeSingle();
+      orgSlug = (org?.slug as string | undefined) ?? null;
+    }
+
+    // Step 2 — if the profile pointer was null OR the org row was deleted /
+    // inaccessible, fall back to the user's earliest membership and
+    // self-heal the profile so the JWT auth-hook claim catches up.
+    // Burned by migration 038 (2026-05-21) which deleted a duplicate org
+    // and left some profiles pointing at a now-dead UUID.
+    if (!orgSlug) {
       const { data: anyMembership } = await supabase
         .from('memberships')
         .select('organisation_id')
@@ -143,27 +152,41 @@ export async function updateSession(request: NextRequest) {
         .order('created_at', { ascending: true })
         .limit(1)
         .maybeSingle();
-      activeOrgId = (anyMembership?.organisation_id as string | undefined) ?? null;
-      if (activeOrgId) {
-        await supabase
-          .from('profiles')
-          .update({ active_organisation_id: activeOrgId })
-          .eq('id', user.id);
+      const fallbackOrgId = (anyMembership?.organisation_id as string | undefined) ?? null;
+      if (fallbackOrgId) {
+        const { data: org } = await supabase
+          .from('organisations')
+          .select('slug')
+          .eq('id', fallbackOrgId)
+          .maybeSingle();
+        orgSlug = (org?.slug as string | undefined) ?? null;
+        if (orgSlug && fallbackOrgId !== activeOrgId) {
+          await supabase
+            .from('profiles')
+            .update({ active_organisation_id: fallbackOrgId })
+            .eq('id', user.id);
+          activeOrgId = fallbackOrgId;
+        }
       }
     }
 
-    if (activeOrgId) {
-      const { data: org } = await supabase
-        .from('organisations')
-        .select('slug')
-        .eq('id', activeOrgId)
-        .maybeSingle();
-      if (org?.slug) {
-        const url = request.nextUrl.clone();
-        url.pathname = `/org/${org.slug}${path}`;
-        return NextResponse.redirect(url);
-      }
+    if (orgSlug) {
+      const url = request.nextUrl.clone();
+      url.pathname = `/org/${orgSlug}${path}`;
+      return NextResponse.redirect(url);
     }
+
+    // No usable org for this user — log so we can see the data state in
+    // production logs, then fall through to Next.js. Without this log a
+    // 404 here is silent and undiagnosable.
+    console.log(JSON.stringify({
+      src: 'middleware:legacy-dashboard',
+      event: 'no_resolvable_org',
+      user_id: user.id,
+      email: user.email,
+      profile_active_org_id: profile?.active_organisation_id ?? null,
+      path,
+    }));
   }
 
   // Multi-org active-org sync on /org/[slug]/*. Reads the slug, verifies
