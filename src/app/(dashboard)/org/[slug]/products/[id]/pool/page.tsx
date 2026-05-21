@@ -2,7 +2,7 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { notFound } from 'next/navigation';
 import Link from 'next/link';
-import { ArrowLeft, Globe, Languages, BarChart3, Sparkles, Users } from 'lucide-react';
+import { ArrowLeft } from 'lucide-react';
 import { computePoolSummary, type PoolPartner } from '@/lib/pool/summary';
 import { PoolSummaryView } from '@/components/pool/pool-summary-view';
 
@@ -55,7 +55,6 @@ export default async function ProductSummaryPage({ params }: { params: { id: str
         subline={subline}
         summary={summary}
         partnersHref={`/partners?product=${product.id}`}
-        icons={{ users: Users, sparkles: Sparkles, globe: Globe, languages: Languages, barChart: BarChart3 }}
       />
     </div>
   );

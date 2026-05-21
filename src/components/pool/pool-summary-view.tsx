@@ -1,9 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { Printer } from 'lucide-react';
+import { Printer, Users, Sparkles, Globe, Languages, BarChart3 } from 'lucide-react';
 import type { PoolSummary } from '@/lib/pool/summary';
-import type { LucideIcon } from 'lucide-react';
 
 interface Props {
   kind: 'project' | 'product';
@@ -11,21 +10,9 @@ interface Props {
   subline: string;
   summary: PoolSummary;
   partnersHref: string;
-  icons: {
-    users: LucideIcon;
-    sparkles: LucideIcon;
-    globe: LucideIcon;
-    languages: LucideIcon;
-    barChart: LucideIcon;
-  };
 }
 
-export function PoolSummaryView({ kind, ownerName, subline, summary, partnersHref, icons }: Props) {
-  const Users = icons.users;
-  const Sparkles = icons.sparkles;
-  const Globe = icons.globe;
-  const Languages = icons.languages;
-  const BarChart3 = icons.barChart;
+export function PoolSummaryView({ kind, ownerName, subline, summary, partnersHref }: Props) {
 
   const docTitle = kind === 'project' ? `${ownerName} Project Summary` : `${ownerName} Product Summary`;
   const recipientNoun = kind === 'project' ? 'investor' : 'partner';
