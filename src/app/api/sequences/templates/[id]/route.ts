@@ -32,10 +32,10 @@ export async function PATCH(request: Request, { params }: RouteContext) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -43,7 +43,7 @@ export async function PATCH(request: Request, { params }: RouteContext) {
     .from('sequence_templates')
     .update({ is_active: body.is_active })
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .select('id, is_active')
     .maybeSingle();
 
@@ -63,10 +63,10 @@ export async function DELETE(request: Request, { params }: RouteContext) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -77,7 +77,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
   const { count: liveSteps } = await db
     .from('sequence_steps')
     .select('*', { count: 'exact', head: true })
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .eq('template_id', params.id)
     .in('status', ['pending', 'awaiting_verification', 'queued_for_approval']);
 
@@ -94,7 +94,7 @@ export async function DELETE(request: Request, { params }: RouteContext) {
     .from('sequence_templates')
     .delete()
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id);
+    .eq('organisation_id', profile.active_organisation_id);
 
   if (deleteErr) {
     return NextResponse.json({ error: deleteErr.message }, { status: 500 });

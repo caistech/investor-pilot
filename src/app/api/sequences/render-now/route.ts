@@ -77,11 +77,11 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
     .from('partners')
     .select('id, company_name, contact_name, contact_linkedin, evidence_enriched_at, profile_recent_posts, firm_recent_news, firm_named_deals, last_session_notes, category, source, network_distance')
     .in('id', partnerIds)
-    .eq('organisation_id', profile.organisation_id);
+    .eq('organisation_id', profile.active_organisation_id);
 
   type PartnerRow = {
     id: string;
@@ -127,7 +127,7 @@ export async function POST(request: Request) {
     .from('sequence_steps')
     .select('id, partner_id, status, step_index, outbound_message_id, channel')
     .in('partner_id', allowedIds)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('step_index', { ascending: true });
 
   type StepRow = { id: string; partner_id: string; status: string; step_index: number; outbound_message_id: string | null; channel: string | null };
@@ -218,7 +218,7 @@ export async function POST(request: Request) {
       // 2026-05-19 — ADCO/L.Arthur/First Logistics appearing 3× in
       // the queue because FU1+FU2+FU3 were all rendered upfront.
       scheduleWindowDays: 3,
-      organisationId: profile.organisation_id,
+      organisationId: profile.active_organisation_id,
       skipWarmupTick: true,
       // 4-wide parallelism. With MAX_PARTNERS_PER_REQUEST=4, that's the
       // whole batch in a single chunk → total time ≈ max(step) ≈ 12-15s
@@ -238,7 +238,7 @@ export async function POST(request: Request) {
     .from('sequence_steps')
     .select('id, partner_id, status, step_index, outbound_message_id, channel')
     .in('partner_id', allowedIds)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('step_index', { ascending: true });
 
   const postFirstByPartner = new Map<string, StepRow>();
@@ -337,7 +337,7 @@ export async function POST(request: Request) {
     const { data: auditRows } = await db
       .from('audit_events')
       .select('resource_id, payload, created_at')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .eq('action', 'sequence.render_blocked')
       .in('resource_id', refusedStepIds)
       .order('created_at', { ascending: false });

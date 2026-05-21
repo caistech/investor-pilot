@@ -36,13 +36,13 @@ export async function POST(request: Request) {
   // Resolve organisation
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
-  const organisation_id: string = profile.organisation_id;
+  const organisation_id: string = profile.active_organisation_id;
 
   // LLM cap pre-flight
   const llmCap = await checkCap(organisation_id, 'llm_tokens');

@@ -28,11 +28,11 @@ export async function POST(_request: Request, { params }: { params: { partnerId:
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -42,7 +42,7 @@ export async function POST(_request: Request, { params }: { params: { partnerId:
   const { data: stepsToCancel, error: fetchError } = await db
     .from('sequence_steps')
     .select('id, step_index, channel, template_id, status')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .eq('partner_id', params.partnerId)
     .in('status', NON_TERMINAL);
 
@@ -64,7 +64,7 @@ export async function POST(_request: Request, { params }: { params: { partnerId:
   }
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'sequence.cancelled',
     resource_type: 'partner',

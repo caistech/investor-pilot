@@ -10,11 +10,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
@@ -22,7 +22,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .from('sequence_steps')
     .select('id, status')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
 
   if (!step) return NextResponse.json({ error: 'Step not found' }, { status: 404 });
@@ -33,7 +33,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .eq('id', params.id);
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'approval.flagged',
     resource_type: 'sequence_step',

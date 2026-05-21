@@ -25,11 +25,11 @@ export async function POST(_request: Request, { params }: { params: { stepId: st
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -37,7 +37,7 @@ export async function POST(_request: Request, { params }: { params: { stepId: st
     .from('sequence_steps')
     .select('id, status, partner_id, template_id, step_index, outbound_message_id')
     .eq('id', params.stepId)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
 
   if (!step) {
@@ -69,7 +69,7 @@ export async function POST(_request: Request, { params }: { params: { stepId: st
   }
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'sequence.retried',
     resource_type: 'sequence_step',

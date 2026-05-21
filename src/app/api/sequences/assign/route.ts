@@ -50,11 +50,11 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -66,13 +66,13 @@ export async function POST(request: Request) {
       .from('partners')
       .select('id, company_name, contact_name')
       .eq('id', partner_id)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .maybeSingle(),
     db
       .from('sequence_templates')
       .select('id, name, steps, is_active')
       .eq('id', template_id)
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .maybeSingle(),
   ]);
 
@@ -108,7 +108,7 @@ export async function POST(request: Request) {
   const { data: existing } = await db
     .from('sequence_steps')
     .select('id, status')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .eq('partner_id', partner_id)
     .eq('template_id', template_id);
 
@@ -128,7 +128,7 @@ export async function POST(request: Request) {
   // who triggered the assign, so the sequencer picks THIS user's channels
   // at send time rather than any org-wide channel.
   const rowsToInsert = steps.map(s => ({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     partner_id,
     template_id,
     step_index: s.step_index,
@@ -148,7 +148,7 @@ export async function POST(request: Request) {
   }
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'sequence.assigned',
     resource_type: 'partner',
