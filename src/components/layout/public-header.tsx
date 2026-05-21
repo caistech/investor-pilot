@@ -11,6 +11,7 @@ export default function PublicHeader() {
         </Link>
         <div className="flex items-center gap-2 sm:gap-4">
           <Link href="/playbook" className="nav-link hidden md:inline">How it works</Link>
+          <Link href="/demo" className="nav-link hidden md:inline">Demo</Link>
           <Link href="/pricing" className="nav-link hidden md:inline">Pricing</Link>
           <Link href="/about" className="nav-link hidden md:inline">About</Link>
           <Link href="/contact" className="nav-link hidden md:inline">Contact</Link>
