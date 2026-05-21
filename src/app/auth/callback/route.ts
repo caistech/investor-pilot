@@ -1,6 +1,7 @@
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { NextResponse } from 'next/server';
 import { slugify } from '@/lib/utils';
+import { bootstrapEmailChannel } from '@/lib/channels/bootstrap';
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -69,6 +70,9 @@ export async function GET(request: Request) {
               organisation_id: org.id,
               role: 'owner',
             });
+            // Resend is env-driven — bootstrap the email channel so the
+            // sequencer can render email-touch steps from day one.
+            await bootstrapEmailChannel(admin, org.id, data.user.id);
           }
         }
       }

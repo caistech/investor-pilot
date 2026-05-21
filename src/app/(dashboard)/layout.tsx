@@ -3,6 +3,7 @@ import { PageGuide } from '@/components/layout/page-guide';
 import { SetupBanner } from '@/components/layout/setup-banner';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
+import { bootstrapEmailChannel } from '@/lib/channels/bootstrap';
 
 /**
  * Backstop: if the user has no org at all (rare — should be handled by
@@ -63,6 +64,10 @@ async function ensureOrgAndProfile() {
       organisation_id: org.id,
       role: 'owner',
     });
+
+  // Resend is env-driven — bootstrap the email channel row so the
+  // sequencer can render email-touch steps from day one.
+  await bootstrapEmailChannel(admin, org.id, user.id);
 }
 
 export default async function DashboardLayout({
