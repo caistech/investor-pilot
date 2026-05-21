@@ -8,7 +8,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user.id)
     .single();
 
@@ -17,7 +17,7 @@ export async function GET() {
   const { data: partners, error } = await supabase
     .from('partners')
     .select('*')
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -31,7 +31,7 @@ export async function POST(request: Request) {
 
   const { data: profile } = await supabase
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user.id)
     .single();
 
@@ -44,7 +44,7 @@ export async function POST(request: Request) {
     const { data: existing } = await supabase
       .from('partners')
       .select('id')
-      .eq('organisation_id', profile.organisation_id)
+      .eq('organisation_id', profile.active_organisation_id)
       .eq('domain', body.domain)
       .single();
 
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
 
   const { data, error } = await supabase
     .from('partners')
-    .insert({ ...body, organisation_id: profile.organisation_id })
+    .insert({ ...body, organisation_id: profile.active_organisation_id })
     .select()
     .single();
 

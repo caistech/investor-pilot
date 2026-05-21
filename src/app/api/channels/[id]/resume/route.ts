@@ -8,11 +8,11 @@ export async function POST(_request: Request, { params }: { params: { id: string
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
@@ -20,7 +20,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
     .from('client_channels')
     .select('id')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
 
   if (!ch) return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
@@ -28,7 +28,7 @@ export async function POST(_request: Request, { params }: { params: { id: string
   await resumeChannel(db, params.id);
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'channel.resumed',
     resource_type: 'client_channel',

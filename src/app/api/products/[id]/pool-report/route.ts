@@ -25,10 +25,10 @@ export async function GET(_request: Request, { params }: { params: { id: string 
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
@@ -36,7 +36,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     .from('products')
     .select('id, name, organisation_id')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
   if (!product) {
     return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -46,7 +46,7 @@ export async function GET(_request: Request, { params }: { params: { id: string 
     .from('partners')
     .select('id, company_name, contact_name, weighted_score, category, status, source, network_distance, audience_overlap_notes, complementarity_notes, partner_readiness_notes')
     .eq('product_id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .order('weighted_score', { ascending: false, nullsFirst: false });
 
   const summary = computePoolSummary((partnersRaw || []) as PoolPartner[], { kind: 'product' });

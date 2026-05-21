@@ -21,11 +21,11 @@ export async function POST() {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }
 
@@ -69,7 +69,7 @@ export async function POST() {
       .from('client_channels')
       .upsert(
         {
-          organisation_id: profile.organisation_id,
+          organisation_id: profile.active_organisation_id,
           channel_type: channelType,
           provider: internalProvider,
           account_identifier: identifier,
@@ -96,11 +96,11 @@ export async function POST() {
   }
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'channel.sync_from_unipile',
     resource_type: 'organisation',
-    resource_id: profile.organisation_id,
+    resource_id: profile.active_organisation_id,
     payload: { synced_count: synced.length, skipped_count: skipped.length, synced, skipped },
   });
 

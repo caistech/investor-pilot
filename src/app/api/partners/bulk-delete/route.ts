@@ -32,10 +32,10 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id, active_organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
-  const orgId = (profile?.active_organisation_id || profile?.organisation_id) as string | undefined;
+  const orgId = profile?.active_organisation_id as string | undefined;
   if (!orgId) {
     return NextResponse.json({ error: 'No organisation linked to user' }, { status: 400 });
   }

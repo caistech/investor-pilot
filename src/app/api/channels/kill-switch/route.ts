@@ -11,22 +11,22 @@ export async function POST(request: Request) {
 
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
-  const result = await killSwitch(db, profile.organisation_id, reason);
+  const result = await killSwitch(db, profile.active_organisation_id, reason);
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'channel.kill_switch',
     resource_type: 'organisation',
-    resource_id: profile.organisation_id,
+    resource_id: profile.active_organisation_id,
     payload: { reason, paused_count: result.paused_count },
   });
 

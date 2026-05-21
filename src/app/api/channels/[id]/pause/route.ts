@@ -12,11 +12,11 @@ export async function POST(request: Request, { params }: { params: { id: string 
   // Verify the channel belongs to the user's org
   const { data: profile } = await db
     .from('profiles')
-    .select('organisation_id')
+    .select('active_organisation_id')
     .eq('id', user!.id)
     .single();
 
-  if (!profile?.organisation_id) {
+  if (!profile?.active_organisation_id) {
     return NextResponse.json({ error: 'No organisation' }, { status: 400 });
   }
 
@@ -24,7 +24,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
     .from('client_channels')
     .select('id')
     .eq('id', params.id)
-    .eq('organisation_id', profile.organisation_id)
+    .eq('organisation_id', profile.active_organisation_id)
     .single();
 
   if (!ch) return NextResponse.json({ error: 'Channel not found' }, { status: 404 });
@@ -32,7 +32,7 @@ export async function POST(request: Request, { params }: { params: { id: string 
   await pauseChannel(db, params.id, reason);
 
   await db.from('audit_events').insert({
-    organisation_id: profile.organisation_id,
+    organisation_id: profile.active_organisation_id,
     actor: `user:${user!.id}`,
     action: 'channel.paused',
     resource_type: 'client_channel',
