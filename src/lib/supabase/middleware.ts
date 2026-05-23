@@ -95,6 +95,7 @@ export async function updateSession(request: NextRequest) {
     !path.startsWith('/api/auth') &&
     !path.startsWith('/api/webhooks') &&
     !path.startsWith('/api/cron') &&
+    !path.startsWith('/api/methodology') &&
     !isPublicInviteGet
   ) {
     if (!user) {

@@ -12,7 +12,7 @@
  * JSON when counsel cycle warrants.
  */
 
-export type ComplianceMode = 'standard' | 'finance_au_wholesale' | 'finance_au_senior_debt' | 'finance_us';
+export type ComplianceMode = 'standard' | 'finance_au_wholesale' | 'finance_au_senior_debt' | 'finance_us' | 'research_outreach';
 
 export interface ComplianceRule {
   pattern: RegExp;
@@ -103,6 +103,21 @@ const STANDARD_FORBIDDEN: ComplianceRule[] = [
   { pattern: /\brisk[- ]free\b/i, reason: 'No risk-free claims', action: 'block' },
 ];
 
+// Research-outreach mode (CAS distributor-discovery methodology — Session 1 plumbing).
+// Designed for question-asking research messages, not pitch. Blocks any financial
+// promise (you'd accidentally make one if you reused a finance template here) and
+// any pitch-language patterns. Session 2 may refine the ruleset as classification
+// surfaces what kinds of messages get the best response rates.
+const RESEARCH_OUTREACH_FORBIDDEN: ComplianceRule[] = [
+  { pattern: /\bguarantee(d|s)?\b/i, reason: 'Research outreach asks questions; never makes guarantees', action: 'block' },
+  { pattern: /\brisk[- ]free\b/i, reason: 'Research outreach makes no claims', action: 'block' },
+  { pattern: /\binvest(ment)?\b.*\b(return|opportunity|product)\b/i, reason: 'Research outreach is not an investment pitch', action: 'block' },
+  { pattern: /\bexclusive (offer|opportunity|access)\b/i, reason: 'Research outreach has no offer — it asks for input', action: 'block' },
+  { pattern: /\b(buy|purchase|order|subscribe) (now|today)\b/i, reason: 'Research outreach has no transaction', action: 'block' },
+  // AI-cliche openers
+  { pattern: /\bI hope (this|you|the email)\b.*\bwell\b/i, reason: 'AI-cliche opener banned', action: 'block' },
+];
+
 const RULES: Record<ComplianceMode, { forbidden: ComplianceRule[]; softFlag: ComplianceRule[] }> = {
   finance_au_senior_debt: {
     forbidden: SENIOR_DEBT_FORBIDDEN,
@@ -120,6 +135,10 @@ const RULES: Record<ComplianceMode, { forbidden: ComplianceRule[]; softFlag: Com
   },
   standard: {
     forbidden: STANDARD_FORBIDDEN,
+    softFlag: [],
+  },
+  research_outreach: {
+    forbidden: RESEARCH_OUTREACH_FORBIDDEN,
     softFlag: [],
   },
 };
