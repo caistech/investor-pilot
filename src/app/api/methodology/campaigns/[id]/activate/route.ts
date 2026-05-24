@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { waitUntil } from '@vercel/functions';
 import { authenticateMethodologyApiKey } from '@/lib/methodology/auth';
 import { braveWebSearch } from '@/lib/agent/brave-tools';
 import { findContactByDomain } from '@/lib/agent/email-finder';
@@ -18,17 +19,24 @@ import { meterTokens } from '@/lib/usage/events';
  *      campaign's research questions — research framing, never a pitch,
  *   4. leaves each prospect at status 'draft_ready'.
  *
- * It does NOT send. A human reviews the drafts and sends them via the normal
- * IP outreach UI (the locked human-in-the-loop step). Responses come back via
- * the Connexions voice loop (post-call webhook → CAS sync), NOT via IP replies.
+ * It does NOT send. A human reviews the drafts and sends them via the normal IP
+ * outreach UI (the locked human-in-the-loop step). Responses come back via the
+ * Connexions voice loop (post-call webhook → CAS sync), NOT via IP replies.
+ *
+ * Wall-time: discovery + N one-shot drafts run for minutes, well past Vercel's
+ * ~60s edge-gateway wall. So the route validates + guards synchronously, then
+ * runs the work in the background via waitUntil and returns 202 immediately.
+ * Drafts appear at draft_ready in the partners UI as they complete.
+ *
+ * Body (optional, JSON): { connexions_interview_url?, mvp_url? } — CAS sets these
+ * after it creates the Connexions panel (which only exists post-campaign-create,
+ * so they can't be set at campaign creation). Persisted on the campaign first.
  *
  * Auth: METHODOLOGY_API_KEY Bearer token (called by CAS at Gate-1 kick-off).
- *
- * Requires the campaign to carry `ip_org_id` (the IP org that hosts the research
- * prospects + where the human approves) and ideally `connexions_interview_url` +
- * `mvp_url` (set by CAS at campaign creation). Without ip_org_id the route can't
- * place prospects, so it returns 409 with a clear message.
  */
+
+export const runtime = 'nodejs';
+export const maxDuration = 300;
 
 interface MethodologyCampaignRow {
   id: string;
@@ -77,6 +85,118 @@ ${campaign.mvp_url ? `- Early prototype look (optional): ${campaign.mvp_url}` : 
 Return ONLY JSON: {"subject": "...", "body": "..."}. The body is plain text (line breaks allowed), addressed to the contact, signed "— The ${campaign.cas_product_slug} research team".`;
 }
 
+/**
+ * The actual discovery + enrich + draft work. Runs in the background (waitUntil)
+ * so it isn't bound by the edge-gateway connection wall. Tags every prospect
+ * with the campaign id, drafts a research invite, leaves it at draft_ready, and
+ * advances the campaign to 'sending' (= drafts queued, awaiting human approval).
+ */
+async function runDiscoveryAndDraft(
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  db: any,
+  c: MethodologyCampaignRow,
+  meterFor: { organisation_id: string; route: string },
+): Promise<void> {
+  const orgId = c.ip_org_id as string;
+
+  // 1. Discover prospects for the ICP. v1: use the ICP text as the Brave query
+  //    (truncated). Discovery quality can be sharpened later with an LLM-derived
+  //    query; this gets the loop running.
+  const query = c.icp_description.slice(0, 180);
+  let candidates: { name: string; domain: string; description: string }[] = [];
+  try {
+    const searchResults = await braveWebSearch(query, 15, undefined, meterFor);
+    const seen = new Set<string>();
+    for (const r of searchResults) {
+      let domain: string;
+      try {
+        domain = new URL(r.url).hostname.replace(/^www\./, '');
+      } catch {
+        continue;
+      }
+      if (seen.has(domain)) continue;
+      seen.add(domain);
+      candidates.push({
+        name: r.title.split(' - ')[0].split(' | ')[0].trim(),
+        domain,
+        description: r.description,
+      });
+    }
+  } catch (err) {
+    console.error('[methodology/activate] discovery failed:', err instanceof Error ? err.message : String(err));
+    return;
+  }
+
+  candidates = candidates.slice(0, MAX_PROSPECTS);
+  if (candidates.length === 0) {
+    console.warn('[methodology/activate] no prospects found for campaign', c.id);
+    await db.from('methodology_campaigns').update({ status: 'sourcing' }).eq('id', c.id);
+    return;
+  }
+
+  let drafted = 0;
+  for (const cand of candidates) {
+    try {
+      // 2. Enrich a contact email (best-effort; partner still lands if Hunter misses).
+      //    FoundContact fields: contact_name / contact_email / email_confidence / source.
+      const contact = await findContactByDomain(cand.domain, { meterFor });
+
+      // 3. Tag the prospect to this campaign + org.
+      const up = await upsertPartner(db, {
+        organisation_id: orgId,
+        company_name: cand.name,
+        domain: cand.domain,
+        status: 'scored',
+        source: 'brave',
+        methodology_campaign_id: c.id,
+        contact_name: contact?.contact_name ?? undefined,
+        contact_email: contact?.contact_email ?? null,
+        email_confidence: contact?.email_confidence ?? null,
+        email_status: contact ? (contact.email_confidence >= 70 ? 'verified' : 'probable') : null,
+        contact_source: contact ? (contact.source === 'apollo' ? 'apollo_enrich' : 'hunter_domain_search') : undefined,
+      });
+      if (up.status === 'error') {
+        console.error('[methodology/activate] upsert failed:', cand.domain, up.error);
+        continue;
+      }
+
+      // 4. Draft the research invite — one Claude call per prospect (IP rule).
+      const response = await client.messages.create({
+        model: MODEL,
+        max_tokens: 600,
+        system: buildInvitePrompt(c),
+        messages: [{
+          role: 'user',
+          content: `Contact company: ${cand.name} (${cand.domain})${contact?.contact_name ? `, contact: ${contact.contact_name}` : ''}\nWhat they do: ${cand.description || 'unknown'}\n\nWrite the research invite for this specific recipient.`,
+        }],
+      });
+      meterTokens(meterFor, response, MODEL);
+
+      const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
+      const jsonMatch = text.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) {
+        console.warn('[methodology/activate] no JSON in draft for', cand.domain);
+        continue;
+      }
+      const draft = JSON.parse(jsonMatch[0]) as { subject?: string; body?: string };
+      if (!draft.subject || !draft.body) continue;
+
+      const saved = await saveDraft(db, orgId, cand.domain, {
+        draft_subject: draft.subject,
+        draft_body: draft.body,
+      });
+      if (saved.status !== 'error') drafted++;
+    } catch (err) {
+      console.error('[methodology/activate] prospect failed:', cand.domain, err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  // 5. Advance campaign lifecycle. 'sending' = drafts ready, awaiting human
+  //    approval + send (we do NOT auto-send).
+  await db.from('methodology_campaigns').update({ status: 'sending' }).eq('id', c.id);
+  console.log('[methodology/activate] campaign', c.id, 'drafted', drafted, 'of', candidates.length);
+}
+
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } },
@@ -93,6 +213,20 @@ export async function POST(
   // untyped at runtime. Cast narrowly for the reads/writes we do here.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const db = auth.db as any;
+
+  // Optional body: CAS sets connexions_interview_url (+ mvp_url) after it creates
+  // the Connexions panel. Persist before the guards so the invite can embed them.
+  const body = (await request.json().catch(() => ({}))) as {
+    connexions_interview_url?: unknown;
+    mvp_url?: unknown;
+  };
+  const urlOk = (v: unknown): v is string => typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500;
+  const patch: Record<string, string> = {};
+  if (urlOk(body.connexions_interview_url)) patch.connexions_interview_url = body.connexions_interview_url;
+  if (urlOk(body.mvp_url)) patch.mvp_url = body.mvp_url;
+  if (Object.keys(patch).length > 0) {
+    await db.from('methodology_campaigns').update(patch).eq('id', campaignId);
+  }
 
   const { data: campaign, error: loadErr } = await db
     .from('methodology_campaigns')
@@ -119,139 +253,30 @@ export async function POST(
     return NextResponse.json(
       {
         error:
-          'Campaign has no connexions_interview_url — the invite has nothing to point respondents at. Run the CAS validate step (which creates the Connexions panel) first.',
+          'Campaign has no connexions_interview_url — the invite has nothing to point respondents at. Pass connexions_interview_url (CAS creates the Connexions panel first).',
       },
       { status: 409 },
     );
   }
 
-  const orgId = c.ip_org_id;
-  const meterFor = { organisation_id: orgId, route: '/api/methodology/campaigns/[id]/activate' };
+  const meterFor = { organisation_id: c.ip_org_id, route: '/api/methodology/campaigns/[id]/activate' };
 
-  // 1. Discover prospects for the ICP. v1: use the ICP text as the Brave query
-  //    (truncated). Discovery quality can be sharpened later with an LLM-derived
-  //    query; this gets the loop running.
-  const query = c.icp_description.slice(0, 180);
-  let candidates: { name: string; domain: string; description: string }[] = [];
-  try {
-    const searchResults = await braveWebSearch(query, 15, undefined, meterFor);
-    const seen = new Set<string>();
-    for (const r of searchResults) {
-      let domain: string;
-      try {
-        domain = new URL(r.url).hostname.replace(/^www\./, '');
-      } catch {
-        continue;
-      }
-      if (seen.has(domain)) continue;
-      seen.add(domain);
-      candidates.push({
-        name: r.title.split(' - ')[0].split(' | ')[0].trim(),
-        domain,
-        description: r.description,
-      });
-    }
-  } catch (err) {
-    return NextResponse.json(
-      { error: `Discovery failed: ${err instanceof Error ? err.message : String(err)}` },
-      { status: 502 },
-    );
-  }
+  // Fire the discovery + drafting in the background (waitUntil) so we return
+  // before the edge-gateway wall. Drafts land at draft_ready as they complete.
+  waitUntil(
+    runDiscoveryAndDraft(db, c, meterFor).catch((err) =>
+      console.error('[methodology/activate] background run failed:', err instanceof Error ? err.message : String(err)),
+    ),
+  );
 
-  candidates = candidates.slice(0, MAX_PROSPECTS);
-  if (candidates.length === 0) {
-    return NextResponse.json(
-      { error: 'No prospects found for this ICP. Refine icp_description and retry.' },
-      { status: 400 },
-    );
-  }
-
-  const results: Array<{ company: string; domain: string; status: string; has_email: boolean; error?: string }> = [];
-
-  for (const cand of candidates) {
-    try {
-      // 2. Enrich a contact email (best-effort; partner still lands if Hunter misses).
-      //    FoundContact fields: contact_name / contact_email / email_confidence / source.
-      const contact = await findContactByDomain(cand.domain, { meterFor });
-      const hasEmail = !!contact?.contact_email;
-
-      // 3. Tag the prospect to this campaign + org.
-      const up = await upsertPartner(db, {
-        organisation_id: orgId,
-        company_name: cand.name,
-        domain: cand.domain,
-        status: 'scored',
-        source: 'brave',
-        methodology_campaign_id: c.id,
-        contact_name: contact?.contact_name ?? undefined,
-        contact_email: contact?.contact_email ?? null,
-        email_confidence: contact?.email_confidence ?? null,
-        email_status: contact ? (contact.email_confidence >= 70 ? 'verified' : 'probable') : null,
-        contact_source: contact ? (contact.source === 'apollo' ? 'apollo_enrich' : 'hunter_domain_search') : undefined,
-      });
-      if (up.status === 'error') {
-        results.push({ company: cand.name, domain: cand.domain, status: 'error', has_email: hasEmail, error: up.error });
-        continue;
-      }
-
-      // 4. Draft the research invite — one Claude call per prospect (IP rule).
-      const response = await client.messages.create({
-        model: MODEL,
-        max_tokens: 600,
-        system: buildInvitePrompt(c),
-        messages: [{
-          role: 'user',
-          content: `Contact company: ${cand.name} (${cand.domain})${contact?.contact_name ? `, contact: ${contact.contact_name}` : ''}\nWhat they do: ${cand.description || 'unknown'}\n\nWrite the research invite for this specific recipient.`,
-        }],
-      });
-      meterTokens(meterFor, response, MODEL);
-
-      const text = response.content[0]?.type === 'text' ? response.content[0].text : '';
-      const jsonMatch = text.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) {
-        results.push({ company: cand.name, domain: cand.domain, status: 'draft_failed', has_email: hasEmail, error: 'invalid draft response' });
-        continue;
-      }
-      const draft = JSON.parse(jsonMatch[0]) as { subject?: string; body?: string };
-      if (!draft.subject || !draft.body) {
-        results.push({ company: cand.name, domain: cand.domain, status: 'draft_failed', has_email: hasEmail, error: 'draft missing subject/body' });
-        continue;
-      }
-
-      const saved = await saveDraft(db, orgId, cand.domain, {
-        draft_subject: draft.subject,
-        draft_body: draft.body,
-      });
-      results.push({
-        company: cand.name,
-        domain: cand.domain,
-        status: saved.status === 'error' ? 'error' : 'draft_ready',
-        has_email: hasEmail,
-        error: saved.status === 'error' ? saved.error : undefined,
-      });
-    } catch (err) {
-      results.push({ company: cand.name, domain: cand.domain, status: 'error', has_email: false, error: err instanceof Error ? err.message : String(err) });
-    }
-  }
-
-  const drafted = results.filter(r => r.status === 'draft_ready').length;
-  const withEmail = results.filter(r => r.has_email).length;
-
-  // 5. Advance campaign lifecycle. 'sending' = drafts ready, awaiting human
-  //    approval + send (we do NOT auto-send).
-  await db
-    .from('methodology_campaigns')
-    .update({ status: 'sending', ip_org_id: orgId })
-    .eq('id', c.id);
-
-  return NextResponse.json({
-    campaign_id: c.id,
-    campaign_type: c.campaign_type,
-    discovered: results.length,
-    drafted,
-    with_email: withEmail,
-    awaiting_approval: drafted,
-    note: 'Drafts are queued at draft_ready. Review + send in the IP outreach UI (nothing was sent). Responses return via the Connexions voice interview.',
-    results,
-  });
+  return NextResponse.json(
+    {
+      status: 'started',
+      campaign_id: c.id,
+      campaign_type: c.campaign_type,
+      max_prospects: MAX_PROSPECTS,
+      note: 'Discovery + drafting running in the background. Prospects appear at draft_ready in the IP partners UI (filter by methodology campaign). Nothing is sent — review + send there. Responses return via the Connexions voice interview.',
+    },
+    { status: 202 },
+  );
 }
