@@ -32,6 +32,10 @@ interface CampaignCreateInput {
   questions?: unknown;
   expected_response_count?: unknown;
   channel_mix?: unknown;
+  // Session 2 (migration 049): outreach wiring payload.
+  ip_org_id?: unknown;                 // IP org that hosts the research prospects + approval
+  mvp_url?: unknown;                   // thin-MVP link embedded in the invite
+  connexions_interview_url?: unknown;  // Connexions voice-interview link the invite points to
 }
 
 interface CampaignValidated {
@@ -42,6 +46,9 @@ interface CampaignValidated {
   questions: string[];
   expected_response_count: number;
   channel_mix: ('linkedin' | 'email')[];
+  ip_org_id: string | null;
+  mvp_url: string | null;
+  connexions_interview_url: string | null;
 }
 
 function validateCampaignInput(body: CampaignCreateInput):
@@ -105,6 +112,31 @@ function validateCampaignInput(body: CampaignCreateInput):
     channel_mix = body.channel_mix as ('linkedin' | 'email')[];
   }
 
+  let ip_org_id: string | null = null;
+  if (body.ip_org_id !== undefined && body.ip_org_id !== null) {
+    if (typeof body.ip_org_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(body.ip_org_id)) {
+      return { ok: false, reason: 'ip_org_id must be a valid UUID' };
+    }
+    ip_org_id = body.ip_org_id;
+  }
+
+  const urlOk = (v: unknown): v is string =>
+    typeof v === 'string' && /^https?:\/\//i.test(v) && v.length <= 500;
+  let mvp_url: string | null = null;
+  if (body.mvp_url !== undefined && body.mvp_url !== null) {
+    if (!urlOk(body.mvp_url)) {
+      return { ok: false, reason: 'mvp_url must be an absolute http(s) URL (max 500 chars)' };
+    }
+    mvp_url = body.mvp_url;
+  }
+  let connexions_interview_url: string | null = null;
+  if (body.connexions_interview_url !== undefined && body.connexions_interview_url !== null) {
+    if (!urlOk(body.connexions_interview_url)) {
+      return { ok: false, reason: 'connexions_interview_url must be an absolute http(s) URL (max 500 chars)' };
+    }
+    connexions_interview_url = body.connexions_interview_url;
+  }
+
   return {
     ok: true,
     data: {
@@ -115,6 +147,9 @@ function validateCampaignInput(body: CampaignCreateInput):
       questions: body.questions as string[],
       expected_response_count,
       channel_mix,
+      ip_org_id,
+      mvp_url,
+      connexions_interview_url,
     },
   };
 }
@@ -155,6 +190,9 @@ export async function POST(request: NextRequest) {
       questions: validated.data.questions,
       expected_response_count: validated.data.expected_response_count,
       channel_mix: validated.data.channel_mix,
+      ip_org_id: validated.data.ip_org_id,
+      mvp_url: validated.data.mvp_url,
+      connexions_interview_url: validated.data.connexions_interview_url,
       status: 'configured',
     })
     .select()

@@ -50,6 +50,11 @@ export interface PartnerUpsertData {
   // last_seen_in_run_id (migration 015) so the Prospects "filter by run"
   // dropdown surfaces re-discovered partners under the latest run.
   first_seen_in_run_id?: string | null;
+  // Set when this prospect was discovered for a CAS methodology validation
+  // campaign (migration 049). NULL for normal SDR prospects. Lets the
+  // methodology activate route scope to its own prospects and keeps research
+  // prospects distinguishable from the live SDR pipeline.
+  methodology_campaign_id?: string | null;
 }
 
 export interface ContactData {

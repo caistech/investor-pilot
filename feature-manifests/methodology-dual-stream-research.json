@@ -1,0 +1,31 @@
+{
+  "name": "methodology-dual-stream-research",
+  "description": "Wires CAS methodology campaigns to IP's existing discovery + outreach engine: discover distributor-candidate + target-user prospects, draft a research INVITE (embedding the Connexions interview link + thin-MVP url), queue for human send-approval. Responses return via the Connexions voice loop, not IP replies. Reuses the 5-stage partners pipeline (discover/enrich/draft/send); no new external services.",
+  "introduced_at": "2026-05-25",
+  "env_vars": [
+    { "name": "METHODOLOGY_API_KEY", "required": true, "description": "Bearer token shared with CAS; auth for /api/methodology/* routes incl. the new activate route", "scope": ["production", "preview"], "where": "shared secret, same value on CAS + IP Vercel" },
+    { "name": "BRAVE_API_KEY", "required": true, "description": "Brave Search for web discovery (also accepts BRAVE_SEARCH_API_KEY)", "scope": ["production", "preview"], "where": "Brave Search API dashboard" },
+    { "name": "HUNTER_API_KEY", "required": true, "description": "Hunter.io email enrichment for discovered prospects", "scope": ["production", "preview"], "where": "Hunter.io dashboard" },
+    { "name": "APOLLO_API_KEY", "required": false, "description": "Apollo contact enrichment (cascade before Hunter); dark-mode if absent", "scope": ["production", "preview"], "where": "Apollo dashboard" },
+    { "name": "UNIPILE_API_KEY", "required": false, "description": "LinkedIn discovery + DM channel (only if a campaign's channel_mix includes linkedin)", "scope": ["production", "preview"], "where": "Unipile dashboard" },
+    { "name": "UNIPILE_BASE_URL", "required": false, "description": "Unipile API base URL", "scope": ["production", "preview"], "where": "Unipile dashboard" },
+    { "name": "RESEND_API_KEY", "required": true, "description": "Email send (research invites) after human approval", "scope": ["production", "preview"], "where": "Resend dashboard" },
+    { "name": "RESEND_FROM_EMAIL", "required": true, "description": "Verified sender (noreply@updates.corporateaisolutions.com)", "scope": ["production", "preview"], "where": "Resend verified domain" },
+    { "name": "OPENROUTER_API_KEY", "required": true, "description": "Primary LLM for scoring + research-invite drafting", "scope": ["production", "preview"], "where": "OpenRouter dashboard" },
+    { "name": "ANTHROPIC_API_KEY", "required": false, "description": "LLM fallback", "scope": ["production", "preview"], "where": "Anthropic console" },
+    { "name": "NEXT_PUBLIC_APP_URL", "required": true, "description": "App URL (OpenRouter referer; webhook notify URLs)", "scope": ["production", "preview"], "where": "Vercel project URL" }
+  ],
+  "external_setup": [
+    {
+      "id": "no_new_external_setup",
+      "type": "note",
+      "title": "No new external setup — reuses the live discovery + outreach engine",
+      "description": "All providers (Brave, Hunter, Apollo, Unipile, Resend, OpenRouter) are already configured for the live SDR product. This feature adds no new dashboards or webhooks. The only new wiring is internal: an activate route + a research-invite draft + a migration.",
+      "url": "",
+      "steps": [
+        "Confirm the methodology Supabase migration 049 is applied (adds mvp_url + connexions_interview_url to methodology_campaigns and methodology_campaign_id to partners).",
+        "Confirm CAS passes mvp_url + connexions_interview_url when it creates/activates a campaign (CAS cards/[slug]/validate)."
+      ]
+    }
+  ]
+}
