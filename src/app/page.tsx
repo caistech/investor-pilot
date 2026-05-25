@@ -42,6 +42,9 @@ export default function LandingPage() {
           <Link href="/signup" className="btn-primary text-lg px-8 py-3">Get Started</Link>
           <Link href="/playbook" className="btn-secondary text-lg px-8 py-3">See how it works</Link>
         </div>
+        <p className="text-dark-500 text-sm mt-6">
+          For VC &amp; advisory firms: run outreach for your whole portfolio from one workspace.
+        </p>
       </section>
 
       <section className="max-w-6xl mx-auto px-6 py-16">
