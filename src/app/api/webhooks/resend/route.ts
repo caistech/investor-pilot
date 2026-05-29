@@ -92,9 +92,9 @@ export async function POST(request: Request) {
   switch (event.type) {
     case 'email.bounced':
     case 'email.complained':
-      return handleUndeliverable(emailId, event);
+      return handleUndeliverable(supabaseAdmin, emailId, event);
     case 'email.delivery_delayed':
-      return handleDelayed(emailId, event);
+      return handleDelayed(supabaseAdmin, emailId, event);
     case 'email.delivered':
     case 'email.sent':
     case 'email.opened':
@@ -105,7 +105,7 @@ export async function POST(request: Request) {
   }
 }
 
-async function handleUndeliverable(emailId: string, event: ResendEvent) {
+async function handleUndeliverable(supabaseAdmin: any, emailId: string, event: ResendEvent) {
   const isComplaint = event.type === 'email.complained';
   const bounceType = event.data?.bounce?.type || event.data?.complaint?.type || event.type;
   const bounceMessage = event.data?.bounce?.message || null;
@@ -126,7 +126,7 @@ async function handleUndeliverable(emailId: string, event: ResendEvent) {
         .update({ status: 'bounced', updated_at: now })
         .eq('id', outreachRow.id);
     }
-    await applyPartnerBounceSideEffects(outreachRow.partner_id, outreachRow.organisation_id, bounceType, bounceMessage, isComplaint, now);
+    await applyPartnerBounceSideEffects(supabaseAdmin, outreachRow.partner_id, outreachRow.organisation_id, bounceType, bounceMessage, isComplaint, now);
     return NextResponse.json({ ok: true, matched: 'outreach_log', partner_id: outreachRow.partner_id });
   }
 
@@ -146,7 +146,7 @@ async function handleUndeliverable(emailId: string, event: ResendEvent) {
         .eq('id', outboundRow.id);
     }
     if (outboundRow.partner_id) {
-      await applyPartnerBounceSideEffects(outboundRow.partner_id, outboundRow.organisation_id, bounceType, bounceMessage, isComplaint, now);
+      await applyPartnerBounceSideEffects(supabaseAdmin, outboundRow.partner_id, outboundRow.organisation_id, bounceType, bounceMessage, isComplaint, now);
     }
     return NextResponse.json({ ok: true, matched: 'outbound_messages', partner_id: outboundRow.partner_id });
   }
@@ -158,6 +158,7 @@ async function handleUndeliverable(emailId: string, event: ResendEvent) {
 }
 
 async function applyPartnerBounceSideEffects(
+  supabaseAdmin: any,
   partnerId: string,
   organisationId: string,
   bounceType: string,
@@ -194,7 +195,7 @@ async function applyPartnerBounceSideEffects(
   });
 }
 
-async function handleDelayed(emailId: string, event: ResendEvent) {
+async function handleDelayed(supabaseAdmin: any, emailId: string, event: ResendEvent) {
   // No state change — Resend will retry. Log so the audit trail captures it.
   const { data: outreachRow } = await supabaseAdmin
     .from('outreach_log')
