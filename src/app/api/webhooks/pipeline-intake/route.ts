@@ -28,6 +28,9 @@ interface PipelineProductPayload {
   distributor_pitch: string | null;
   end_user_icp: string;
   friction: string;
+  customer_outcomes: string | null;
+  core_mechanism: string | null;
+  target_verticals: string | null;
   regulated_flag: boolean;
   cta_spec: {
     destination: string;
@@ -39,6 +42,14 @@ interface PipelineProductPayload {
     gates_ready: boolean;
   };
   timestamp: string;
+  // New ICP fields for tight targeting
+  icp_company_size?: string | null;
+  icp_stage?: string | null;
+  icp_buyer_title?: string | null;
+  icp_user_title?: string | null;
+  icp_stack_tools?: string | null;
+  traction_arr?: string | null;
+  traction_customers?: string | null;
 }
 
 function verifySignature(rawBody: string, signatureHeader: string | null): { ok: boolean; reason?: string } {
@@ -100,19 +111,27 @@ export async function POST(request: Request) {
 
   const organisationId = firstOrg.id as string;
 
-  // Store product in products table
-  const { data: product, error: productErr } = await db
+  // §4 DESIGN CHANGE: Create TWO products - one for each ICP stream
+  // This ensures clean separation: different templates, different tracking, different signals
+  const distributorProductId = `${payload.product_id}-distributor`;
+  const endUserProductId = `${payload.product_id}-end-user`;
+
+  // Create DISTRIBUTOR product
+  const { data: distributorProduct, error: distributorErr } = await db
     .from('products')
     .upsert({
       organisation_id: organisationId,
-      external_product_id: payload.product_id,
-      name: payload.product_name,
+      external_product_id: distributorProductId,
+      name: `${payload.product_name} (Distributors)`,
       one_sentence_description: payload.description,
-      landing_page_url: payload.landing_page_url,
+      landing_page_url: payload.cta_spec.destination,
       distributor_icp: payload.distributor_icp,
       distributor_pitch: payload.distributor_pitch,
-      end_user_icp: payload.end_user_icp,
+      end_user_icp: null,
       friction: payload.friction,
+      core_mechanism: payload.core_mechanism,
+      customer_outcomes: payload.customer_outcomes,
+      icp_verticals: payload.target_verticals,
       regulated_flag: payload.regulated_flag,
       cta_destination: payload.cta_spec.destination,
       cta_events: payload.cta_spec.events,
@@ -121,9 +140,63 @@ export async function POST(request: Request) {
       validation_gates_ready: payload.validation_summary.gates_ready,
       intake_source: 'pipeline',
       intake_timestamp: payload.timestamp,
+      icp_company_size: payload.icp_company_size || null,
+      icp_stage: payload.icp_stage || null,
+      icp_buyer_title: payload.icp_buyer_title || null,
+      icp_user_title: payload.icp_user_title || null,
+      icp_stack_tools: payload.icp_stack_tools || null,
+      traction_arr: payload.traction_arr || null,
+      traction_customers: payload.traction_customers || null,
     }, { onConflict: 'external_product_id,organisation_id' })
     .select('id')
     .single();
+
+  if (distributorErr) {
+    console.error(`[webhooks/pipeline-intake] distributor product insert failed:`, distributorErr);
+    return NextResponse.json({ error: 'storage failed', detail: distributorErr.message }, { status: 500 });
+  }
+
+  // Create END-USER product
+  const { data: endUserProduct, error: endUserErr } = await db
+    .from('products')
+    .upsert({
+      organisation_id: organisationId,
+      external_product_id: endUserProductId,
+      name: `${payload.product_name} (End Users)`,
+      one_sentence_description: payload.description,
+      landing_page_url: payload.cta_spec.destination,
+      distributor_icp: null,
+      distributor_pitch: null,
+      end_user_icp: payload.end_user_icp,
+      friction: payload.friction,
+      customer_outcomes: payload.customer_outcomes,
+      core_mechanism: payload.core_mechanism,
+      icp_verticals: payload.target_verticals,
+      regulated_flag: payload.regulated_flag,
+      cta_destination: payload.cta_spec.destination,
+      cta_events: payload.cta_spec.events,
+      validation_hard_gates_passed: payload.validation_summary.hard_gates_passed,
+      validation_weighted_score: payload.validation_summary.weighted_score,
+      validation_gates_ready: payload.validation_summary.gates_ready,
+      intake_source: 'pipeline',
+      intake_timestamp: payload.timestamp,
+      icp_company_size: payload.icp_company_size || null,
+      icp_stage: payload.icp_stage || null,
+      icp_buyer_title: payload.icp_buyer_title || null,
+      icp_user_title: payload.icp_user_title || null,
+      icp_stack_tools: payload.icp_stack_tools || null,
+      traction_arr: payload.traction_arr || null,
+      traction_customers: payload.traction_customers || null,
+    }, { onConflict: 'external_product_id,organisation_id' })
+    .select('id')
+    .single();
+
+  if (endUserErr) {
+    console.error(`[webhooks/pipeline-intake] end-user product insert failed:`, endUserErr);
+    return NextResponse.json({ error: 'storage failed', detail: endUserErr.message }, { status: 500 });
+  }
+
+  const product = distributorProduct;
 
   if (productErr) {
     console.error(`[webhooks/pipeline-intake] product insert failed:`, productErr);
@@ -144,7 +217,8 @@ export async function POST(request: Request) {
       .from('channels')
       .insert({
         organisation_id: organisationId,
-        product_id: product.id,
+        distributor_product_id: distributorProduct.id,
+    end_user_product_id: endUserProduct.id,
         channel_type: 'wholesale_track',
         status: 'pending_compliance',
         config: {
@@ -186,7 +260,8 @@ export async function POST(request: Request) {
 
     return NextResponse.json({
       ok: true,
-      product_id: product.id,
+    distributor_product_id: distributorProduct.id,
+    end_user_product_id: endUserProduct.id,
       channel_id: wholesaleChannel.id,
       channel_type: 'wholesale_track',
       status: 'pending_compliance',
@@ -194,12 +269,13 @@ export async function POST(request: Request) {
     });
   }
 
-  // NON-REGULATED: Create distributor outreach channel (§6 step 2)
+  // NON-REGULATED: Create channels for each product stream
+  // Distributor product → distributor_outreach channel
   const { data: distributorChannel, error: distributorErr } = await db
     .from('channels')
     .insert({
       organisation_id: organisationId,
-      product_id: product.id,
+      product_id: distributorProduct.id,
       channel_type: 'distributor_outreach',
       status: 'active',
       config: {
@@ -218,12 +294,12 @@ export async function POST(request: Request) {
 
   channels.distributor_channel_id = distributorChannel.id as string;
 
-  // §6 step 3: Create end-user feedback channel
+  // End-user product → end_user_feedback channel
   const { data: endUserChannel, error: endUserErr } = await db
     .from('channels')
     .insert({
       organisation_id: organisationId,
-      product_id: product.id,
+      product_id: endUserProduct.id,
       channel_type: 'end_user_feedback',
       status: 'active',
       config: {
@@ -267,9 +343,10 @@ export async function POST(request: Request) {
   // §6 step 4: Return stream IDs to pipeline (needed for automated die path)
   return NextResponse.json({
     ok: true,
-    product_id: product.id,
+    distributor_product_id: distributorProduct.id,
+    end_user_product_id: endUserProduct.id,
     distributor_channel_id: channels.distributor_channel_id,
     end_user_channel_id: channels.end_user_channel_id,
-    message: 'Product received and channels created',
+    message: 'Product received as dual-stream (distributor + end-user)',
   });
 }
