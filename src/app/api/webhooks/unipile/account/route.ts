@@ -17,13 +17,12 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { logEvent } from '@/lib/usage/events';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
 export async function POST(request: Request) {
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  );
   // TODO Sprint 1: validate Unipile webhook signature once spec confirmed
   // For now, check shared-secret header (set in Unipile dashboard)
   const expectedSecret = process.env.UNIPILE_WEBHOOK_SECRET;

@@ -30,12 +30,6 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { Webhook } from 'svix';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-  { auth: { persistSession: false } }
-);
-
 interface ResendEventData {
   email_id?: string;
   from?: string;
@@ -58,6 +52,12 @@ export async function POST(request: Request) {
     console.error('[resend webhook] RESEND_WEBHOOK_SECRET not configured');
     return NextResponse.json({ error: 'webhook not configured' }, { status: 500 });
   }
+
+  const supabaseAdmin = createClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    { auth: { persistSession: false } }
+  );
 
   const svixId = request.headers.get('svix-id');
   const svixTimestamp = request.headers.get('svix-timestamp');
