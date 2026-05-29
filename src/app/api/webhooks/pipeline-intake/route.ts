@@ -107,7 +107,7 @@ export async function POST(request: Request) {
       organisation_id: organisationId,
       external_product_id: payload.product_id,
       name: payload.product_name,
-      description: payload.description,
+      one_sentence_description: payload.description,
       landing_page_url: payload.landing_page_url,
       distributor_icp: payload.distributor_icp,
       distributor_pitch: payload.distributor_pitch,
