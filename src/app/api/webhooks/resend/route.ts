@@ -222,3 +222,4 @@ async function handleDelayed(supabaseAdmin: any, emailId: string, event: ResendE
 
   return NextResponse.json({ ok: true, matched: row ? 'logged' : 'unknown' });
 }
+// force rebuild
