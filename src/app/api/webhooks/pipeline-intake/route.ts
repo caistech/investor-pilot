@@ -198,11 +198,6 @@ export async function POST(request: Request) {
 
   const product = distributorProduct;
 
-  if (productErr) {
-    console.error(`[webhooks/pipeline-intake] product insert failed:`, productErr);
-    return NextResponse.json({ error: 'storage failed', detail: productErr.message }, { status: 500 });
-  }
-
   const channels: { distributor_channel_id: string | null; end_user_channel_id: string | null } = {
     distributor_channel_id: null,
     end_user_channel_id: null,
@@ -271,7 +266,7 @@ export async function POST(request: Request) {
 
   // NON-REGULATED: Create channels for each product stream
   // Distributor product → distributor_outreach channel
-  const { data: distributorChannel, error: distributorErr } = await db
+  const { data: distributorChannel, error: distributorChannelErr } = await db
     .from('channels')
     .insert({
       organisation_id: organisationId,
@@ -287,15 +282,15 @@ export async function POST(request: Request) {
     .select('id')
     .single();
 
-  if (distributorErr) {
-    console.error(`[webhooks/pipeline-intake] distributor channel insert failed:`, distributorErr);
-    return NextResponse.json({ error: 'channel creation failed', detail: distributorErr.message }, { status: 500 });
+  if (distributorChannelErr) {
+    console.error(`[webhooks/pipeline-intake] distributor channel insert failed:`, distributorChannelErr);
+    return NextResponse.json({ error: 'channel creation failed', detail: distributorChannelErr.message }, { status: 500 });
   }
 
   channels.distributor_channel_id = distributorChannel.id as string;
 
   // End-user product → end_user_feedback channel
-  const { data: endUserChannel, error: endUserErr } = await db
+  const { data: endUserChannel, error: endUserChannelErr } = await db
     .from('channels')
     .insert({
       organisation_id: organisationId,
@@ -312,8 +307,8 @@ export async function POST(request: Request) {
     .select('id')
     .single();
 
-  if (endUserErr) {
-    console.error(`[webhooks/pipeline-intake] end-user channel insert failed:`, endUserErr);
+  if (endUserChannelErr) {
+    console.error(`[webhooks/pipeline-intake] end-user channel insert failed:`, endUserChannelErr);
     // Non-fatal - continue without end-user channel
     console.warn(`[webhooks/pipeline-intake] continuing without end-user channel for product=${payload.product_id}`);
   } else {
