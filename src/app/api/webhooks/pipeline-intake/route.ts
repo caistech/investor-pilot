@@ -130,8 +130,72 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'storage failed', detail: productErr.message }, { status: 500 });
   }
 
-  // Create distributor outreach channel
-  const { data: channel, error: channelErr } = await db
+  const channels: { distributor_channel_id: string | null; end_user_channel_id: string | null } = {
+    distributor_channel_id: null,
+    end_user_channel_id: null,
+  };
+
+  // §2a COMPLIANCE GATE: Regulated products skip distributor/end-user channels
+  if (payload.regulated_flag) {
+    console.log(`[webhooks/pipeline-intake] product=${payload.product_id} is regulated - routing to wholesale track`);
+
+    // Create wholesale track channel instead
+    const { data: wholesaleChannel, error: wholesaleErr } = await db
+      .from('channels')
+      .insert({
+        organisation_id: organisationId,
+        product_id: product.id,
+        channel_type: 'wholesale_track',
+        status: 'pending_compliance',
+        config: {
+          source: 'pipeline',
+          compliance_status: 'awaiting_human_signoff',
+          original_regulated_flag: payload.regulated_flag,
+        },
+      })
+      .select('id')
+      .single();
+
+    if (wholesaleErr) {
+      console.error(`[webhooks/pipeline-intake] wholesale channel insert failed:`, wholesaleErr);
+      return NextResponse.json({ error: 'wholesale channel creation failed', detail: wholesaleErr.message }, { status: 500 });
+    }
+
+    channels.distributor_channel_id = wholesaleChannel.id as string;
+
+    // Audit log for regulated product
+    await db.from('audit_events').insert({
+      organisation_id: organisationId,
+      actor: 'webhook:pipeline-intake',
+      action: 'product.received.regulated',
+      resource_type: 'product',
+      resource_id: product.id as string,
+      payload: {
+        external_product_id: payload.product_id,
+        product_name: payload.product_name,
+        channel_id: wholesaleChannel.id,
+        intake_timestamp: payload.timestamp,
+        routed_to: 'wholesale_track',
+        compliance_status: 'awaiting_human_signoff',
+      },
+    });
+
+    console.log(
+      `[webhooks/pipeline-intake] stored product=${payload.product_id} name="${payload.product_name}" (regulated) channel=${wholesaleChannel.id}`,
+    );
+
+    return NextResponse.json({
+      ok: true,
+      product_id: product.id,
+      channel_id: wholesaleChannel.id,
+      channel_type: 'wholesale_track',
+      status: 'pending_compliance',
+      message: 'Regulated product routed to wholesale track (awaiting human sign-off)',
+    });
+  }
+
+  // NON-REGULATED: Create distributor outreach channel (§6 step 2)
+  const { data: distributorChannel, error: distributorErr } = await db
     .from('channels')
     .insert({
       organisation_id: organisationId,
@@ -147,9 +211,37 @@ export async function POST(request: Request) {
     .select('id')
     .single();
 
-  if (channelErr) {
-    console.error(`[webhooks/pipeline-intake] channel insert failed:`, channelErr);
-    return NextResponse.json({ error: 'channel creation failed', detail: channelErr.message }, { status: 500 });
+  if (distributorErr) {
+    console.error(`[webhooks/pipeline-intake] distributor channel insert failed:`, distributorErr);
+    return NextResponse.json({ error: 'channel creation failed', detail: distributorErr.message }, { status: 500 });
+  }
+
+  channels.distributor_channel_id = distributorChannel.id as string;
+
+  // §6 step 3: Create end-user feedback channel
+  const { data: endUserChannel, error: endUserErr } = await db
+    .from('channels')
+    .insert({
+      organisation_id: organisationId,
+      product_id: product.id,
+      channel_type: 'end_user_feedback',
+      status: 'active',
+      config: {
+        icp: payload.end_user_icp,
+        pitch: 'Use this product and tell us how to make it better',
+        source: 'pipeline',
+        cta_destination: payload.cta_spec.destination,
+      },
+    })
+    .select('id')
+    .single();
+
+  if (endUserErr) {
+    console.error(`[webhooks/pipeline-intake] end-user channel insert failed:`, endUserErr);
+    // Non-fatal - continue without end-user channel
+    console.warn(`[webhooks/pipeline-intake] continuing without end-user channel for product=${payload.product_id}`);
+  } else {
+    channels.end_user_channel_id = endUserChannel.id as string;
   }
 
   // Audit log
@@ -162,19 +254,22 @@ export async function POST(request: Request) {
     payload: {
       external_product_id: payload.product_id,
       product_name: payload.product_name,
-      channel_id: channel.id,
+      distributor_channel_id: channels.distributor_channel_id,
+      end_user_channel_id: channels.end_user_channel_id,
       intake_timestamp: payload.timestamp,
     },
   });
 
   console.log(
-    `[webhooks/pipeline-intake] stored product=${payload.product_id} name="${payload.product_name}" channel=${channel.id}`,
+    `[webhooks/pipeline-intake] stored product=${payload.product_id} name="${payload.product_name}" distributor=${channels.distributor_channel_id} end_user=${channels.end_user_channel_id}`,
   );
 
+  // §6 step 4: Return stream IDs to pipeline (needed for automated die path)
   return NextResponse.json({
     ok: true,
     product_id: product.id,
-    channel_id: channel.id,
-    message: 'Product received and channel created',
+    distributor_channel_id: channels.distributor_channel_id,
+    end_user_channel_id: channels.end_user_channel_id,
+    message: 'Product received and channels created',
   });
 }

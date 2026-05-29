@@ -1,5 +1,6 @@
 import { authenticateAndGetDb } from '@/lib/agent/db';
 import { markOutreachReplied, getOverdueFollowUps } from '@/lib/db/outreach';
+import { emitReplyReceived, emitMeetingBooked } from '@/lib/pipeline/signals';
 import { NextResponse } from 'next/server';
 
 /**
@@ -55,7 +56,7 @@ export async function PATCH(request: Request) {
 
   const { outreach_id, status, partner_id } = await request.json() as {
     outreach_id: string;
-    status: 'replied' | 'bounced';
+    status: 'replied' | 'bounced' | 'meeting_booked';
     partner_id: string;
   };
 
@@ -68,6 +69,25 @@ export async function PATCH(request: Request) {
     if (result.error) {
       return NextResponse.json({ error: result.error }, { status: 500 });
     }
+
+    // Emit signal to pipeline
+    const { data: partner } = await db
+      .from('partners')
+      .select('company_name, contact_email, products(external_product_id)')
+      .eq('id', partner_id)
+      .single();
+
+    const productId = (partner as unknown as { products?: { external_product_id: string }[] })?.products?.[0]?.external_product_id;
+
+    if (partner && productId) {
+      await emitReplyReceived(
+        productId,
+        partner.contact_email as string,
+        undefined,
+        partner.company_name as string
+      );
+    }
+
     return NextResponse.json({ status: 'replied', outreach_id });
   }
 
@@ -80,5 +100,37 @@ export async function PATCH(request: Request) {
     return NextResponse.json({ status: 'bounced', outreach_id });
   }
 
-  return NextResponse.json({ error: 'Invalid status. Use replied or bounced.' }, { status: 400 });
+  if (status === 'meeting_booked') {
+    await db.from('outreach_log').update({
+      status: 'meeting_booked',
+      updated_at: new Date().toISOString(),
+    }).eq('id', outreach_id);
+
+    await db.from('partners').update({
+      status: 'meeting_booked',
+      updated_at: new Date().toISOString(),
+    }).eq('id', partner_id);
+
+    // Emit meeting_booked signal to pipeline
+    const { data: partner } = await db
+      .from('partners')
+      .select('company_name, contact_email, products(external_product_id)')
+      .eq('id', partner_id)
+      .single();
+
+    const productId = (partner as unknown as { products?: { external_product_id: string }[] })?.products?.[0]?.external_product_id;
+
+    if (partner && productId) {
+      await emitMeetingBooked(
+        productId,
+        partner.contact_email as string,
+        undefined,
+        partner.company_name as string
+      );
+    }
+
+    return NextResponse.json({ status: 'meeting_booked', outreach_id });
+  }
+
+  return NextResponse.json({ error: 'Invalid status. Use replied, bounced, or meeting_booked.' }, { status: 400 });
 }
