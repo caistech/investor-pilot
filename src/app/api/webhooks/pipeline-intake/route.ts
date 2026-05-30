@@ -109,16 +109,26 @@ export async function POST(request: Request) {
 
   console.log(`[webhooks/pipeline-intake] Received submission for product=${payload.product_id} from email=${email}`);
 
+  // DEBUG: Log the query attempt
+  console.log(`[webhooks/pipeline-intake] Checking memberships for email=${email}`);
+
   // Auto-provision: if email exists, use it; if not, create user + org
   // This enables unified account across Corporate-AI-Solutions → InvestorPilot
 
   // First check if user exists and has org membership
-  const { data: memberOrg } = await db
+  console.log(`[webhooks/pipeline-intake] Running membership query...`);
+  const { data: memberOrg, error: memberErr } = await db
     .from('memberships')
     .select('organisation_id, profiles!inner(email)')
     .eq('profiles.email', email)
     .limit(1)
     .maybeSingle();
+
+  if (memberErr) {
+    console.error(`[webhooks/pipeline-intake] membership query failed:`, memberErr);
+  } else {
+    console.log(`[webhooks/pipeline-intake] membership query result:`, memberOrg);
+  }
 
   let organisationId: string;
 
@@ -128,11 +138,16 @@ export async function POST(request: Request) {
     console.log(`[webhooks/pipeline-intake] existing member: email=${email} org=${organisationId}`);
   } else {
     // Check if user exists in profiles (might be linked via magic-link signup)
-    const { data: existingProfile } = await db
+    console.log(`[webhooks/pipeline-intake] Checking profiles for email=${email}`);
+    const { data: existingProfile, error: profileErr } = await db
       .from('profiles')
       .select('id, active_organisation_id')
       .eq('email', email)
       .maybeSingle();
+
+    if (profileErr) {
+      console.error(`[webhooks/pipeline-intake] profile query failed:`, profileErr);
+    }
 
     if (existingProfile?.active_organisation_id) {
       // User has profile but no membership - create membership
