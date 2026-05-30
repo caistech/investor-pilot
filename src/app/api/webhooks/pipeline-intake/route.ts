@@ -104,6 +104,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'submitter_email is required for security verification' }, { status: 400 });
     }
 
+    payload.cta_spec = payload.cta_spec || { destination: payload.landing_page_url, events: ['click'] };
+    payload.cta_spec.destination = payload.cta_spec.destination || payload.landing_page_url;
+    payload.regulated_flag = payload.regulated_flag || false;
+    payload.validation_summary = payload.validation_summary || { hard_gates_passed: 0, weighted_score: 0, gates_ready: false };
+    payload.target_verticals = payload.target_verticals || null;
+    payload.distributor_pitch = payload.distributor_pitch || null;
+    payload.customer_outcomes = payload.customer_outcomes || null;
+    payload.core_mechanism = payload.core_mechanism || null;
+
     try {
 
     console.log('[webhooks/pipeline-intake] POST: creating service client');
