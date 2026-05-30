@@ -412,9 +412,12 @@ export async function POST(request: Request) {
     `[webhooks/pipeline-intake] stored product=${payload.product_id} name="${payload.product_name}" distributor=${channels.distributor_channel_id} end_user=${channels.end_user_channel_id}`,
   );
 
+  console.log(`[webhooks/pipeline-intake] SUCCESS - created products in org=${organisationId}`);
+
   // §6 step 4: Return stream IDs to pipeline (needed for automated die path)
   return NextResponse.json({
     ok: true,
+    organisation_id: organisationId,
     distributor_product_id: distributorProduct.id,
     end_user_product_id: endUserProduct.id,
     distributor_channel_id: channels.distributor_channel_id,
