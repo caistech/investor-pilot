@@ -13,61 +13,63 @@ import { bootstrapEmailChannel } from '@/lib/channels/bootstrap';
  * from the start.
  */
 async function ensureOrgAndProfile() {
-  const supabase = createClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return;
+  try {
+    const supabase = createClient();
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
 
-  const { data: profile } = await supabase
-    .from('profiles')
-    .select('active_organisation_id')
-    .eq('id', user.id)
-    .maybeSingle();
-
-  if (profile?.active_organisation_id) return;
-
-  const admin = createServiceClient();
-  const meta = user.user_metadata;
-  const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
-
-  const { data: org } = await admin
-    .from('organisations')
-    .insert({
-      name: orgName,
-      slug: slugify(orgName) + '-' + Date.now().toString(36),
-      owner_id: user.id,
-    })
-    .select()
-    .single();
-
-  if (!org) return;
-
-  if (!profile) {
-    await admin.from('profiles').insert({
-      id: user.id,
-      active_organisation_id: org.id,
-      organisation_id: org.id,
-      full_name: meta?.full_name || null,
-      email: user.email,
-      role: 'owner',
-    });
-  } else {
-    await admin
+    const { data: profile } = await supabase
       .from('profiles')
-      .update({ active_organisation_id: org.id })
-      .eq('id', user.id);
+      .select('active_organisation_id')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profile?.active_organisation_id) return;
+
+    const admin = createServiceClient();
+    const meta = user.user_metadata;
+    const orgName = meta?.org_name || meta?.full_name || 'My Organisation';
+
+    const { data: org } = await admin
+      .from('organisations')
+      .insert({
+        name: orgName,
+        slug: slugify(orgName) + '-' + Date.now().toString(36),
+        owner_id: user.id,
+      })
+      .select()
+      .single();
+
+    if (!org) return;
+
+    if (!profile) {
+      await admin.from('profiles').insert({
+        id: user.id,
+        active_organisation_id: org.id,
+        organisation_id: org.id,
+        full_name: meta?.full_name || null,
+        email: user.email,
+        role: 'owner',
+      });
+    } else {
+      await admin
+        .from('profiles')
+        .update({ active_organisation_id: org.id })
+        .eq('id', user.id);
+    }
+
+    await admin
+      .from('memberships')
+      .insert({
+        user_id: user.id,
+        organisation_id: org.id,
+        role: 'owner',
+      });
+
+    await bootstrapEmailChannel(admin, org.id, user.id);
+  } catch (err) {
+    console.error('[ensureOrgAndProfile] Failed:', err);
   }
-
-  await admin
-    .from('memberships')
-    .insert({
-      user_id: user.id,
-      organisation_id: org.id,
-      role: 'owner',
-    });
-
-  // Resend is env-driven — bootstrap the email channel row so the
-  // sequencer can render email-touch steps from day one.
-  await bootstrapEmailChannel(admin, org.id, user.id);
 }
 
 export default async function DashboardLayout({

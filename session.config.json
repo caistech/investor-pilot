@@ -1,0 +1,9 @@
+{
+  "baseUrl": "https://your-product.vercel.app",
+  "loginPath": "/login",
+  "loginActionPath": "/api/auth/login",
+  "magicLinkActionPath": "/api/auth/magic-link",
+  "protectedRoutes": ["/dashboard", "/settings"],
+  "testEmail": "qa@corporateaisolutions.com",
+  "testPassword": "RealPassword123!"
+}

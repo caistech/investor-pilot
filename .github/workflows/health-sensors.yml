@@ -1,0 +1,75 @@
+# Step 7 Operations & Maintenance - Health Sensors
+#
+# Runs health checks on schedule:
+# - Light (every 6 hours): auth pages + routes
+# - Full (daily): + authenticated routes
+#
+# This catches runtime issues CI doesn't (missing env vars, DB, RLS, etc)
+
+name: health-sensors
+
+on:
+  schedule:
+    # Light check every 6 hours
+    - cron: '0 */6 * * *'
+    # Full check daily at 6am UTC
+    - cron: '0 6 * * *'
+  workflow_dispatch:
+    inputs:
+      full:
+        description: 'Run full check (includes session test)'
+        required: false
+        default: 'false'
+
+jobs:
+  health-light:
+    if: github.event_name == 'schedule' || github.event.inputs.full != 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    env:
+      TEST_BASE_URL: ${{ vars.PORTFOLIO_GATE_PREVIEW_URL }}
+
+    steps:
+      - name: Run auth smoke test
+        run: |
+          npx --no-install portfolio-gate-smoke-auth \
+            --config auth.config.json \
+            --base-url "$TEST_BASE_URL"
+
+      - name: Run route smoke test
+        run: |
+          npx --no-install portfolio-gate-smoke-routes \
+            --config routes.config.json \
+            --base-url "$TEST_BASE_URL"
+
+  health-full:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'schedule' && github.event.schedule == '0 6 * * *')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      TEST_BASE_URL: ${{ vars.PORTFOLIO_GATE_PREVIEW_URL }}
+      TEST_EMAIL: ${{ secrets.QA_TEST_EMAIL }}
+      TEST_PASSWORD: ${{ secrets.QA_TEST_PASSWORD }}
+
+    steps:
+      - name: Run auth smoke test
+        run: |
+          npx --no-install portfolio-gate-smoke-auth \
+            --config auth.config.json \
+            --base-url "$TEST_BASE_URL"
+
+      - name: Run route smoke test
+        run: |
+          npx --no-install portfolio-gate-smoke-routes \
+            --config routes.config.json \
+            --base-url "$TEST_BASE_URL"
+
+      - name: Run session smoke test
+        if: env.TEST_EMAIL && env.TEST_PASSWORD
+        run: |
+          npx --no-install portfolio-gate-smoke-session \
+            --config session.config.json \
+            --base-url "$TEST_BASE_URL"
+
