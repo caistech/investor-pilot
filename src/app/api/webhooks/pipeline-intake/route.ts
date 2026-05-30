@@ -382,6 +382,8 @@ export async function POST(request: Request) {
     }
 
     console.log('[webhooks/pipeline-intake] POST: SUCCESS - returning response');
+    console.log('[webhooks/pipeline-intake] POST: FINAL org_id =', organisationId);
+    console.log('[webhooks/pipeline-intake] POST: FINAL distributor_product =', distributorProduct.id);
     return NextResponse.json({
       ok: true,
       organisation_id: organisationId,
