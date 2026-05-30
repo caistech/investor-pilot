@@ -142,11 +142,8 @@ export async function POST(request: Request) {
 
     let organisationId: string;
 
-    // If Pipeline passed organisation_id directly, use it
-    if (payload.submitter_organisation_id) {
-      organisationId = payload.submitter_organisation_id;
-      console.log('[webhooks/pipeline-intake] POST: using org from Pipeline:', organisationId);
-    } else if (memberOrg) {
+    // Use email-based lookup since Pipeline and InvestorPilot have different Supabase instances
+    if (memberOrg) {
       organisationId = memberOrg.organisation_id as string;
       console.log('[webhooks/pipeline-intake] POST: existing member org =', organisationId);
     } else {
