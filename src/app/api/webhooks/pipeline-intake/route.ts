@@ -18,12 +18,14 @@ interface PipelineProductPayload {
   distributor_pitch: string | null;
   end_user_icp: string;
   friction: string;
+  product_pitch: string | null;
   customer_outcomes: string | null;
   core_mechanism: string | null;
   target_verticals: string | null;
   icp_company_size: string | null;
   icp_stage: string | null;
   icp_verticals: string | null;
+  icp_geography: string | null;
   one_pager_url: string | null;
   pitch_deck_url: string | null;
   partner_types: string;
@@ -227,8 +229,9 @@ export async function POST(request: Request) {
       .upsert({
         organisation_id: organisationId,
         external_product_id: distributorProductId,
-        name: `${payload.product_name} (Distributors)`,
+        name: `${payload.product_name} (Distributor)`,
         one_sentence_description: payload.description,
+        product_pitch: payload.product_pitch,
         landing_page_url: payload.cta_spec.destination,
         distributor_icp: payload.distributor_icp,
         distributor_pitch: payload.distributor_pitch,
@@ -239,6 +242,7 @@ export async function POST(request: Request) {
         icp_verticals: payload.target_verticals,
         icp_company_size: payload.icp_company_size,
         icp_stage: payload.icp_stage,
+        geography: payload.icp_geography,
         one_pager_url: payload.one_pager_url,
         pitch_deck_url: payload.pitch_deck_url,
         partner_types: payload.partner_types,
@@ -270,6 +274,7 @@ export async function POST(request: Request) {
         external_product_id: endUserProductId,
         name: `${payload.product_name} (End Users)`,
         one_sentence_description: payload.description,
+        product_pitch: payload.product_pitch,
         landing_page_url: payload.cta_spec.destination,
         distributor_icp: null,
         distributor_pitch: null,
@@ -280,6 +285,7 @@ export async function POST(request: Request) {
         icp_verticals: payload.target_verticals,
         icp_company_size: payload.icp_company_size,
         icp_stage: payload.icp_stage,
+        geography: payload.icp_geography,
         one_pager_url: payload.one_pager_url,
         pitch_deck_url: payload.pitch_deck_url,
         partner_types: payload.partner_types,
