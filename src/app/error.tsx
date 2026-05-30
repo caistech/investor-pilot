@@ -31,6 +31,9 @@ export default function GlobalError({
         {error.digest && (
           <p className="text-dark-500 text-xs mb-8 font-mono">Error ID: {error.digest}</p>
         )}
+        <p className="text-dark-500 text-xs mb-4 font-mono text-left bg-dark-800 p-2 rounded">
+          {error.message}
+        </p>
         <div className="flex items-center justify-center gap-3 flex-wrap">
           <button onClick={reset} className="btn-primary inline-flex items-center gap-2">
             <RotateCcw className="w-4 h-4" />

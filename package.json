@@ -8,7 +8,10 @@
     "start": "next start",
     "lint": "next lint",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:auth": "node --input-type=module -e \"import { runAuthSmoke, formatAuthResult } from '@caistech/portfolio-gate/smoke/auth.js'; const r = await runAuthSmoke({baseUrl: process.env.TEST_BASE_URL || 'http://localhost:3000', loginPath: '/login', signupPath: '/signup', forgotPasswordPath: '/forgot-password', magicLinkPath: '/login', loginActionPath: '/api/auth/login', signupActionPath: '/api/auth/signup', forgotPasswordActionPath: '/api/auth/forgot', magicLinkActionPath: '/api/auth/magic-link'}); console.log(formatAuthResult(r)); process.exit(r.passed ? 0 : 1)\"",
+    "test:auth:ci": "node --input-type=module -e \"import { runAuthSmoke, formatAuthResult } from '@caistech/portfolio-gate/smoke/auth.js'; const r = await runAuthSmoke({baseUrl: process.env.TEST_BASE_URL, loginPath: '/login', signupPath: '/signup', forgotPasswordPath: '/forgot-password', magicLinkPath: '/login', loginActionPath: '/api/auth/login', signupActionPath: '/api/auth/signup', forgotPasswordActionPath: '/api/auth/forgot', magicLinkActionPath: '/api/auth/magic-link'}); console.log(formatAuthResult(r)); process.exit(r.passed ? 0 : 1)\"",
+    "test:routes": "node --input-type=module -e \"import { runRouteSmoke, formatRouteResult } from '@caistech/portfolio-gate/smoke/routes.js'; import { loadRoutesConfigJson } from '@caistech/portfolio-gate/smoke/routes.js'; const config = await loadRoutesConfigJson('./routes.config.json'); config.baseUrl = process.env.TEST_BASE_URL || 'http://localhost:3000'; const r = await runRouteSmoke(config); console.log(formatRouteResult(r)); process.exit(r.passed ? 0 : 1)\""
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.86.1",
