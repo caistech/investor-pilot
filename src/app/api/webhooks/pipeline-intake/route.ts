@@ -50,6 +50,8 @@ interface PipelineProductPayload {
   icp_stack_tools?: string | null;
   traction_arr?: string | null;
   traction_customers?: string | null;
+  // Email verification - must match a member of the org
+  submitter_email: string;
 }
 
 function verifySignature(rawBody: string, signatureHeader: string | null): { ok: boolean; reason?: string } {
@@ -95,21 +97,27 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'product_id and product_name are required' }, { status: 400 });
   }
 
+  if (!payload.submitter_email) {
+    return NextResponse.json({ error: 'submitter_email is required for security verification' }, { status: 400 });
+  }
+
   const db = createServiceClient();
 
-  // For now, associate with first organisation (multi-tenant: would need org lookup)
-  const { data: firstOrg } = await db
-    .from('organisations')
-    .select('id')
-    .order('created_at', { ascending: true })
+  // Verify submitter email belongs to an organisation member
+  // This ensures submissions can only come from authorized users
+  const { data: memberOrg } = await db
+    .from('memberships')
+    .select('organisation_id, profiles!inner(email)')
+    .eq('profiles.email', payload.submitter_email.toLowerCase())
     .limit(1)
     .maybeSingle();
 
-  if (!firstOrg) {
-    return NextResponse.json({ error: 'no organisations configured' }, { status: 500 });
+  if (!memberOrg) {
+    console.warn(`[webhooks/pipeline-intake] email not authorized: ${payload.submitter_email}`);
+    return NextResponse.json({ error: 'submitter email not authorized - must be a member of an organisation' }, { status: 403 });
   }
 
-  const organisationId = firstOrg.id as string;
+  const organisationId = memberOrg.organisation_id as string;
 
   // §4 DESIGN CHANGE: Create TWO products - one for each ICP stream
   // This ensures clean separation: different templates, different tracking, different signals
