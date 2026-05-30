@@ -61,8 +61,8 @@ export default function OrgSwitcher() {
 
   if (orgs.length === 0) return null;
 
-  // Single-org user — show the name as a static badge, no dropdown.
-  if (orgs.length === 1) {
+  // Always show dropdown if user has multiple orgs
+  if (orgs.length <= 1) {
     return (
       <div className="mt-3 px-3 py-2 bg-dark-800 rounded text-xs text-dark-300 flex items-center gap-2">
         <Building2 className="w-3.5 h-3.5 text-corp-green-400" />
