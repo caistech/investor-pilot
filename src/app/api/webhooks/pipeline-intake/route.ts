@@ -63,11 +63,14 @@ function verifySignature(rawBody: string, signatureHeader: string | null): { ok:
 
 export async function POST(request: Request) {
   console.log('[webhooks/pipeline-intake] POST: ENTRY');
-  
+  let rawBody = '';
   try {
-    console.log('[webhooks/pipeline-intake] POST: reading body');
-    const rawBody = await request.text();
-    console.log('[webhooks/pipeline-intake] POST: body length =', rawBody.length);
+    rawBody = await request.text();
+  } catch (e) {
+    console.error('[webhooks/pipeline-intake] POST: failed to read body', e);
+    return NextResponse.json({ error: 'failed to read body' }, { status: 500 });
+  }
+  console.log('[webhooks/pipeline-intake] POST: body length =', rawBody.length);
 
     const signatureHeader = request.headers.get('x-pipeline-signature');
     console.log('[webhooks/pipeline-intake] POST: signature present =', !!signatureHeader);
