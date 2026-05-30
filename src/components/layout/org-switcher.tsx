@@ -50,6 +50,9 @@ export default function OrgSwitcher() {
   }
 
   const active = orgs.find((o) => o.is_active);
+  
+  // Debug: show active org ID
+  const debugOrgId = active?.id?.slice(0, 8) ?? 'none';
 
   if (loading) {
     return (
@@ -67,6 +70,7 @@ export default function OrgSwitcher() {
       <div className="mt-3 px-3 py-2 bg-dark-800 rounded text-xs text-dark-300 flex items-center gap-2">
         <Building2 className="w-3.5 h-3.5 text-corp-green-400" />
         <span className="truncate">{active?.name ?? orgs[0].name}</span>
+        <span className="text-dark-500 ml-auto" title={active?.id}>@{debugOrgId}</span>
       </div>
     );
   }

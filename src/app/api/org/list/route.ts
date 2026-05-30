@@ -43,6 +43,8 @@ export async function GET() {
     };
   });
 
+  console.log('[org/list] Returning orgs:', JSON.stringify({ orgCount: result.length, activeOrgId, orgs: result.map(r => ({ id: r.id, name: r.name, slug: r.slug })) }));
+  
   return NextResponse.json({
     organisations: result,
     active_organisation_id: activeOrgId,
