@@ -121,6 +121,7 @@ export async function POST(request: Request) {
 
     const email = payload.submitter_email.toLowerCase();
     console.log('[webhooks/pipeline-intake] POST: email =', email);
+    console.log('[webhooks/pipeline-intake] POST: payload.product_id =', payload.product_id);
 
     console.log('[webhooks/pipeline-intake] POST: checking memberships');
     const { data: memberOrg, error: memberErr } = await db
@@ -131,7 +132,7 @@ export async function POST(request: Request) {
       .maybeSingle();
 
     console.log('[webhooks/pipeline-intake] POST: memberErr =', memberErr);
-    console.log('[webhooks/pipeline-intake] POST: memberOrg =', memberOrg);
+    console.log('[webhooks/pipeline-intake] POST: memberOrg =', JSON.stringify(memberOrg));
 
     let organisationId: string;
 
