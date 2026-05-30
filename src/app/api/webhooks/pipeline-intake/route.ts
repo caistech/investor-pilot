@@ -104,6 +104,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'submitter_email is required for security verification' }, { status: 400 });
     }
 
+    try {
+
     console.log('[webhooks/pipeline-intake] POST: creating service client');
     const db = createServiceClient();
     console.log('[webhooks/pipeline-intake] POST: service client created');
@@ -379,8 +381,8 @@ export async function POST(request: Request) {
       end_user_channel_id: channels.end_user_channel_id,
     });
 
-  } catch (error: any) {
-    console.error('[webhooks/pipeline-intake] POST: UNHANDLED ERROR', error?.message, error?.stack);
-    return NextResponse.json({ error: 'internal error', detail: error?.message }, { status: 500 });
+  } catch (error) {
+    console.error('[webhooks/pipeline-intake] POST: UNHANDLED ERROR', error);
+    return NextResponse.json({ error: 'internal error', detail: String(error) }, { status: 500 });
   }
 }
