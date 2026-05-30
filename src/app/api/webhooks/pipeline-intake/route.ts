@@ -21,6 +21,12 @@ interface PipelineProductPayload {
   customer_outcomes: string | null;
   core_mechanism: string | null;
   target_verticals: string | null;
+  icp_company_size: string | null;
+  icp_stage: string | null;
+  icp_verticals: string | null;
+  one_pager_url: string | null;
+  pitch_deck_url: string | null;
+  partner_types: string;
   regulated_flag: boolean;
   cta_spec: {
     destination: string;
@@ -234,6 +240,11 @@ export async function POST(request: Request) {
         core_mechanism: payload.core_mechanism,
         customer_outcomes: payload.customer_outcomes,
         icp_verticals: payload.target_verticals,
+        icp_company_size: payload.icp_company_size,
+        icp_stage: payload.icp_stage,
+        one_pager_url: payload.one_pager_url,
+        pitch_deck_url: payload.pitch_deck_url,
+        partner_types: payload.partner_types,
         regulated_flag: payload.regulated_flag,
         cta_destination: payload.cta_spec.destination,
         cta_events: payload.cta_spec.events,
@@ -270,6 +281,11 @@ export async function POST(request: Request) {
         customer_outcomes: payload.customer_outcomes,
         core_mechanism: payload.core_mechanism,
         icp_verticals: payload.target_verticals,
+        icp_company_size: payload.icp_company_size,
+        icp_stage: payload.icp_stage,
+        one_pager_url: payload.one_pager_url,
+        pitch_deck_url: payload.pitch_deck_url,
+        partner_types: payload.partner_types,
         regulated_flag: payload.regulated_flag,
         cta_destination: payload.cta_spec.destination,
         cta_events: payload.cta_spec.events,
