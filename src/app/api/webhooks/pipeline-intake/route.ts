@@ -16,6 +16,7 @@
 import { NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/server';
+import { slugify } from '@/lib/utils';
 
 export const maxDuration = 60;
 
@@ -104,31 +105,88 @@ export async function POST(request: Request) {
   }
 
   const db = createServiceClient();
+  const email = payload.submitter_email.toLowerCase();
 
-  console.log(`[webhooks/pipeline-intake] Received submission for product=${payload.product_id} from email=${payload.submitter_email}`);
+  console.log(`[webhooks/pipeline-intake] Received submission for product=${payload.product_id} from email=${email}`);
 
-  // Verify submitter email belongs to an organisation member
-  // This ensures submissions can only come from authorized users
-  const { data: memberOrg, error: memberErr } = await db
+  // Auto-provision: if email exists, use it; if not, create user + org
+  // This enables unified account across Corporate-AI-Solutions → InvestorPilot
+
+  // First check if user exists and has org membership
+  const { data: memberOrg } = await db
     .from('memberships')
     .select('organisation_id, profiles!inner(email)')
-    .eq('profiles.email', payload.submitter_email.toLowerCase())
+    .eq('profiles.email', email)
     .limit(1)
     .maybeSingle();
 
-  if (memberErr) {
-    console.error(`[webhooks/pipeline-intake] membership lookup failed:`, memberErr);
-    return NextResponse.json({ error: 'internal error checking membership' }, { status: 500 });
+  let organisationId: string;
+
+  if (memberOrg) {
+    // User exists with org - use it
+    organisationId = memberOrg.organisation_id as string;
+    console.log(`[webhooks/pipeline-intake] existing member: email=${email} org=${organisationId}`);
+  } else {
+    // Check if user exists in profiles (might be linked via magic-link signup)
+    const { data: existingProfile } = await db
+      .from('profiles')
+      .select('id, active_organisation_id')
+      .eq('email', email)
+      .maybeSingle();
+
+    if (existingProfile?.active_organisation_id) {
+      // User has profile but no membership - create membership
+      organisationId = existingProfile.active_organisation_id;
+      await db.from('memberships').insert({
+        user_id: existingProfile.id,
+        organisation_id: organisationId,
+        role: 'member',
+      });
+      console.log(`[webhooks/pipeline-intake] created membership for existing user: email=${email} org=${organisationId}`);
+    } else {
+      // New user - create org + profile + membership
+      const orgName = payload.product_name.split(' ').slice(0, 2).join(' ') + ' Team';
+      const orgSlug = slugify(orgName) + '-' + Date.now().toString(36);
+      const { data: newOrg } = await db
+        .from('organisations')
+        .insert({ name: orgName, slug: orgSlug })
+        .select('id')
+        .single();
+
+      if (!newOrg) {
+        console.error(`[webhooks/pipeline-intake] failed to create org for email=${email}`);
+        return NextResponse.json({ error: 'failed to create organisation' }, { status: 500 });
+      }
+
+      organisationId = newOrg.id;
+
+      // Create profile with the email (using a placeholder user_id since we don't have auth)
+      // The user will link this via magic-link on first login
+      const { data: newProfile } = await db
+        .from('profiles')
+        .insert({
+          id: crypto.randomUUID(), // Placeholder - will be replaced on first login
+          email,
+          organisation_id: organisationId,
+          active_organisation_id: organisationId,
+          role: 'owner',
+        })
+        .select('id')
+        .single();
+
+      if (newProfile) {
+        await db.from('memberships').insert({
+          user_id: newProfile.id,
+          organisation_id: organisationId,
+          role: 'owner',
+        });
+      }
+
+      console.log(`[webhooks/pipeline-intake] created new org for email=${email} org=${organisationId}`);
+    }
   }
 
-  if (!memberOrg) {
-    console.warn(`[webhooks/pipeline-intake] email not authorized: ${payload.submitter_email} - not found in memberships table`);
-    return NextResponse.json({ error: 'submitter email not authorized - must be a member of an organisation' }, { status: 403 });
-  }
-
-  console.log(`[webhooks/pipeline-intake] authorized: email=${payload.submitter_email} org=${memberOrg.organisation_id}`);
-
-  const organisationId = memberOrg.organisation_id as string;
+  console.log(`[webhooks/pipeline-intake] authorized: email=${email} org=${organisationId}`);
 
   // §4 DESIGN CHANGE: Create TWO products - one for each ICP stream
   // This ensures clean separation: different templates, different tracking, different signals
