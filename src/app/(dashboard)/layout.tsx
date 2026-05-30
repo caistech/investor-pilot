@@ -5,6 +5,8 @@ import { createClient, createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
 import { bootstrapEmailChannel } from '@/lib/channels/bootstrap';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * Backstop: if the user has no org at all (rare — should be handled by
  * /auth/callback), create one with them as owner. Sets both

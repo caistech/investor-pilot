@@ -1,6 +1,8 @@
 import { redirect } from 'next/navigation';
 import { createClient, createServiceClient } from '@/lib/supabase/server';
 
+export const dynamic = 'force-dynamic';
+
 /**
  * /dashboard — post-auth landing resolver.
  *

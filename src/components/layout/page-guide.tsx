@@ -9,6 +9,11 @@ import { getPageGuide } from '@/lib/dashboard/page-guides';
 const DISMISS_PREFIX = 'investorpilot:page-guide-dismissed:';
 const COLLAPSE_PREFIX = 'investorpilot:page-guide-collapsed:';
 
+// Guard against SSR
+if (typeof window === 'undefined') {
+  // Don't render during SSR
+}
+
 /**
  * Per-page operator guide. Reads its copy from src/lib/dashboard/page-guides.ts
  * keyed by pathname. Sits at the top of every dashboard page (mounted from
