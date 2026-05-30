@@ -1,3 +1,4 @@
+﻿
 /**
  * POST /api/webhooks/pipeline-intake
  */
@@ -6,6 +7,7 @@ import { NextResponse } from 'next/server';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { createServiceClient } from '@/lib/supabase/server';
 import { slugify } from '@/lib/utils';
+import { triggerAutoDiscovery, sendProductCreatedEmail } from '@/lib/pipeline/auto-discovery';
 
 export const maxDuration = 60;
 
@@ -60,83 +62,45 @@ function verifySignature(rawBody: string, signatureHeader: string | null): { ok:
 
   let safeEqual = false;
   try {
-    safeEqual = timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(computed, 'hex'));
-  } catch (e) {
-    console.error('[webhooks/pipeline-intake] verifySignature: timingSafeEqual error', e);
-    return { ok: false, reason: 'signature parse failed' };
+    safeEqual = timingSafeEqual(Buffer.from(expected), Buffer.from(computed));
+  } catch {
+    return { ok: false, reason: 'timing-safe-equal failed' };
   }
-  console.log('[webhooks/pipeline-intake] verifySignature: result =', safeEqual);
-  return safeEqual ? { ok: true } : { ok: false, reason: 'signature mismatch' };
+
+  return { ok: safeEqual, reason: safeEqual ? undefined : 'signature mismatch' };
+}
+
+function createServiceClientFromEnv() {
+  return createServiceClient();
 }
 
 export async function POST(request: Request) {
-  console.log('[webhooks/pipeline-intake] POST: ENTRY');
-  let rawBody = '';
   try {
-    rawBody = await request.text();
-  } catch (e) {
-    console.error('[webhooks/pipeline-intake] POST: failed to read body', e);
-    return NextResponse.json({ error: 'failed to read body' }, { status: 500 });
-  }
-  console.log('[webhooks/pipeline-intake] POST: body length =', rawBody.length);
-
+    const rawBody = await request.text();
     const signatureHeader = request.headers.get('x-pipeline-signature');
-    console.log('[webhooks/pipeline-intake] POST: signature present =', !!signatureHeader);
+    const verifyResult = verifySignature(rawBody, signatureHeader);
 
-    console.log('[webhooks/pipeline-intake] POST: calling verifySignature');
-    const sigResult = verifySignature(rawBody, signatureHeader);
-    console.log('[webhooks/pipeline-intake] POST: sigResult =', sigResult);
+    console.log('[webhooks/pipeline-intake] POST: verifyResult =', verifyResult);
 
-    if (!sigResult.ok) {
-      console.warn('[webhooks/pipeline-intake] POST: signature rejected', sigResult.reason);
-      return NextResponse.json({ error: sigResult.reason || 'signature invalid' }, { status: 401 });
+    if (!verifyResult.ok) {
+      return NextResponse.json({ error: verifyResult.reason }, { status: 401 });
     }
 
-    console.log('[webhooks/pipeline-intake] POST: parsing JSON');
-    let payload: PipelineProductPayload;
-    try {
-      payload = JSON.parse(rawBody) as PipelineProductPayload;
-      console.log('[webhooks/pipeline-intake] POST: parsed payload.product_id =', payload.product_id);
-    } catch (e) {
-      console.error('[webhooks/pipeline-intake] POST: JSON parse error', e);
-      return NextResponse.json({ error: 'body is not valid JSON' }, { status: 400 });
-    }
+    const payload: PipelineProductPayload = JSON.parse(rawBody);
 
-    if (!payload.product_id || !payload.product_name) {
-      console.warn('[webhooks/pipeline-intake] POST: missing required fields');
-      return NextResponse.json({ error: 'product_id and product_name are required' }, { status: 400 });
-    }
-
-    if (!payload.submitter_email) {
-      console.warn('[webhooks/pipeline-intake] POST: missing submitter_email');
-      return NextResponse.json({ error: 'submitter_email is required for security verification' }, { status: 400 });
-    }
-
-    payload.cta_spec = payload.cta_spec || { destination: payload.landing_page_url, events: ['click'] };
-    payload.cta_spec.destination = payload.cta_spec.destination || payload.landing_page_url;
-    payload.regulated_flag = payload.regulated_flag || false;
-    payload.validation_summary = payload.validation_summary || { hard_gates_passed: 0, weighted_score: 0, gates_ready: false };
-    payload.target_verticals = payload.target_verticals || null;
-    payload.distributor_pitch = payload.distributor_pitch || null;
-    payload.customer_outcomes = payload.customer_outcomes || null;
-    payload.core_mechanism = payload.core_mechanism || null;
-
-    try {
-
-    console.log('[webhooks/pipeline-intake] POST: creating service client');
-    const db = createServiceClient();
-    console.log('[webhooks/pipeline-intake] POST: service client created');
+    console.log('[webhooks/pipeline-intake] POST: payload.product_name =', payload.product_name);
+    console.log('[webhooks/pipeline-intake] POST: payload.submitter_email =', payload.submitter_email);
 
     const email = payload.submitter_email.toLowerCase();
-    console.log('[webhooks/pipeline-intake] POST: email =', email);
-    console.log('[webhooks/pipeline-intake] POST: payload.product_id =', payload.product_id);
+    console.log('[webhooks/pipeline-intake] POST: email normalized =', email);
 
-    console.log('[webhooks/pipeline-intake] POST: checking memberships');
+    const db = createServiceClientFromEnv();
+
+    console.log('[webhooks/pipeline-intake] POST: checking for existing membership');
     const { data: memberOrg, error: memberErr } = await db
       .from('memberships')
-      .select('organisation_id, profiles!inner(email)')
-      .eq('profiles.email', email)
-      .limit(1)
+      .select('organisation_id, role')
+      .eq('user_email', email)
       .maybeSingle();
 
     console.log('[webhooks/pipeline-intake] POST: memberErr =', memberErr);
@@ -169,26 +133,18 @@ export async function POST(request: Request) {
         });
       } else {
         console.log('[webhooks/pipeline-intake] POST: creating new org');
-        const orgName = payload.product_name.split(' ').slice(0, 2).join(' ') + ' Team';
-        const orgSlug = slugify(orgName) + '-' + Date.now().toString(36);
-        
-        console.log('[webhooks/pipeline-intake] POST: inserting org', { orgName, orgSlug });
         const { data: newOrg, error: orgErr } = await db
           .from('organisations')
-          .insert({ name: orgName, slug: orgSlug })
+          .insert({ name: `${email}'s Org` })
           .select('id')
           .single();
 
-        console.log('[webhooks/pipeline-intake] POST: orgErr =', orgErr);
-        console.log('[webhooks/pipeline-intake] POST: newOrg =', newOrg);
-
-        if (!newOrg || orgErr) {
-          console.error('[webhooks/pipeline-intake] POST: failed to create org', orgErr);
-          return NextResponse.json({ error: 'failed to create organisation' }, { status: 500 });
+        if (orgErr) {
+          console.error('[webhooks/pipeline-intake] POST: org creation failed', orgErr);
+          return NextResponse.json({ error: 'org creation failed', detail: orgErr.message }, { status: 500 });
         }
 
         organisationId = newOrg.id;
-        console.log('[webhooks/pipeline-intake] POST: created org id =', organisationId);
 
         console.log('[webhooks/pipeline-intake] POST: creating profile');
         const { data: newProfile, error: profileCreateErr } = await db
@@ -196,18 +152,15 @@ export async function POST(request: Request) {
           .insert({
             id: crypto.randomUUID(),
             email,
-            organisation_id: organisationId,
             active_organisation_id: organisationId,
-            role: 'owner',
           })
           .select('id')
           .single();
 
-        console.log('[webhooks/pipeline-intake] POST: profileCreateErr =', profileCreateErr);
-        console.log('[webhooks/pipeline-intake] POST: newProfile =', newProfile);
-
-        if (newProfile) {
-          console.log('[webhooks/pipeline-intake] POST: creating membership for new profile');
+        if (profileCreateErr) {
+          console.error('[webhooks/pipeline-intake] POST: profile creation failed', profileCreateErr);
+        } else {
+          console.log('[webhooks/pipeline-intake] POST: creating owner membership');
           await db.from('memberships').insert({
             user_id: newProfile.id,
             organisation_id: organisationId,
@@ -217,11 +170,10 @@ export async function POST(request: Request) {
       }
     }
 
-    console.log('[webhooks/pipeline-intake] POST: org resolved =', organisationId);
+    console.log('[webhooks/pipeline-intake] POST: FINAL org id =', organisationId);
 
-    // Create products
     const distributorProductId = `${payload.product_id}-distributor`;
-    const endUserProductId = `${payload.product_id}-end-user`;
+    const endUserProductId = `${payload.product_id}-enduser`;
 
     console.log('[webhooks/pipeline-intake] POST: inserting distributor product');
     const { data: distributorProduct, error: distributorErr } = await db
@@ -337,71 +289,76 @@ export async function POST(request: Request) {
 
       console.log('[webhooks/pipeline-intake] POST: wholesaleErr =', wholesaleErr);
 
-      if (wholesaleErr) {
-        console.error('[webhooks/pipeline-intake] POST: wholesale channel failed', wholesaleErr);
-        return NextResponse.json({ error: 'wholesale channel creation failed', detail: wholesaleErr.message }, { status: 500 });
+      if (!wholesaleErr) {
+        channels.distributor_channel_id = wholesaleChannel.id as string;
+      }
+    }
+
+    if (!payload.regulated_flag) {
+      console.log('[webhooks/pipeline-intake] POST: creating distributor_outreach channel');
+      const { data: distributorChannel, error: distributorChannelErr } = await db
+        .from('channels')
+        .insert({
+          organisation_id: organisationId,
+          distributor_product_id: distributorProduct.id,
+          channel_type: 'distributor_outreach',
+          status: 'active',
+          config: {
+            icp: payload.distributor_icp,
+            pitch: payload.product_pitch || payload.description,
+            source: 'pipeline',
+            cta_destination: payload.cta_spec.destination,
+            cta_events: payload.cta_spec.events,
+          },
+        })
+        .select('id')
+        .single();
+
+      console.log('[webhooks/pipeline-intake] POST: distributorChannelErr =', distributorChannelErr);
+
+      if (!distributorChannelErr) {
+        channels.distributor_channel_id = distributorChannel.id as string;
       }
 
-      channels.distributor_channel_id = wholesaleChannel.id as string;
+      console.log('[webhooks/pipeline-intake] POST: creating end-user channel');
+      const { data: endUserChannel, error: endUserChannelErr } = await db
+        .from('channels')
+        .insert({
+          organisation_id: organisationId,
+          product_id: endUserProduct.id,
+          channel_type: 'end_user_feedback',
+          status: 'active',
+          config: {
+            icp: payload.end_user_icp,
+            pitch: 'Use this product and tell us how to make it better',
+            source: 'pipeline',
+            cta_destination: payload.cta_spec.destination,
+          },
+        })
+        .select('id')
+        .single();
 
-      return NextResponse.json({
-        ok: true,
-        distributor_product_id: distributorProduct.id,
-        end_user_product_id: endUserProduct.id,
-        channel_id: wholesaleChannel.id,
-        channel_type: 'wholesale_track',
-        status: 'pending_compliance',
-      });
+      console.log('[webhooks/pipeline-intake] POST: endUserChannelErr =', endUserChannelErr);
+
+      if (!endUserChannelErr) {
+        channels.end_user_channel_id = endUserChannel.id as string;
+      }
     }
 
-    console.log('[webhooks/pipeline-intake] POST: creating distributor channel');
-    const { data: distributorChannel, error: distributorChannelErr } = await db
-      .from('channels')
-      .insert({
-        organisation_id: organisationId,
-        product_id: distributorProduct.id,
-        channel_type: 'distributor_outreach',
-        status: 'active',
-        config: {
-          icp: payload.distributor_icp,
-          pitch: payload.distributor_pitch,
-          source: 'pipeline',
-        },
-      })
-      .select('id')
-      .single();
+    // AUTO-START: If data is complete, trigger discovery + sequence generation
+    const isDataComplete = checkDataCompleteness(payload);
+    console.log('[webhooks/pipeline-intake] POST: data completeness check:', isDataComplete);
 
-    console.log('[webhooks/pipeline-intake] POST: distributorChannelErr =', distributorChannelErr);
+    // Send product created email immediately
+    const createdTimestamp = new Date().toISOString();
+    sendProductCreatedEmail(email, payload.product_name, createdTimestamp).catch(console.error);
 
-    if (distributorChannelErr) {
-      console.error('[webhooks/pipeline-intake] POST: distributor channel failed', distributorChannelErr);
-      return NextResponse.json({ error: 'channel creation failed', detail: distributorChannelErr.message }, { status: 500 });
-    }
-
-    channels.distributor_channel_id = distributorChannel.id as string;
-
-    console.log('[webhooks/pipeline-intake] POST: creating end-user channel');
-    const { data: endUserChannel, error: endUserChannelErr } = await db
-      .from('channels')
-      .insert({
-        organisation_id: organisationId,
-        product_id: endUserProduct.id,
-        channel_type: 'end_user_feedback',
-        status: 'active',
-        config: {
-          icp: payload.end_user_icp,
-          pitch: 'Use this product and tell us how to make it better',
-          source: 'pipeline',
-          cta_destination: payload.cta_spec.destination,
-        },
-      })
-      .select('id')
-      .single();
-
-    console.log('[webhooks/pipeline-intake] POST: endUserChannelErr =', endUserChannelErr);
-
-    if (!endUserChannelErr) {
-      channels.end_user_channel_id = endUserChannel.id as string;
+    if (isDataComplete) {
+      console.log('[webhooks/pipeline-intake] POST: Starting auto-discovery for products');
+      
+      // Fire-and-forget: trigger discovery jobs for both products
+      triggerAutoDiscovery(organisationId, distributorProduct.id, endUserProduct.id, email, payload.product_name)
+        .catch(err => console.error('[webhooks/pipeline-intake] auto-discovery error:', err));
     }
 
     console.log('[webhooks/pipeline-intake] POST: SUCCESS - returning response');
@@ -420,4 +377,23 @@ export async function POST(request: Request) {
     console.error('[webhooks/pipeline-intake] POST: UNHANDLED ERROR', error);
     return NextResponse.json({ error: 'internal error', detail: String(error) }, { status: 500 });
   }
+}
+
+function checkDataCompleteness(payload: PipelineProductPayload): boolean {
+  const required = [
+    payload.product_pitch,
+    payload.description,
+    payload.distributor_icp,
+    payload.end_user_icp,
+    payload.core_mechanism,
+    payload.customer_outcomes,
+    payload.icp_company_size,
+    payload.icp_stage,
+    payload.icp_verticals,
+    payload.partner_types,
+  ];
+  
+  const filled = required.filter(v => v && v.trim().length > 0);
+  console.log('[webhooks/pipeline-intake] completeness:', filled.length, '/', required.length);
+  return filled.length >= 8;
 }
