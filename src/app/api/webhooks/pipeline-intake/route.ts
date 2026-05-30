@@ -80,6 +80,8 @@ export async function POST(request: Request) {
   const rawBody = await request.text();
   const signatureHeader = request.headers.get('x-pipeline-signature');
 
+  console.log(`[webhooks/pipeline-intake] POST received, signature present: ${!!signatureHeader}`);
+
   const sigResult = verifySignature(rawBody, signatureHeader);
   if (!sigResult.ok) {
     console.warn(`[webhooks/pipeline-intake] signature rejected: ${sigResult.reason}`);
@@ -103,19 +105,28 @@ export async function POST(request: Request) {
 
   const db = createServiceClient();
 
+  console.log(`[webhooks/pipeline-intake] Received submission for product=${payload.product_id} from email=${payload.submitter_email}`);
+
   // Verify submitter email belongs to an organisation member
   // This ensures submissions can only come from authorized users
-  const { data: memberOrg } = await db
+  const { data: memberOrg, error: memberErr } = await db
     .from('memberships')
     .select('organisation_id, profiles!inner(email)')
     .eq('profiles.email', payload.submitter_email.toLowerCase())
     .limit(1)
     .maybeSingle();
 
+  if (memberErr) {
+    console.error(`[webhooks/pipeline-intake] membership lookup failed:`, memberErr);
+    return NextResponse.json({ error: 'internal error checking membership' }, { status: 500 });
+  }
+
   if (!memberOrg) {
-    console.warn(`[webhooks/pipeline-intake] email not authorized: ${payload.submitter_email}`);
+    console.warn(`[webhooks/pipeline-intake] email not authorized: ${payload.submitter_email} - not found in memberships table`);
     return NextResponse.json({ error: 'submitter email not authorized - must be a member of an organisation' }, { status: 403 });
   }
+
+  console.log(`[webhooks/pipeline-intake] authorized: email=${payload.submitter_email} org=${memberOrg.organisation_id}`);
 
   const organisationId = memberOrg.organisation_id as string;
 
