@@ -185,6 +185,7 @@ export async function runDiscoveryBatch(
     project_type: string | null;
     funding_type: string | null;
     funding_target: string | null;
+    geography: string | null;
     asset_class: string | null;
     product_pitch: string | null;
     scoring_rubric: string | null;
