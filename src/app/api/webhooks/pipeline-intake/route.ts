@@ -1,5 +1,21 @@
 ﻿/**
  * POST /api/webhooks/pipeline-intake
+ *
+ * Distributor-only intake. We deliberately DO NOT create an end-user product
+ * here: the end-user side is B2C (students / karaoke users) with no B2B
+ * discovery motion, so an end-user "product" in InvestorPilot just produced
+ * empty, prospect-less rows. Demand is measured via distributor conversion.
+ * (2026-05-31: removed the end-user product + end-user channel creation.)
+ *
+ * Duplicate-creation fix: external_product_id is derived from a STABLE slug of
+ * product_name (not payload.product_id, which is regenerated each submission),
+ * so re-submissions collide on the unique (external_product_id,
+ * organisation_id) constraint and UPDATE the same distributor product instead
+ * of stacking new ones.
+ *
+ * Path 2: maps the full ICP set the pipeline now sends — including
+ * icp_partner_type (the top discovery steering signal), icp_buyer_title and
+ * exclusions — so a pipeline submission produces a fully-onboarded product.
  */
 
 import { NextResponse } from 'next/server';
@@ -28,6 +44,9 @@ interface PipelineProductPayload {
   icp_stage: string | null;
   icp_verticals: string | null;
   icp_geography: string | null;
+  icp_partner_type: string | null;
+  icp_buyer_title: string | null;
+  exclusions: string | null;
   one_pager_url: string | null;
   pitch_deck_url: string | null;
   partner_types: string;
@@ -104,6 +123,24 @@ export async function POST(request: Request) {
     console.log('[webhooks/pipeline-intake] POST: payload.product_name =', payload.product_name);
     console.log('[webhooks/pipeline-intake] POST: payload.submitter_email =', payload.submitter_email);
 
+    // Field-presence diagnostics — logs which ICP fields actually arrived from
+    // the pipeline, so an empty product can be traced to the SENDER (execute
+    // route / empty admin validation row) rather than this receiver.
+    console.log('[webhooks/pipeline-intake] POST: field presence =', JSON.stringify({
+      core_mechanism: !!payload.core_mechanism,
+      distributor_outcomes: !!payload.distributor_outcomes,
+      icp_company_size: !!payload.icp_company_size,
+      icp_stage: !!payload.icp_stage,
+      icp_verticals: !!payload.icp_verticals,
+      target_verticals: !!payload.target_verticals,
+      icp_geography: !!payload.icp_geography,
+      icp_partner_type: !!payload.icp_partner_type,
+      icp_buyer_title: !!payload.icp_buyer_title,
+      exclusions: !!payload.exclusions,
+      one_pager_url: !!payload.one_pager_url,
+      distributor_icp: !!payload.distributor_icp,
+    }));
+
     const email = payload.submitter_email.toLowerCase();
     console.log('[webhooks/pipeline-intake] POST: email normalized =', email);
 
@@ -121,7 +158,6 @@ export async function POST(request: Request) {
 
     let organisationId: string;
 
-    // Use email-based lookup since Pipeline and InvestorPilot have different Supabase instances
     if (memberOrg) {
       organisationId = memberOrg.organisation_id as string;
       console.log('[webhooks/pipeline-intake] POST: existing member org =', organisationId);
@@ -187,14 +223,18 @@ export async function POST(request: Request) {
 
     // Stable base key so re-submissions of the same product COLLIDE on the
     // unique (external_product_id, organisation_id) constraint and UPDATE,
-    // instead of inserting a fresh distributor+enduser pair every time.
-    // payload.product_id is regenerated per submission — using it as the base
-    // was the duplicate-creation bug. slugify(product_name) is stable.
+    // instead of inserting a fresh product every time. payload.product_id is
+    // regenerated per submission — using it as the base was the
+    // duplicate-creation bug. slugify(product_name) is stable.
     const stableBase = slugify(payload.product_name);
     const distributorProductId = `${stableBase}-distributor`;
-    const endUserProductId = `${stableBase}-enduser`;
 
-    console.log('[webhooks/pipeline-intake] POST: inserting distributor product');
+    // ICP-verticals fallback: the sender may put the value under icp_verticals
+    // OR target_verticals depending on payload version. Prefer the explicit
+    // one, fall back, so the field lands populated either way.
+    const icpVerticals = payload.icp_verticals || payload.target_verticals || null;
+
+    console.log('[webhooks/pipeline-intake] POST: upserting distributor product');
     const { data: distributorProduct, error: distributorErr } = await db
       .from('products')
       .upsert({
@@ -210,10 +250,14 @@ export async function POST(request: Request) {
         friction: payload.friction,
         core_mechanism: payload.core_mechanism,
         customer_outcomes: payload.distributor_outcomes,
-        icp_verticals: payload.target_verticals,
+        icp_verticals: icpVerticals,
         icp_company_size: payload.icp_company_size,
         icp_stage: payload.icp_stage,
         geography: payload.icp_geography,
+        // Path 2 — ICP-targeting fields.
+        icp_partner_type: payload.icp_partner_type || 'buyer',
+        icp_buyer_title: payload.icp_buyer_title ?? null,
+        exclusions: payload.exclusions ?? null,
         one_pager_url: payload.one_pager_url,
         pitch_deck_url: payload.pitch_deck_url,
         partner_types: 'distributor',
@@ -237,51 +281,12 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'storage failed', detail: distributorErr.message }, { status: 500 });
     }
 
-    console.log('[webhooks/pipeline-intake] POST: inserting end-user product');
-    const { data: endUserProduct, error: endUserErr } = await db
-      .from('products')
-      .upsert({
-        organisation_id: organisationId,
-        external_product_id: endUserProductId,
-        name: `${payload.product_name} (End Users)`,
-        one_sentence_description: payload.description,
-        product_pitch: payload.product_pitch,
-        landing_page_url: payload.cta_spec.destination,
-        distributor_icp: null,
-        distributor_pitch: null,
-        end_user_icp: payload.end_user_icp,
-        friction: payload.friction,
-        customer_outcomes: payload.end_user_outcomes,
-        core_mechanism: payload.core_mechanism,
-        icp_verticals: payload.target_verticals,
-        icp_company_size: payload.icp_company_size,
-        icp_stage: payload.icp_stage,
-        geography: payload.icp_geography,
-        one_pager_url: payload.one_pager_url,
-        pitch_deck_url: payload.pitch_deck_url,
-        partner_types: 'end user',
-        regulated_flag: payload.regulated_flag,
-        cta_destination: payload.cta_spec.destination,
-        cta_events: payload.cta_spec.events,
-        validation_hard_gates_passed: payload.validation_summary.hard_gates_passed,
-        validation_weighted_score: payload.validation_summary.weighted_score,
-        validation_gates_ready: payload.validation_summary.gates_ready,
-        intake_source: 'pipeline',
-        intake_timestamp: payload.timestamp,
-      }, { onConflict: 'external_product_id,organisation_id' })
-      .select('id')
-      .single();
+    // ─────────────────────────────────────────────────────────────────────
+    // End-user product intentionally NOT created (2026-05-31 decision).
+    // ─────────────────────────────────────────────────────────────────────
 
-    console.log('[webhooks/pipeline-intake] POST: endUserErr =', endUserErr);
-
-    if (endUserErr) {
-      console.error('[webhooks/pipeline-intake] POST: end-user product failed', endUserErr);
-      return NextResponse.json({ error: 'storage failed', detail: endUserErr.message }, { status: 500 });
-    }
-
-    const channels: { distributor_channel_id: string | null; end_user_channel_id: string | null } = {
+    const channels: { distributor_channel_id: string | null } = {
       distributor_channel_id: null,
-      end_user_channel_id: null,
     };
 
     console.log('[webhooks/pipeline-intake] POST: regulated_flag =', payload.regulated_flag);
@@ -293,7 +298,6 @@ export async function POST(request: Request) {
         .insert({
           organisation_id: organisationId,
           distributor_product_id: distributorProduct.id,
-          end_user_product_id: endUserProduct.id,
           channel_type: 'wholesale_track',
           status: 'pending_compliance',
           config: {
@@ -309,9 +313,7 @@ export async function POST(request: Request) {
       if (!wholesaleErr) {
         channels.distributor_channel_id = wholesaleChannel.id as string;
       }
-    }
-
-    if (!payload.regulated_flag) {
+    } else {
       console.log('[webhooks/pipeline-intake] POST: creating distributor_outreach channel');
       const { data: distributorChannel, error: distributorChannelErr } = await db
         .from('channels')
@@ -336,58 +338,27 @@ export async function POST(request: Request) {
       if (!distributorChannelErr) {
         channels.distributor_channel_id = distributorChannel.id as string;
       }
-
-      console.log('[webhooks/pipeline-intake] POST: creating end-user channel');
-      const { data: endUserChannel, error: endUserChannelErr } = await db
-        .from('channels')
-        .insert({
-          organisation_id: organisationId,
-          product_id: endUserProduct.id,
-          channel_type: 'end_user_feedback',
-          status: 'active',
-          config: {
-            icp: payload.end_user_icp,
-            pitch: 'Use this product and tell us how to make it better',
-            source: 'pipeline',
-            cta_destination: payload.cta_spec.destination,
-          },
-        })
-        .select('id')
-        .single();
-
-      console.log('[webhooks/pipeline-intake] POST: endUserChannelErr =', endUserChannelErr);
-
-      if (!endUserChannelErr) {
-        channels.end_user_channel_id = endUserChannel.id as string;
-      }
     }
 
-    // AUTO-START: If data is complete, trigger discovery + sequence generation
+    // AUTO-START: distributor-only — pass null for the former end-user arg.
     const isDataComplete = checkDataCompleteness(payload);
     console.log('[webhooks/pipeline-intake] POST: data completeness check:', isDataComplete);
 
-    // Send product created email immediately
     const createdTimestamp = new Date().toISOString();
     sendProductCreatedEmail(email, payload.product_name, createdTimestamp).catch(console.error);
 
     if (isDataComplete) {
-      console.log('[webhooks/pipeline-intake] POST: Starting auto-discovery for products');
-
-      // Fire-and-forget: trigger discovery jobs for both products
-      triggerAutoDiscovery(organisationId, distributorProduct.id, endUserProduct.id, email, payload.product_name)
+      console.log('[webhooks/pipeline-intake] POST: Starting auto-discovery (distributor only)');
+      triggerAutoDiscovery(organisationId, distributorProduct.id, null, email, payload.product_name)
         .catch(err => console.error('[webhooks/pipeline-intake] auto-discovery error:', err));
     }
 
     console.log('[webhooks/pipeline-intake] POST: SUCCESS - returning response');
-    console.log('[webhooks/pipeline-intake] POST: FINAL org_id =', organisationId);
-    console.log('[webhooks/pipeline-intake] POST: FINAL distributor_product =', distributorProduct.id);
     return NextResponse.json({
       ok: true,
       organisation_id: organisationId,
       distributor_product_id: distributorProduct.id,
-      end_user_product_id: endUserProduct.id,
       distributor_channel_id: channels.distributor_channel_id,
-      end_user_channel_id: channels.end_user_channel_id,
     });
 
   } catch (error) {
@@ -397,21 +368,20 @@ export async function POST(request: Request) {
 }
 
 function checkDataCompleteness(payload: PipelineProductPayload): boolean {
+  // Distributor-only completeness — end-user fields no longer gate auto-start.
   const required = [
     payload.product_pitch,
     payload.description,
     payload.distributor_icp,
-    payload.end_user_icp,
     payload.core_mechanism,
     payload.distributor_outcomes,
-    payload.end_user_outcomes,
     payload.icp_company_size,
     payload.icp_stage,
-    payload.icp_verticals,
+    payload.icp_verticals || payload.target_verticals,
     payload.partner_types,
   ];
 
   const filled = required.filter(v => v && v.trim().length > 0);
   console.log('[webhooks/pipeline-intake] completeness:', filled.length, '/', required.length);
-  return filled.length >= 8;
+  return filled.length >= 6;
 }
