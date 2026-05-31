@@ -1,5 +1,4 @@
-﻿
-/**
+﻿/**
  * POST /api/webhooks/pipeline-intake
  */
 
@@ -21,7 +20,8 @@ interface PipelineProductPayload {
   end_user_icp: string;
   friction: string;
   product_pitch: string | null;
-  customer_outcomes: string | null;
+  distributor_outcomes: string | null;
+  end_user_outcomes: string | null;
   core_mechanism: string | null;
   target_verticals: string | null;
   icp_company_size: string | null;
@@ -190,7 +190,7 @@ export async function POST(request: Request) {
         end_user_icp: null,
         friction: payload.friction,
         core_mechanism: payload.core_mechanism,
-        customer_outcomes: payload.customer_outcomes,
+        customer_outcomes: payload.distributor_outcomes,
         icp_verticals: payload.target_verticals,
         icp_company_size: payload.icp_company_size,
         icp_stage: payload.icp_stage,
@@ -232,7 +232,7 @@ export async function POST(request: Request) {
         distributor_pitch: null,
         end_user_icp: payload.end_user_icp,
         friction: payload.friction,
-        customer_outcomes: payload.customer_outcomes,
+        customer_outcomes: payload.end_user_outcomes,
         core_mechanism: payload.core_mechanism,
         icp_verticals: payload.target_verticals,
         icp_company_size: payload.icp_company_size,
@@ -259,8 +259,6 @@ export async function POST(request: Request) {
       console.error('[webhooks/pipeline-intake] POST: end-user product failed', endUserErr);
       return NextResponse.json({ error: 'storage failed', detail: endUserErr.message }, { status: 500 });
     }
-
-    const product = distributorProduct;
 
     const channels: { distributor_channel_id: string | null; end_user_channel_id: string | null } = {
       distributor_channel_id: null,
@@ -355,7 +353,7 @@ export async function POST(request: Request) {
 
     if (isDataComplete) {
       console.log('[webhooks/pipeline-intake] POST: Starting auto-discovery for products');
-      
+
       // Fire-and-forget: trigger discovery jobs for both products
       triggerAutoDiscovery(organisationId, distributorProduct.id, endUserProduct.id, email, payload.product_name)
         .catch(err => console.error('[webhooks/pipeline-intake] auto-discovery error:', err));
@@ -386,13 +384,14 @@ function checkDataCompleteness(payload: PipelineProductPayload): boolean {
     payload.distributor_icp,
     payload.end_user_icp,
     payload.core_mechanism,
-    payload.customer_outcomes,
+    payload.distributor_outcomes,
+    payload.end_user_outcomes,
     payload.icp_company_size,
     payload.icp_stage,
     payload.icp_verticals,
     payload.partner_types,
   ];
-  
+
   const filled = required.filter(v => v && v.trim().length > 0);
   console.log('[webhooks/pipeline-intake] completeness:', filled.length, '/', required.length);
   return filled.length >= 8;

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server';
 import Link from 'next/link';
 import type { Partner } from '@/lib/types';
 import { PipelineTable } from '@/components/partners/pipeline-table';
+import { ExportButton } from './export-button';
 
 // In-flight = sequence_steps row exists for the partner with a non-terminal
 // status. Two terminal-success ones (sent, replied) we DON'T treat as
@@ -136,9 +137,12 @@ export default async function PartnersPage() {
           <h1>Prospects</h1>
           <p className="text-dark-400 mt-1">{actionableCount} prospects in pipeline</p>
         </div>
-        <Link href="/sessions" className="btn-primary">
-          Discover More
-        </Link>
+        <div className="flex gap-3">
+          <ExportButton organisationId={profile.active_organisation_id} count={partners?.length || 0} />
+          <Link href="/sessions" className="btn-primary">
+            Discover More
+          </Link>
+        </div>
       </div>
 
       {/*
