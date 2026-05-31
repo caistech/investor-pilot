@@ -88,6 +88,18 @@ export async function POST(request: Request) {
 
     const payload: PipelineProductPayload = JSON.parse(rawBody);
 
+    // Pipeline doesn't always send cta_spec (or sends it without a destination).
+    // Fall back to the landing page URL so the upserts and channel configs below
+    // never dereference an undefined cta_spec — this was the source of the
+    // "Cannot read properties of undefined (reading 'destination')" 500.
+    if (!payload.cta_spec || typeof payload.cta_spec.destination !== 'string') {
+      payload.cta_spec = {
+        destination: payload.landing_page_url ?? '',
+        events: payload.cta_spec?.events ?? ['click'],
+      };
+      console.warn('[webhooks/pipeline-intake] POST: cta_spec missing/invalid — defaulted to landing_page_url');
+    }
+
     console.log('[webhooks/pipeline-intake] POST: payload.product_name =', payload.product_name);
     console.log('[webhooks/pipeline-intake] POST: payload.submitter_email =', payload.submitter_email);
 
