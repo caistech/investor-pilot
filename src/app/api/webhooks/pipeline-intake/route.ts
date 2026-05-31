@@ -185,8 +185,14 @@ export async function POST(request: Request) {
 
     console.log('[webhooks/pipeline-intake] POST: FINAL org id =', organisationId);
 
-    const distributorProductId = `${payload.product_id}-distributor`;
-    const endUserProductId = `${payload.product_id}-enduser`;
+    // Stable base key so re-submissions of the same product COLLIDE on the
+    // unique (external_product_id, organisation_id) constraint and UPDATE,
+    // instead of inserting a fresh distributor+enduser pair every time.
+    // payload.product_id is regenerated per submission — using it as the base
+    // was the duplicate-creation bug. slugify(product_name) is stable.
+    const stableBase = slugify(payload.product_name);
+    const distributorProductId = `${stableBase}-distributor`;
+    const endUserProductId = `${stableBase}-enduser`;
 
     console.log('[webhooks/pipeline-intake] POST: inserting distributor product');
     const { data: distributorProduct, error: distributorErr } = await db
