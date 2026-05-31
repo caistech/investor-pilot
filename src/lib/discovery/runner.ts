@@ -185,7 +185,6 @@ export async function runDiscoveryBatch(
     project_type: string | null;
     funding_type: string | null;
     funding_target: string | null;
-    geography: string | null;
     asset_class: string | null;
     product_pitch: string | null;
     scoring_rubric: string | null;
@@ -255,7 +254,6 @@ export async function runDiscoveryBatch(
       project_type: null,
       funding_type: null,
       funding_target: null,
-      geography: null,
       asset_class: null,
     };
     kbSourceQuery = { table: 'product', id: product_id };

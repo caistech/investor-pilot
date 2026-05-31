@@ -18,6 +18,12 @@ const DETAIL_FIELDS = [
   { key: 'customer_outcomes', label: 'Customer Outcomes (after 90 days)' },
   { key: 'icp_company_size', label: 'ICP Company Size' },
   { key: 'icp_stage', label: 'ICP Stage' },
+  // 2026-05-31: geography is the primary input for discovery's query
+  // generator. When empty, query-generator.ts defaults targeting to US
+  // markets — so an operator who wants (say) Australia must set it here.
+  // The form's save handler writes the whole form object, so adding it to
+  // this list + EMPTY_FORM is all that's needed for it to persist.
+  { key: 'geography', label: 'Geography (target market)' },
   { key: 'icp_verticals', label: 'ICP Verticals' },
   { key: 'icp_buyer_title', label: 'Primary Buyer Title' },
   { key: 'icp_user_title', label: 'Primary User Title' },
@@ -31,6 +37,7 @@ const DETAIL_FIELDS = [
 const EMPTY_FORM = {
   name: '', one_sentence_description: '', core_mechanism: '',
   customer_outcomes: '', icp_company_size: '', icp_stage: '',
+  geography: '',
   icp_verticals: '', icp_buyer_title: '', icp_user_title: '',
   icp_stack_tools: '', traction_arr: '', traction_customers: '',
   partner_types: 'referral', exclusions: '',
@@ -171,6 +178,7 @@ export default function ProductsPage() {
         customer_outcomes: data.customer_outcomes || '',
         icp_company_size: data.icp_company_size || '',
         icp_stage: data.icp_stage || '',
+        geography: data.geography || '',
         icp_verticals: data.icp_verticals || '',
         icp_buyer_title: data.icp_buyer_title || '',
         icp_user_title: data.icp_user_title || '',
@@ -263,6 +271,11 @@ export default function ProductsPage() {
       customer_outcomes: product.customer_outcomes || '',
       icp_company_size: product.icp_company_size || '',
       icp_stage: product.icp_stage || '',
+      // Must be loaded here — handleSave writes the whole form object via
+      // update(form), so a missing geography key would null the column on
+      // every edit-save. Cast because the generated Product type may not
+      // yet list geography.
+      geography: (product as unknown as { geography?: string }).geography || '',
       icp_verticals: product.icp_verticals || '',
       icp_buyer_title: product.icp_buyer_title || '',
       icp_user_title: product.icp_user_title || '',
@@ -491,14 +504,14 @@ export default function ProductsPage() {
           <button
             onClick={() => { setShowInterview(true); setShowForm(false); setEditingId(null); setForm(EMPTY_FORM); setFilled(false); }}
             className="btn-primary flex items-center gap-2"
-            title="Answer 8 short questions; the system synthesizes the product profile for you to review and edit before save. Recommended for new products — produces better-framed pitch and ICP fields than typing the full form by hand."
+            title="Answer a few short questions; the system synthesizes the product profile for you to review and edit before save. Recommended for new products — produces better-framed pitch and ICP fields than typing the full form by hand."
           >
             <Sparkles className="w-4 h-4" /> Use AI Interview
           </button>
           <button
             onClick={() => { setShowForm(true); setShowInterview(false); }}
             className="btn-secondary flex items-center gap-2"
-            title="Type all 13 product fields directly. Use this if you've already drafted the copy elsewhere and want to paste it in."
+            title="Type all product fields directly. Use this if you've already drafted the copy elsewhere and want to paste it in."
           >
             <Plus className="w-4 h-4" /> Add manually
           </button>
@@ -524,6 +537,7 @@ export default function ProductsPage() {
                 customer_outcomes: profile.customer_outcomes,
                 icp_company_size: profile.icp_company_size,
                 icp_stage: profile.icp_stage,
+                geography: profile.geography,
                 icp_verticals: profile.icp_verticals,
                 icp_buyer_title: profile.icp_buyer_title,
                 icp_user_title: profile.icp_user_title,
@@ -810,6 +824,7 @@ export default function ProductsPage() {
                       { label: 'Customer Outcomes', value: p.customer_outcomes },
                       { label: 'Company Size', value: p.icp_company_size },
                       { label: 'Stage', value: p.icp_stage },
+                      { label: 'Geography', value: (p as unknown as { geography?: string }).geography },
                       { label: 'Verticals', value: p.icp_verticals },
                       { label: 'Buyer Title', value: p.icp_buyer_title },
                       { label: 'User Title', value: p.icp_user_title },

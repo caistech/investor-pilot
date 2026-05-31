@@ -7,9 +7,16 @@
  * mis-positioning that bit us in the wild — the question structure forces
  * the right relationship between the sender and their case studies.
  *
- * 8 required questions + 1 optional. The interview-synthesizer Claude call
- * takes the answers and produces a structured 13-field product profile the
+ * 9 required questions + 1 optional. The interview-synthesizer Claude call
+ * takes the answers and produces a structured 14-field product profile the
  * operator reviews in the existing manual form before saving.
+ *
+ * 2026-05-31: added the `geography` question. Discovery's query generator
+ * defaults to US markets when geography is empty (see query-generator.ts
+ * STEP 3 geography rule), so an operator targeting a specific country who
+ * never stated it silently got a US-skewed pool. Asking for it explicitly
+ * lets the synthesizer populate products.geography, which runDiscoveryBatch
+ * now passes through to the query generator.
  */
 
 export interface InterviewQuestion {
@@ -65,6 +72,13 @@ export const PRODUCT_INTERVIEW_QUESTIONS: InterviewQuestion[] = [
     helper: 'Employee band (e.g. 10-500), revenue range, growth stage (operating / scaling / pre-revenue). The more specific, the better the prospecting filter.',
     approxLength: 'short',
     informsFields: ['icp_company_size', 'icp_stage'],
+  },
+  {
+    id: 'geography',
+    prompt: 'Where are the businesses you want to reach?',
+    helper: 'The countries, regions, or cities your ideal customers operate in (e.g. "Australia", "US & Canada", "UK and Ireland", "Sydney and Melbourne"). If you genuinely sell anywhere, say "global" — but a specific market gives a much sharper prospecting filter. Leaving this vague defaults prospecting to the US.',
+    approxLength: 'short',
+    informsFields: ['geography'],
   },
   {
     id: 'verticals',
