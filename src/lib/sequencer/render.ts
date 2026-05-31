@@ -38,6 +38,8 @@ export interface RenderContext {
   sender_bio_one_liner?: string | null;
   /** Calendar booking URL — substituted into the ASK-LAST element. */
   sender_calendar_url?: string | null;
+
+  sender_relationship_line?: string | null;
 }
 
 /**
@@ -1841,7 +1843,7 @@ function restoreTrackingRef(text: string, ctaUrl: string, partnerId: string): st
   // Match the base URL plus any (or no) query string the LLM happened
   // to keep. Trailing punctuation that's NOT part of a URL we exclude.
   const baseEscaped = baseUrl.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const re = new RegExp(`${baseEscaped}(\\?[^\\s)>,.]*)?`, 'g');
+  const re = new RegExp(`${baseEscaped}/?(\\?[^\\s)>,.]*)?`, 'g');
 
   const wantQuery = new URLSearchParams(preservedQuery);
   wantQuery.set('ref', partnerId);

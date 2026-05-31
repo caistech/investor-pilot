@@ -32,6 +32,32 @@
 import { claudeClient as client, claudeModel as MODEL } from '@/lib/llm/client';
 import type { RenderPartner, RenderContext } from './render';
 
+import { buildTrackingUrl } from '@/lib/outreach/tracking-url';
+
+/**
+ * Stamp ?ref=<partner_id>&src=ip-outreach onto a CTA URL so the receiving
+ * intake (Connexions today, native InvestorPilot intake later) can phone
+ * home with answers attached to the partner record that drove the click.
+ * See docs/integrations/connexions-intake-webhook.md.
+ *
+ * Delegates to buildTrackingUrl, which strips any trailing slash on a bare
+ * host (the "/?ref=" that caused the doubled-link bug), de-dupes ref/src so
+ * a pre-stamped or re-run URL can't double, and preserves any pre-existing
+ * query string (operator UTM/campaign params).
+ *
+ * Non-throwing: the offering URL is operator-typed and unvalidated on write,
+ * so a genuinely malformed string falls through as-is rather than throwing
+ * and killing the whole render batch (buildUserMessage is not wrapped).
+ */
+function withTrackingRef(url: string, partnerId: string | null | undefined): string {
+  if (!url || !partnerId) return url;
+  try {
+    return buildTrackingUrl(url, partnerId);
+  } catch {
+    return url;
+  }
+}
+
 // =============================================================================
 // Model tiers
 // =============================================================================
@@ -190,7 +216,7 @@ REQUIRED ELEMENTS — but woven naturally, not slot-filled
 
 These elements MUST appear in every message that has room for them. The recipe-vs-principles distinction is HOW you weave them in, not whether they appear. A human writer fits these naturally; they don't bolt them on as separate paragraphs.
 
-- Sender introduction (name + one-line about who they are): required on every step except the 300-char connect note. The recipient must know who's writing. Weave it casually — "I'm Dennis from Corporate AI Solutions" works; "Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl)" reads like a corporate signature and breaks the tone.__AI_QUALIFIER_LINE__
+- Sender introduction (name + relationship): required on every step except the 300-char connect note. The recipient must know who's writing and how they relate to the offering. If the SENDER input includes a "Relationship to the offering" line, use THAT framing for who the sender is, verbatim in meaning. If the input is SILENT on the relationship, do NOT invent one — "founder", "we built", "co-founder", "advisor", "build shop" are all hard errors when the input does not state them. Weave the stated relationship casually — "I'm Dennis, I built Singify" works; "Dennis McMahon here, Director at Corporate AI Solutions (linkedin.com/in/denniskl)" reads like a corporate signature and breaks the tone.__AI_QUALIFIER_LINE__
 - Sender's LinkedIn URL: required on every DM and email — recipients verify before replying. PLACEMENT IS YOUR CALL. Common natural placements: bottom-of-signature line ("Dennis McMahon — linkedin.com/in/denniskl"), an aside in the intro ("background here: linkedin.com/in/denniskl"), or a quiet final line beneath the name. NEVER as a parenthetical interrupting the opening sentence — that's the robotic pattern to avoid.
 - Intake / CTA URL: required on EVERY step. It is the single low-commitment ask, framed for-their-benefit. On a 300-char connect note, the URL is most of the message. On a longer message, it appears LATE, after the value beat has done its work, on its own line ideally. Never as a bare paste — always introduced ("if something like that comes to mind, this walks you through it: …").
 - Proof point from the offering: use when the recipient is in the EXACT vertical the proof addresses, OR when the proof transfers cleanly with one sentence of bridge. Skip when the proof is in a different vertical from the recipient — forcing it signals copy-paste outreach. Better to lead with a vertical-specific observation and let the proof appear only if it actually fits.
@@ -487,13 +513,12 @@ function buildUserMessage(input: LLMRenderInput): string {
     recipientLines.push(`Operator-supplied notes (ground truth — weight heavily): ${partner.operator_notes}`);
   }
 
-  // Offering context — append ?ref=<partner_id>&src=ip-outreach to the
-  // CTA URLs so the Connexions intake (or any other receiver) can phone
-  // home with answers attached to the partner record that drove the
-  // click. See docs/integrations/connexions-intake-webhook.md. The LLM
-  // is told to use the URL verbatim and the URL DISCIPLINE section
-  // forbids inventing or modifying URLs, so the ref + src params flow
-  // through into the rendered body unchanged.
+  // Offering context — CTA URLs are stamped via withTrackingRef (delegates to
+  // buildTrackingUrl): adds ?ref=<partner_id>&src=ip-outreach so the intake can
+  // attribute the click to this partner. The URL DISCIPLINE section tells the
+  // LLM to use the URL verbatim, and render.ts:restoreTrackingRef re-stamps if
+  // the LLM strips it — both paths now go through the same canonical form, so
+  // the params can't double.
   const offering = partner.offering_context;
   const offeringLines: string[] = [];
   if (offering) {
@@ -512,6 +537,9 @@ function buildUserMessage(input: LLMRenderInput): string {
     `Name: ${context.sender_name}`,
     `Role: ${context.sender_role}`,
   ];
+  if (context.sender_relationship_line) {
+    senderLines.push(`Relationship to the offering (use this EXACT framing — do NOT invent another): ${context.sender_relationship_line}`);
+  }
   if (context.sender_linkedin_url) senderLines.push(`LinkedIn URL: ${context.sender_linkedin_url}`);
   if (context.sender_bio_one_liner) senderLines.push(`One-line bio: ${context.sender_bio_one_liner}`);
   if (context.sender_calendar_url) senderLines.push(`Calendar URL (alternate CTA): ${context.sender_calendar_url}`);
@@ -566,28 +594,4 @@ function clampScore(v: unknown): number {
   const n = typeof v === 'number' ? v : Number(v);
   if (!Number.isFinite(n)) return 5;
   return Math.max(1, Math.min(10, Math.round(n)));
-}
-
-/**
- * Append ?ref=<partner_id>&src=ip-outreach to a CTA URL so the receiving
- * intake (Connexions today, native InvestorPilot intake later) can phone
- * home with answers attached to the partner record that triggered the
- * click. See docs/integrations/connexions-intake-webhook.md.
- *
- * Preserves any pre-existing query string on the URL (operators sometimes
- * configure intake URLs with UTM params or campaign tracking already).
- * Non-throwing: malformed URLs (rare — the offering record is operator-
- * controlled but we don't validate it on write) fall through as-is so we
- * don't blow up rendering over a bad URL.
- */
-function withTrackingRef(url: string, partnerId: string | null | undefined): string {
-  if (!url || !partnerId) return url;
-  try {
-    const parsed = new URL(url);
-    parsed.searchParams.set('ref', partnerId);
-    parsed.searchParams.set('src', 'ip-outreach');
-    return parsed.toString();
-  } catch {
-    return url;
-  }
 }

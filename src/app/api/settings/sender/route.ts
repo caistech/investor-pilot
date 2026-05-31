@@ -6,6 +6,12 @@
  * templates as {sender_name} and {sender_role}, so editing here changes
  * how every subsequent outbound LinkedIn DM and email is signed.
  *
+ * sender_relationship_line (migration 20260531) is the one honest line
+ * describing the sender's relationship to the offering (e.g. "I run
+ * distribution for Singify in Australia"). It's injected verbatim into the
+ * outreach prompts so the LLM stops inventing founder/advisor/build-shop
+ * variants per message.
+ *
  * Fields are nullable individually but the renderer requires sender_name
  * + sender_role to be non-empty before it will render any step. The form
  * enforces that on the client; the route guards it on the server.
@@ -21,6 +27,7 @@ interface SenderPatchBody {
   sender_linkedin_url?: string | null;
   sender_bio_one_liner?: string | null;
   sender_calendar_url?: string | null;
+  sender_relationship_line?: string | null;
 }
 
 export async function PATCH(request: Request) {
@@ -44,6 +51,7 @@ export async function PATCH(request: Request) {
   const senderLinkedinUrl = nullableTrimmed(body.sender_linkedin_url);
   const senderBioOneLiner = nullableTrimmed(body.sender_bio_one_liner);
   const senderCalendarUrl = nullableTrimmed(body.sender_calendar_url);
+  const senderRelationshipLine = nullableTrimmed(body.sender_relationship_line);
 
   // Light URL validation — reject obviously malformed values so they
   // don't surface as broken links in cold messages.
@@ -74,6 +82,7 @@ export async function PATCH(request: Request) {
   if (senderLinkedinUrl !== undefined) update.sender_linkedin_url = senderLinkedinUrl;
   if (senderBioOneLiner !== undefined) update.sender_bio_one_liner = senderBioOneLiner;
   if (senderCalendarUrl !== undefined) update.sender_calendar_url = senderCalendarUrl;
+  if (senderRelationshipLine !== undefined) update.sender_relationship_line = senderRelationshipLine;
 
   if (Object.keys(update).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 });
