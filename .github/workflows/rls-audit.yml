@@ -1,0 +1,44 @@
+name: RLS audit
+
+# Runs @caistech/portfolio-gate's LIVE RLS audit: queries the running DB via the Supabase
+# Management API and fails any public table that is RLS-off AND readable by the anon key.
+# Catches schemas where RLS was never enabled (dashboard/push-managed) or drifted off in prod —
+# the class of exposure the static migration audit can't see. Blocking (unlike gate.yml's
+# warning-only audit-all); fold into audit-all once portfolio-gate is bumped to ^0.4.0 in deps.
+#
+# Required repo secrets:
+#   CAISTECH_PACKAGES_TOKEN  classic PAT (read:packages, SSO-authorised for caistech) — installs the tool
+#   SUPABASE_ACCESS_TOKEN    Supabase management/personal access token (runs the read-only pg_class query)
+#   NEXT_PUBLIC_SUPABASE_URL the project URL — the audit derives the project ref from it
+#
+# Skips cleanly (does not fail) if the Supabase secrets are absent.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  rls-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # registry-url + scope makes setup-node write an .npmrc that authenticates
+      # @caistech installs with NODE_AUTH_TOKEN (the proven gate.yml pattern).
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          registry-url: 'https://npm.pkg.github.com'
+          scope: '@caistech'
+
+      - name: Live RLS audit (portfolio-gate)
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.CAISTECH_PACKAGES_TOKEN }}
+          GITHUB_PACKAGES_TOKEN: ${{ secrets.CAISTECH_PACKAGES_TOKEN }}
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: >-
+          npx --yes --package @caistech/portfolio-gate@^0.4.0
+          portfolio-gate-audit-rls-live
