@@ -1,6 +1,9 @@
 import { Resend } from 'resend';
 
-const resend = new Resend(process.env.RESEND_API_KEY);
+// Constructed inside sendEmail, not at module scope. `new Resend(undefined)` throws
+// ("Missing API key"), and Next imports every route module while collecting page data for a build
+// that has no runtime secrets — so a module-scope client turns a missing key at SEND time into a
+// build failure for the whole app. Same class as src/lib/llm/client.ts.
 
 interface SendEmailParams {
   to: string;
@@ -14,6 +17,13 @@ export async function sendEmail({ to, subject, body, replyTo }: SendEmailParams)
   if (!from) {
     return { error: 'RESEND_FROM_EMAIL not configured' };
   }
+
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    return { error: 'RESEND_API_KEY not configured' };
+  }
+
+  const resend = new Resend(apiKey);
 
   try {
     const { data, error } = await resend.emails.send({
