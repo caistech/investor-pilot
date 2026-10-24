@@ -27,8 +27,6 @@ import { capitalProviderTerm, type FundingType } from '@/lib/types';
 
 export const maxDuration = 60;
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
-
 async function fetchPageContent(url: string): Promise<string> {
   try {
     const res = await fetch(url, {
@@ -50,6 +48,9 @@ async function fetchPageContent(url: string): Promise<string> {
 }
 
 export async function POST(request: Request) {
+  // Constructed per request, not at module scope: Next imports every route module during
+  // `next build` page-data collection, where no runtime secrets exist.
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
   const supabase = createClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
