@@ -17,6 +17,14 @@ on:
   push:
     branches: [main, master]
 
+# Least privilege. Every step in this workflow reads — checkout, install, typecheck, lint,
+# build, the smoke tests and the deploy check — and each external service is reached with its
+# own explicit secret. Nothing writes back through GITHUB_TOKEN, so `contents: read` is the whole
+# floor. Declared rather than inherited: a default that widens later (a repo setting change, a
+# fork PR) is exactly what nobody notices until it matters.
+permissions:
+  contents: read
+
 jobs:
   gate:
     runs-on: ubuntu-latest
