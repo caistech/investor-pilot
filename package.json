@@ -21,6 +21,7 @@
     "@caistech/apollo-people": "^0.1.0",
     "@caistech/brave-search": "^0.1.0",
     "@caistech/corporate-components": "^0.3.0",
+    "@caistech/elevenlabs-convai": "^0.17.3",
     "@caistech/email-finder": "^0.2.0",
     "@caistech/hunter-email": "^0.1.0",
     "@caistech/sayfix-embed": "^0.6.0",

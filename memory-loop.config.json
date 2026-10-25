@@ -1,0 +1,14 @@
+{
+  "_doc": "Asserted, not waived: InvestorPilot's voice agent now runs on @caistech/elevenlabs-convai's webhook routes with one agent per user, so portfolio-gate-memory-loop should prove the loop rather than skip it. Previously there was no convai stack at all — a single public help agent behind @elevenlabs/convai-widget-embed, no memory tables, no per-user identity — so 'the agent remembers you' was not a claim anyone could have tested.",
+  "memoryLoop": true,
+  "baseUrl": "https://investor-pilot-pi.vercel.app",
+  "webhookBasePath": "/api/convai/webhooks",
+  "postCallUrl": "https://investor-pilot-pi.vercel.app/api/convai/webhooks/post-call",
+  "identityMode": "uid",
+  "_identityMode_note": "One agent per user, so identity is the baked ?uid= rather than a conversation binding: ElevenLabs never passes the conversation id to a server-tool webhook, which is why this product provisions per user.",
+  "toolSecretHeader": "x-convai-tool-secret",
+  "uid": null,
+  "_uid_note": "REQUIRED BEFORE THE GATE CAN PASS. The email-confirmed QA user's auth.users.id in the InvestorPilot project (canonically the non-admin user-agent, PRODUCT_STANDARDS §9.5). Deliberately null rather than a guess: an invented uuid makes the probe fail with 'Conversation not found' and reads like a broken route. Left to env fallback (QA_TEST_USER_ID) until a value is set here.",
+  "agentId": null,
+  "_agentId_note": "REQUIRED FOR THE CONTINUITY LEG. The agent provisioned for that uid — the start route answers 'Agent not found' without it, and continuity is the assertion that proves cross-session recall. Produced by ensureUserAgent() the first time that user opens voice."
+}
